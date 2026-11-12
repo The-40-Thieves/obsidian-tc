@@ -1,4 +1,4 @@
-// `obsidian-tc contradiction-rejudge` argv parsing. Split out of args.ts for the same reason
+// `reliquary-tc contradiction-rejudge` argv parsing. Split out of args.ts for the same reason
 // parse-consolidate.ts documents: a new command's parse branch does not fit under biome's
 // noExcessiveLinesPerFile floor on args.ts (CLAUDE.md). No dependency on args.ts (not even
 // CliCommand), so importing it FROM args.ts creates no cycle.

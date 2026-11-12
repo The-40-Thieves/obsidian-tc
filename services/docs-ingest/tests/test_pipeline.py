@@ -16,9 +16,9 @@ from unittest import mock
 import pytest
 from pydantic import ValidationError
 
-from obsidian_tc_docs_ingest import pipeline
-from obsidian_tc_docs_ingest.contracts import ParseResult, SourceRef
-from obsidian_tc_docs_ingest.pipeline import extract, ingest
+from reliquary_tc_docs_ingest import pipeline
+from reliquary_tc_docs_ingest.contracts import ParseResult, SourceRef
+from reliquary_tc_docs_ingest.pipeline import extract, ingest
 
 
 @dataclass

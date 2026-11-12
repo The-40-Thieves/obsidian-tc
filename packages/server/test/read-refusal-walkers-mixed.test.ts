@@ -2,7 +2,7 @@
 // throwing acl_denied from readNote for one note, so the walkers' skip-and-count path runs on every
 // OS (the hard-link and symlink fixtures are POSIX-only). A separate file: the readNote mock below
 // must not reach any other test's module graph.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { findAttachmentReferences } from "../src/formats/attachments";
 import { searchRegex, searchText } from "../src/search/text";

@@ -1,6 +1,6 @@
 // What tools/list advertises for `outputSchema`, per `toolFacade.outputSchema` ("full" | "omit").
 //
-// Client reports behind it (obsidian-tc keeps "full" as the default; "omit" is the opt-out):
+// Client reports behind it (reliquary-tc keeps "full" as the default; "omit" is the opt-out):
 //   - Cursor blanks the WHOLE server when an advertised outputSchema root is not `type: object`;
 //   - Claude Desktop rejects a draft-07 outputSchema; claude.ai reportedly fails tools that
 //     declare one at all;
@@ -11,7 +11,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 type Listed = Awaited<ReturnType<Client["listTools"]>>["tools"][number];
 
-import { ToolFacadeConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ToolFacadeConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";

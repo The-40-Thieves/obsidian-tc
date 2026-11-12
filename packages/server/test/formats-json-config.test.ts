@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import type { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { detectJsonIndent, readJsonFile, serializeJson } from "../src/formats/json-config";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -9,7 +9,7 @@ function codeOf(fn: () => unknown): string {
   try {
     fn();
   } catch (e) {
-    return (e as ObsidianTcError).code;
+    return (e as ReliquaryTcError).code;
   }
   throw new Error("expected a throw");
 }

@@ -5,21 +5,21 @@ import { selfSpawnArgv } from "../src/embeddings/host/spawn-argv";
 
 describe("selfSpawnArgv", () => {
   it("re-runs a script under the same runtime: [execPath, script]", () => {
-    expect(selfSpawnArgv("/srv/obsidian-tc/src/cli.ts", "/usr/bin/bun", [])).toEqual([
+    expect(selfSpawnArgv("/srv/reliquary-tc/src/cli.ts", "/usr/bin/bun", [])).toEqual([
       "/usr/bin/bun",
-      "/srv/obsidian-tc/src/cli.ts",
+      "/srv/reliquary-tc/src/cli.ts",
     ]);
   });
 
   it("runs a compiled binary by itself when argv[1] is Bun's virtual FS", () => {
-    expect(selfSpawnArgv("/$bunfs/root/obsidian-tc", "/usr/local/bin/obsidian-tc", [])).toEqual([
-      "/usr/local/bin/obsidian-tc",
+    expect(selfSpawnArgv("/$bunfs/root/reliquary-tc", "/usr/local/bin/reliquary-tc", [])).toEqual([
+      "/usr/local/bin/reliquary-tc",
     ]);
   });
 
   it("recognises the Windows compiled-binary shape the same way", () => {
-    expect(selfSpawnArgv("B:/~BUN/root/obsidian-tc.exe", "C:/bin/obsidian-tc.exe", [])).toEqual([
-      "C:/bin/obsidian-tc.exe",
+    expect(selfSpawnArgv("B:/~BUN/root/reliquary-tc.exe", "C:/bin/reliquary-tc.exe", [])).toEqual([
+      "C:/bin/reliquary-tc.exe",
     ]);
   });
 
@@ -29,7 +29,7 @@ describe("selfSpawnArgv", () => {
 
   it("forwards the parent's execArgv (runtime flags) ahead of the entry script", () => {
     expect(
-      selfSpawnArgv("/srv/obsidian-tc/src/cli.ts", "/usr/bin/bun", [
+      selfSpawnArgv("/srv/reliquary-tc/src/cli.ts", "/usr/bin/bun", [
         "--smol",
         "--max-old-space-size=512",
       ]),
@@ -37,13 +37,13 @@ describe("selfSpawnArgv", () => {
       "/usr/bin/bun",
       "--smol",
       "--max-old-space-size=512",
-      "/srv/obsidian-tc/src/cli.ts",
+      "/srv/reliquary-tc/src/cli.ts",
     ]);
   });
 
   it("drops the inspector and watch-mode flags, so the child neither clashes on the port nor waits for a debugger", () => {
     expect(
-      selfSpawnArgv("/srv/obsidian-tc/src/cli.ts", "/usr/bin/bun", [
+      selfSpawnArgv("/srv/reliquary-tc/src/cli.ts", "/usr/bin/bun", [
         "--inspect",
         "--inspect-brk",
         "--inspect=9229",
@@ -53,6 +53,6 @@ describe("selfSpawnArgv", () => {
         "--hot",
         "--smol",
       ]),
-    ).toEqual(["/usr/bin/bun", "--smol", "/srv/obsidian-tc/src/cli.ts"]);
+    ).toEqual(["/usr/bin/bun", "--smol", "/srv/reliquary-tc/src/cli.ts"]);
   });
 });

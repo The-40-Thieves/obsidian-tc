@@ -4,7 +4,7 @@
 // to a pattern no vault path could match and say nothing. Config load now normalises the backslash
 // (config-path-glob-backslash.test.ts); doctor catches the remaining ways a glob matches nothing
 // (a typo, the wrong case, a folder renamed away).
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { deadPathGlobsCheck, pathGlobEntries } from "../src/doctor/dead-path-globs";
 

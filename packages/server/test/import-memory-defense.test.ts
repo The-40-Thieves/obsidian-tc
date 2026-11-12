@@ -2,7 +2,7 @@
 // capture/highlight-import.ts, and cli/commands/memory-import.ts's own M5 tool wiring. Before
 // this file's fix: (1) ambient/highlight import ran no PII scan and never SKIPPED a block-worthy
 // item (ambient ran only the unconditional baseline redactSecrets; highlight ran no scan at all);
-// (2) `obsidian-tc memory import` dispatched create_entity/add_observation/link_entities through
+// (2) `reliquary-tc memory import` dispatched create_entity/add_observation/link_entities through
 // a ToolRegistry wired with NO memoryDefense accessor at all, so every batch-imported entity
 // bypassed the vault's memoryDefense policy even though it went through the "sanctioned" tool
 // path.

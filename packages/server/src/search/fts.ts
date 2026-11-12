@@ -4,7 +4,7 @@
 // search_text promises — unicode61 would silently lose recall). All FTS writes are app-managed
 // behind the ensureNotesFts capability probe, mirroring ensureVecChunks/sqlite-vec: a cache.db
 // written under an FTS5-capable adapter stays openable under one without it.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { applySchemaMigration, type SchemaMigrationHooks } from "../db/migrate";
 import { busyReason } from "../db/txn";
 import type { Database } from "../db/types";
@@ -39,7 +39,7 @@ export function hasNotesTable(db: Database): boolean {
 
 /**
  * Provision notes_fts (FTS5, trigram) on this connection. Returns false when the adapter lacks
- * FTS5 or OBSIDIAN_TC_DISABLE_FTS=1 — callers then skip all FTS writes and the query layer
+ * FTS5 or RELIQUARY_TC_DISABLE_FTS=1 — callers then skip all FTS writes and the query layer
  * falls back to disk scans (the portable floor). Records a pseudo-migration row like vec0.
  * SYNC DETECTOR: writes made under hasFts=false update notes but not notes_fts; on the next
  * FTS-capable open the row counts diverge, so notes rows lacking an fts row are dropped here —
@@ -54,7 +54,7 @@ export function ensureNotesFts(
   if (known?.kind === "available") return true;
   if (known?.kind === "terminal") return false;
   if (known?.kind === "transient" && opts.force !== true && now() < known.nextRetryAt) return false;
-  if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") {
+  if (process.env.RELIQUARY_TC_DISABLE_FTS === "1") {
     setFtsRecord(db, { kind: "terminal", reason: "disabled" });
     return false;
   }
@@ -73,7 +73,7 @@ export function ensureNotesFts(
       {
         version,
         checksum: "fts5:trigram",
-        obsidianTcVersion: "m2-runtime",
+        reliquaryTcVersion: "m2-runtime",
         appliedAt: now,
         durationMs: () => 0,
       },
@@ -92,7 +92,7 @@ export function ensureNotesFts(
     // same mistake that produced four data-loss bugs in vault_edges.
     //
     // The divergence is REACHABLE without any corruption: notes_fts is not created by a migration, and
-    // upsertNoteRow writes it only when hasFts. One run under OBSIDIAN_TC_DISABLE_FTS=1 (or a lock that
+    // upsertNoteRow writes it only when hasFts. One run under RELIQUARY_TC_DISABLE_FTS=1 (or a lock that
     // outlasts busy_timeout, which holds hasFts=false until the retry in fts-recovery.ts succeeds) leaves `notes`
     // populated and `notes_fts` empty or absent. The old code then read nFts=0, concluded every note was
     // an orphan, and deleted the lot. On indexNote() — the SINGLE-note path — only the one changed note
@@ -123,13 +123,13 @@ export function ensureNotesFts(
     // Opt-in, not unconditional: integrity-check costs ~0.6s on a 1,146-note trigram index (a
     // rebuild is ~4.2s) and scales with the corpus, which is too much to add to every CLI
     // invocation for a fault this rare. Operators who have been bitten, or who suspect an unclean
-    // shutdown, set OBSIDIAN_TC_VERIFY_FTS=1; `doctor --probe` reports it on demand without the
+    // shutdown, set RELIQUARY_TC_VERIFY_FTS=1; `doctor --probe` reports it on demand without the
     // env var.
     //
     // On unrepairable damage this returns FALSE rather than true. That routes the query layer to
     // its disk-scan fallback — slower, and correct — instead of serving a corrupt index, which is
     // the failure mode that made this invisible for as long as it was.
-    if (process.env.OBSIDIAN_TC_VERIFY_FTS === "1" && !verifyNotesFtsIntegrity(db).ok) {
+    if (process.env.RELIQUARY_TC_VERIFY_FTS === "1" && !verifyNotesFtsIntegrity(db).ok) {
       const repaired = repairNotesFts(db);
       if (!repaired.ok) {
         setFtsRecord(db, {
@@ -143,7 +143,7 @@ export function ensureNotesFts(
     setFtsRecord(db, { kind: "available" });
     return true;
   } catch (e) {
-    if (e instanceof ObsidianTcError) throw e;
+    if (e instanceof ReliquaryTcError) throw e;
     if (busyReason(e)) return recordBusy(db, e, now);
     setFtsRecord(db, {
       kind: "terminal",

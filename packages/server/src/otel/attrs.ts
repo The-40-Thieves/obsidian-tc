@@ -5,18 +5,18 @@
 // CLI subcommands and the published `index.ts` barrel, where OTEL is default-off and the SDK
 // value-imports were pure dead weight.
 
-/** G2.4 per-span attribute keys (the obsidian_tc.* namespace plus rate_limit.hit). */
+/** G2.4 per-span attribute keys (the reliquary_tc.* namespace plus rate_limit.hit). */
 export const SPAN_ATTR = {
-  vaultId: "obsidian_tc.vault_id",
-  tool: "obsidian_tc.tool",
-  callerHash: "obsidian_tc.caller_hash",
-  scopesRequired: "obsidian_tc.scopes_required",
-  status: "obsidian_tc.status",
-  errorCode: "obsidian_tc.error_code",
-  elicitUsed: "obsidian_tc.elicit_used",
-  overflowB: "obsidian_tc.overflow_b",
-  durationMs: "obsidian_tc.duration_ms",
+  vaultId: "reliquary_tc.vault_id",
+  tool: "reliquary_tc.tool",
+  callerHash: "reliquary_tc.caller_hash",
+  scopesRequired: "reliquary_tc.scopes_required",
+  status: "reliquary_tc.status",
+  errorCode: "reliquary_tc.error_code",
+  elicitUsed: "reliquary_tc.elicit_used",
+  overflowB: "reliquary_tc.overflow_b",
+  durationMs: "reliquary_tc.duration_ms",
   rateLimitHit: "rate_limit.hit",
-  itemIndex: "obsidian_tc.item_index",
-  spansDropped: "obsidian_tc.spans_dropped",
+  itemIndex: "reliquary_tc.item_index",
+  spansDropped: "reliquary_tc.spans_dropped",
 } as const;

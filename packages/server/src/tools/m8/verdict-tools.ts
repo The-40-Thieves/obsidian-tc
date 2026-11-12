@@ -12,7 +12,7 @@
 // They judge DIFFERENT things and the descriptions say so, because conflating them is what
 // THE-718 had to undo: `record_retrieval_feedback` judges a RETRIEVAL ("was this the right chunk
 // for that query"), `work_result` judges the TASK ("did the work go well").
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { inTransaction } from "../../db/txn";
 import { stampOpenWindow } from "../../experiential/verdict";

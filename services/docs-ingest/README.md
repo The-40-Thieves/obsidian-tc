@@ -1,6 +1,6 @@
 # docs-ingest
 
-Vendor / external-docs ingestion for obsidian-tc. Produces the corpus that `knowledge_search`
+Vendor / external-docs ingestion for reliquary-tc. Produces the corpus that `knowledge_search`
 and `knowledge_get_critical` serve, kept separate from the private vault.
 
 ## Pipeline
@@ -11,7 +11,7 @@ source (URL or file)
   -> parse -> Markdown
   -> LangExtract            # grounded {title, content, category, severity, source} chunks
   -> write md+frontmatter   # into the corpus vault dir
-  -> obsidian-tc indexes it -> knowledge_search / knowledge_get_critical
+  -> reliquary-tc indexes it -> knowledge_search / knowledge_get_critical
 ```
 
 Live Docling / LangExtract backends load lazily (crawl4ai is a self-hosted HTTP service,
@@ -21,7 +21,7 @@ route -> write loop with no backends, which is enough to prove the write -> inde
 
 ## Corpus vault wiring
 
-The corpus is a distinct read-only obsidian-tc vault (a reserved `vault_id`) pointed at this
+The corpus is a distinct read-only reliquary-tc vault (a reserved `vault_id`) pointed at this
 job's output dir, e.g. in the server config:
 
 ```json
@@ -40,7 +40,7 @@ an error naming it and pointing at `docs-ingest setup`. `dry_run=True` needs non
 
 Setup: `docs-ingest setup` (or `uv run docs-ingest setup`) prompts for each setting, shows the
 current value as the default (secrets masked), validates the URLs, probes both endpoints and
-writes `$XDG_CONFIG_HOME/obsidian-tc/docs-ingest.env` (default `~/.config/obsidian-tc/docs-ingest.env`)
+writes `$XDG_CONFIG_HOME/reliquary-tc/docs-ingest.env` (default `~/.config/reliquary-tc/docs-ingest.env`)
 with mode 0600 on POSIX. Re-running setup keeps comment lines and keys it does not manage.
 Use `DOCS_INGEST_CONFIG` to point at another file. The file holds `KEY=VALUE` lines; `#`
 comments go on their own line only (no inline comments, no `export`). An explicit empty optional

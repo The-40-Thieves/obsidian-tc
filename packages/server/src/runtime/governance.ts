@@ -5,7 +5,7 @@
 // takes IS a governance decision (ACL resolution, throttle, idempotency, HITL, audit) — tool
 // REGISTRATION (the M1-M8 `register*Tools` calls) stays in cli.ts for WP5.2.
 import type { Tracer } from "@opentelemetry/api";
-import type { VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
+import type { VaultConfigInput } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -42,7 +42,7 @@ export interface GovernanceDeps {
   vaults: VaultConfigInput[];
   /** config.acl — root ACL, inherited by any vault without its own. */
   acl: ConstructorParameters<typeof FolderAcl>[0];
-  /** OBSIDIAN_TC_DEFAULT_VAULT */
+  /** RELIQUARY_TC_DEFAULT_VAULT */
   defaultVaultId: string | undefined;
   /** config.resources.boundVaultOnly: see VaultRegistry. Absent = false. */
   boundVaultOnly?: boolean | undefined;
@@ -222,7 +222,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
       }
     },
     onProfile:
-      process.env.OBSIDIAN_TC_PROFILE === "1"
+      process.env.RELIQUARY_TC_PROFILE === "1"
         ? (p) =>
             process.stderr.write(
               `[profile] ${p.tool} total=${p.total_ms}ms handler=${p.handler_ms}ms overhead=${p.total_ms - p.handler_ms}ms\n`,

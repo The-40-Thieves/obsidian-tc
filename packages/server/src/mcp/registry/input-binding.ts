@@ -1,4 +1,4 @@
-import { grantsAll, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { grantsAll, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { z } from "zod";
 import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 
@@ -32,7 +32,7 @@ export function parseInput<I>(def: ToolDefinition<I, unknown>, rawInput: unknown
       parsed.error.issues,
       rawInput,
     );
-    throw new ObsidianTcError("validation_error", "input validation failed", {
+    throw new ReliquaryTcError("validation_error", "input validation failed", {
       issues: parsed.error.issues,
       ...hints,
     });
@@ -325,7 +325,7 @@ export function enforceVaultBinding(ctx: CallerContext, def: ToolDefinition, dat
   if (ctx.vaultBound !== true) return;
   const requested = vaultArgOf(def, data);
   if (requested !== undefined && requested !== ctx.vaultId)
-    throw new ObsidianTcError("forbidden", "vault is not the caller's bound vault", {
+    throw new ReliquaryTcError("forbidden", "vault is not the caller's bound vault", {
       vault: requested,
       bound_vault: ctx.vaultId,
     });
@@ -381,12 +381,12 @@ const LIST_VAULTS_REQUIRED_SCOPES = ["read:vault"] as const;
  * resolver is wired, the caller lacks the scope, or the error is any other shape.
  */
 export function vaultFailureHint(
-  error: ObsidianTcError,
+  error: ReliquaryTcError,
   def: ToolDefinition | undefined,
   rawInput: unknown,
   ctx: CallerContext,
   visibleVaultIds: RegistryOptions["visibleVaultIds"],
-): ObsidianTcError {
+): ReliquaryTcError {
   if (!visibleVaultIds) return error;
   if (!grantsAll(ctx.grantedScopes, LIST_VAULTS_REQUIRED_SCOPES)) return error;
   const vaultArg = def?.vaultArg ?? "vault";
@@ -414,7 +414,7 @@ export function vaultFailureHint(
           (id) => id === submitted?.toLowerCase() || id === slugifyForHint(submitted ?? ""),
         )
       : undefined;
-  return new ObsidianTcError(error.code, error.message, {
+  return new ReliquaryTcError(error.code, error.message, {
     ...error.details,
     visible_vaults: visible,
     ...(didYouMean ? { did_you_mean: didYouMean } : {}),

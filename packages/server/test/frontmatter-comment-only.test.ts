@@ -3,7 +3,7 @@
 // serializeNote read the empty MAPPING and dropped the block on every write that went
 // through it, discarding the comments. Proven here at the tool level, through the
 // actual write paths a caller uses, not just unit tests on frontmatter.ts's internals.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { makeTestVault } from "./m1-helpers";

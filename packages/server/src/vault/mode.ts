@@ -5,7 +5,7 @@
 // per-vault and resolved per call from the live capability snapshot. `auto` (or absent) probes
 // bridge/probe.ts at startup and on each re-probe (runtime/bridge-wiring.ts); explicit
 // `live`/`headless` skip the probe.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 
 export type VaultMode = "live" | "headless";
 

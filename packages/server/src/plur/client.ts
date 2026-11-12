@@ -11,7 +11,7 @@
 //   - configured-but-down    -> plugin_unreachable, mapped by the transport's catch.
 // The bearer token comes from config/env only and is placed solely in the
 // Authorization header by createBridgeClient — never logged, never in an error.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { type BridgeClient, type BridgeFetch, createBridgeClient } from "../bridge";
 import { createLocalPlurClient } from "./local";
 

@@ -11,7 +11,7 @@ import {
   SimpleSpanProcessor,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { decodeJwt } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -88,7 +88,7 @@ async function boot(reuse?: string) {
     if (t.name === "list_vaults") registry.register(t as never);
   }
   const handle: HttpHandle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry,
     vaultRegistry,

@@ -6,12 +6,12 @@ import { buildProsePrompt, resolveDocPath } from "../scripts/docgen/suggest-pros
 
 describe("buildProsePrompt (THE-477)", () => {
   const diff = "+| `patch_note` | write | `write:notes` | anchored edit |";
-  const docs = [{ name: "README.md", content: "obsidian-tc is a read-only server." }];
+  const docs = [{ name: "README.md", content: "reliquary-tc is a read-only server." }];
   const prompt = buildProsePrompt(diff, docs);
 
   it("grounds the model in the reference diff and the current prose", () => {
     expect(prompt).toContain(diff);
-    expect(prompt).toContain("obsidian-tc is a read-only server.");
+    expect(prompt).toContain("reliquary-tc is a read-only server.");
     expect(prompt).toContain("### README.md");
   });
 

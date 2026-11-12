@@ -75,9 +75,9 @@ test("manifestProblems: matching id + version passes", () => {
 });
 
 test("manifestProblems: wrong id is reported", () => {
-  const problems = manifestProblems({ id: "obsidian-tc", version: VERSION }, VERSION);
+  const problems = manifestProblems({ id: "reliquary-tc", version: VERSION }, VERSION);
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /id is "obsidian-tc"/);
+  assert.match(problems[0], /id is "reliquary-tc"/);
 });
 
 test("manifestProblems: wrong version is reported", () => {
@@ -147,7 +147,7 @@ test("readExistingRelease: an auth-style failure is NOT read as absent — it re
   const runner = () => {
     const err = new Error("gh exited 4");
     err.stderr =
-      "HTTP 404: Not Found (https://api.github.com/repos/the-40-thieves/obsidian-tc/releases/tags/1.27.0)\n" +
+      "HTTP 404: Not Found (https://api.github.com/repos/the-40-thieves/reliquary-tc/releases/tags/1.27.0)\n" +
       "gh: to authenticate, run `gh auth login`";
     throw err;
   };
@@ -400,7 +400,7 @@ test("a bundle missing on disk fails before any gh/git call", () => {
 });
 
 test("manifest mismatch: fails before any gh/git call", () => {
-  const dir = makeAssetsDir({ id: "obsidian-tc" });
+  const dir = makeAssetsDir({ id: "reliquary-tc" });
   const calls = [];
   const runner = (cmd, args) => {
     calls.push([cmd, ...args]);

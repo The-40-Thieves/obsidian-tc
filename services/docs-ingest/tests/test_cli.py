@@ -13,8 +13,8 @@ from typing import Any, Self
 
 import pytest
 
-from obsidian_tc_docs_ingest import config
-from obsidian_tc_docs_ingest.cli import main
+from reliquary_tc_docs_ingest import config
+from reliquary_tc_docs_ingest.cli import main
 
 CRAWL4AI = "http://crawl.example.com:11235"
 GATEWAY = "https://gateway.example.com:4001/v1"

@@ -38,7 +38,7 @@ const CACHE_POST_APPLY: Readonly<Record<string, (db: Database) => void>> = {
 // it was still broken in the STANDALONE BINARIES, which is the case neither branch covers:
 // `bun build --compile` freezes import.meta.url to the BUILD-TIME path and embeds no .sql files, so
 // every published binary died at module load with
-//   ENOENT ... '/home/runner/work/obsidian-tc/obsidian-tc/packages/server/src/db/migrations/...'
+//   ENOENT ... '/home/runner/work/reliquary-tc/reliquary-tc/packages/server/src/db/migrations/...'
 // against the CI runner's directory. Not even `--version` survived, since this module's top-level
 // CACHE_MIGRATIONS runs before any argument parsing. v1.10.0 and v1.11.0 were both affected.
 //

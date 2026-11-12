@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Database } from "../src/db/types";
@@ -69,12 +69,12 @@ describe("dispatch internal-error sink (THE-288)", () => {
     expect(seen[0]).toMatchObject({ tool: "boom", vaultId: "main", err: boom });
   });
 
-  it("does NOT route a typed ObsidianTcError to the sink (already a clean client error)", async () => {
+  it("does NOT route a typed ReliquaryTcError to the sink (already a clean client error)", async () => {
     const seen: SinkEvent[] = [];
     const registry = registryWithThrower(
       "denied",
       () => {
-        throw new ObsidianTcError("forbidden", "nope");
+        throw new ReliquaryTcError("forbidden", "nope");
       },
       (tool, vaultId, err) => seen.push({ tool, vaultId, err }),
     );

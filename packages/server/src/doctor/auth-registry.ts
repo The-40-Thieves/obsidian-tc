@@ -47,7 +47,7 @@ export interface AuthRegistryView {
   keys?: AuthKeyView[];
   /** Epoch ms "now"; injectable for tests. */
   now?: number;
-  /** `auth.jwtSecret` is set (from the file or OBSIDIAN_TC_JWT_SECRET). */
+  /** `auth.jwtSecret` is set (from the file or RELIQUARY_TC_JWT_SECRET). */
   jwtSecretConfigured?: boolean;
   /** A JWKS is configured (auth.jwks / jwksFile / jwksUri). */
   jwksConfigured?: boolean;
@@ -109,7 +109,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
         return {
           status: "ok",
           summary:
-            "auth registry: revocation only (auth.mode oidc; revoke an IdP token with `obsidian-tc auth revoke <jti>`)",
+            "auth registry: revocation only (auth.mode oidc; revoke an IdP token with `reliquary-tc auth revoke <jti>`)",
           details,
         };
       }
@@ -136,7 +136,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
           summary: "auth registry: a signing-key file failed the trust check and is refused",
           details,
           issues: view.keyFileIssues,
-          remediation: `Fix the mode/owner/symlink problem (keys directory 0700, key files 0600, both owned by the server user), or rotate: \`obsidian-tc auth rotate-key\`.`,
+          remediation: `Fix the mode/owner/symlink problem (keys directory 0700, key files 0600, both owned by the server user), or rotate: \`reliquary-tc auth rotate-key\`.`,
         };
       }
       if (
@@ -151,7 +151,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
             "auth.mode is jwt but there is no signing key: no auth.jwtSecret, no JWKS and an uninitialised registry, so every bearer is refused and the server will not start",
           details,
           remediation:
-            "Create a registry signing key with `obsidian-tc auth rotate-key`, or set auth.jwtSecret (or OBSIDIAN_TC_JWT_SECRET).",
+            "Create a registry signing key with `reliquary-tc auth rotate-key`, or set auth.jwtSecret (or RELIQUARY_TC_JWT_SECRET).",
         };
       }
       if (view.state === "uninitialised" && view.asEnabled === true) {
@@ -209,7 +209,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
         issues.push(
           "auth.jwtSecret is still set but the `config` signing key is retired: it no longer verifies or signs anything, and can be removed (the registry keys carry authentication). Removing it makes bulk-read cursors per-process (the HTTP elicit round trip is keyed from the server-local secret and is unaffected)",
         );
-        remediation ??= "Remove auth.jwtSecret and OBSIDIAN_TC_JWT_SECRET once you accept that.";
+        remediation ??= "Remove auth.jwtSecret and RELIQUARY_TC_JWT_SECRET once you accept that.";
       }
       // `token mint` signs with the active `mint` key: an active `as` key does not make up for it.
       const mintKeys = keys.filter((k) => k.purpose !== "as");
@@ -219,7 +219,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
         !mintKeys.some((k) => k.state === "active")
       ) {
         issues.push("no active signing key: `token mint` will fail until `auth rotate-key` is run");
-        remediation ??= "Run `obsidian-tc auth rotate-key`.";
+        remediation ??= "Run `reliquary-tc auth rotate-key`.";
       }
       const status: CheckStatus = issues.length > 0 ? "warning" : "ok";
       const retiringNote =

@@ -9,7 +9,7 @@
 //
 // Each branch is cut from the same base and changes, with real source and regenerated artifacts:
 //   tool       a new read-only tool file + its registration line + its name in registered-tools.txt
-//   config     a new Zod key + regenerated docs/obsidian-tc.config.schema.json
+//   config     a new Zod key + regenerated docs/reliquary-tc.config.schema.json
 //   migration  a new .sql + its manifest entry + regenerated migrations-embedded.ts
 //   fragment   changes/<slug>.md
 // Branch a touches the m1 registrar, the snapshots config section and the CACHE migration chain;

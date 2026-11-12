@@ -3,7 +3,7 @@
 // cards; a trailing `%% kanban:settings %%` block). read/list/add-card/move-card operate on the
 // markdown directly, preserving frontmatter + the settings block, so this works headlessly (no
 // plugin) and an agent moves/adds cards without breaking the plugin's parsing conventions.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";

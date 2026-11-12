@@ -52,7 +52,7 @@ export interface SweepCounts {
    *  `name` — so they are pure dead weight, and the count is 0 forever once the backlog clears. */
   orphan_schedule_rows: number;
   /** THE-1039 (GH #929): FTS5 tables that got a bounded `'merge'` this sweep — `[]` when neither
-   *  `notes_fts` nor `chunk_fts` exists (OBSIDIAN_TC_DISABLE_FTS=1, or a store predating either
+   *  `notes_fts` nor `chunk_fts` exists (RELIQUARY_TC_DISABLE_FTS=1, or a store predating either
    *  index). Not a row count: `'merge'` does not report one, and the point is observability of
    *  WHICH tables were touched, not how much. */
   fts_merged: string[];
@@ -423,7 +423,7 @@ export function runMaintenanceSweep(
   // "merges b-tree structures together until roughly N pages of merged data have been written to
   // the database" — bounded work per call, distinct from `'optimize'` (merges everything into one
   // b-tree in a single transaction — a ~1.2s write-lock on the reporter's 154MB index, reserved
-  // for the explicit operator path, `obsidian-tc compact`; see cli/commands/compact.ts). N=16
+  // for the explicit operator path, `reliquary-tc compact`; see cli/commands/compact.ts). N=16
   // matches the ticket's suggested shape.
   //
   // THE-1039 fix round 1 (D5) — corrected: a positive-N sweep does NOT converge to a fully merged
@@ -434,7 +434,7 @@ export function runMaintenanceSweep(
   // fts5_index.c's `sqlite3Fts5IndexMerge` (`nMin = p->pConfig->nUsermerge` for `nMerge>=0`) and
   // measured directly (3 segments stayed at 3 after 10 successive `'merge', 16` calls). This arm
   // is bounded incremental work, not a consolidation guarantee — full consolidation (`'optimize'`,
-  // fts5_index.c's negative-N path) is `obsidian-tc compact`'s job, not this sweep's.
+  // fts5_index.c's negative-N path) is `reliquary-tc compact`'s job, not this sweep's.
   //
   // The special command takes TWO columns, `(tbl, rank)`, not one — sqlite.org's own example is
   // `INSERT INTO ft(ft, rank) VALUES('merge', 500)`. The ticket's suggested `(tbl)`-only form
@@ -525,7 +525,7 @@ export function runMaintenanceSweep(
           // Never prune over a head that fails validation: that would re-anchor, and so launder, it.
           (v, reason) =>
             process.stderr.write(
-              `[maintenance] provenance retention skipped vault ${v}: the chain failed validation (${reason}); run \`obsidian-tc provenance verify\`\n`,
+              `[maintenance] provenance retention skipped vault ${v}: the chain failed validation (${reason}); run \`reliquary-tc provenance verify\`\n`,
             ),
         );
       }

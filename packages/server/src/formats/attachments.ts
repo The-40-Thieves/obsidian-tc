@@ -6,7 +6,7 @@
 // link to an attachment by exact vault-relative path or by basename (Obsidian's
 // shortest-path attachment resolution).
 import { join } from "node:path";
-import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { ReadRefusals } from "../tools/read-refusals";
 import type { ImmutableRewriteSkips } from "../vault/acl-path";

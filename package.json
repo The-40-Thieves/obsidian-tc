@@ -1,17 +1,17 @@
 {
-  "name": "obsidian-tc-monorepo",
+  "name": "reliquary-tc-monorepo",
   "version": "1.34.0",
   "private": true,
-  "description": "Obsidian Turbocharged — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
+  "description": "Reliquary-TC — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
   "license": "Apache-2.0",
   "author": "The 40 Thieves",
   "repository": {
     "type": "git",
-    "url": "https://github.com/The-40-Thieves/obsidian-tc.git"
+    "url": "https://github.com/The-40-Thieves/reliquary-tc.git"
   },
-  "homepage": "https://github.com/The-40-Thieves/obsidian-tc#readme",
+  "homepage": "https://github.com/The-40-Thieves/reliquary-tc#readme",
   "bugs": {
-    "url": "https://github.com/The-40-Thieves/obsidian-tc/issues"
+    "url": "https://github.com/The-40-Thieves/reliquary-tc/issues"
   },
   "workspaces": [
     "packages/server",

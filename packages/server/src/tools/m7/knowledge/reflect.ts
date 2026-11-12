@@ -3,7 +3,7 @@
 // embedder, cache, or policy state — see RetrievalRuntime's doc comment in retrieval-runtime.ts.
 // `persistGovernedNote` stays inside this handler, inside the governed-write boundary: it must
 // never be lifted out to run unconditionally or outside the write:notes scope check below.
-import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal, citedEvidence } from "../../../plane/challenge";
@@ -48,7 +48,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
     name: "reflect",
     domain: "knowledge",
     description:
-      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core) and returns a coverage object (recalled, decision_matched, filtered_out, kept, dropped, unresolved_evidence_paths). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes); it applies to mode 'synthesis' only and is rejected with mode 'challenge'. Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
+      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core) and returns a coverage object (recalled, decision_matched, filtered_out, kept, dropped, unresolved_evidence_paths). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes); it applies to mode 'synthesis' only and is rejected with mode 'challenge'. Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `reliquary-tc reflect` CLI command.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -255,7 +255,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           mode: input.mode,
           route: route.signals,
           available: false,
-          message: "inference gateway not configured (set OBSIDIAN_TC_GATEWAY_URL)",
+          message: "inference gateway not configured (set RELIQUARY_TC_GATEWAY_URL)",
           answer: null,
           sources,
           ...excludedField,

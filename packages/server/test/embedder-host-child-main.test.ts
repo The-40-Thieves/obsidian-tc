@@ -87,15 +87,15 @@ describe("embedder child", () => {
 
   // Fix round (MEDIUM 4b): the child refuses to be a child of itself. The parent sets the flag for the
   // child; the child clears it before it serves, so nothing it runs can spawn another child.
-  it("the child deletes OBSIDIAN_TC_EMBEDDER_HOST from its own env before serving", async () => {
-    const before = process.env.OBSIDIAN_TC_EMBEDDER_HOST;
-    process.env.OBSIDIAN_TC_EMBEDDER_HOST = "1";
+  it("the child deletes RELIQUARY_TC_EMBEDDER_HOST from its own env before serving", async () => {
+    const before = process.env.RELIQUARY_TC_EMBEDDER_HOST;
+    process.env.RELIQUARY_TC_EMBEDDER_HOST = "1";
     try {
       const input = new PassThrough();
       const output = { write: () => true };
       let seenByLoader: string | undefined = "not loaded";
       const done = runEmbedderChild({ input, output }, async () => {
-        seenByLoader = process.env.OBSIDIAN_TC_EMBEDDER_HOST;
+        seenByLoader = process.env.RELIQUARY_TC_EMBEDDER_HOST;
         return { embed: async () => [] };
       });
       input.write(encodeMessage({ t: "init", v: 1, opts: INIT }));
@@ -103,8 +103,8 @@ describe("embedder child", () => {
       await done;
       expect(seenByLoader).toBeUndefined();
     } finally {
-      if (before === undefined) delete process.env.OBSIDIAN_TC_EMBEDDER_HOST;
-      else process.env.OBSIDIAN_TC_EMBEDDER_HOST = before;
+      if (before === undefined) delete process.env.RELIQUARY_TC_EMBEDDER_HOST;
+      else process.env.RELIQUARY_TC_EMBEDDER_HOST = before;
     }
   });
 
@@ -132,7 +132,7 @@ describe("embedder child", () => {
       const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
       const child = spawn("bun", [cli], {
         stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, OBSIDIAN_TC_EMBEDDER_HOST: "1" },
+        env: { ...process.env, RELIQUARY_TC_EMBEDDER_HOST: "1" },
       });
       child.stdout.resume();
       child.stderr.resume();

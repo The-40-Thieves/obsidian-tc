@@ -3,7 +3,7 @@
 // and then found by both lexical and semantic M2 search — all through the full
 // M0 dispatch pipeline against a real on-disk temp vault, with audit rows asserted.
 
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";

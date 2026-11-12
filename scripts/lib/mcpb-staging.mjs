@@ -34,7 +34,7 @@ import { join } from "node:path";
 // Root-level entries never staged:
 //   .git          — repo metadata, irrelevant to the bundle and often large.
 //   dist          — the OLD build-output directory; the new .mcpb is written straight to
-//                   `<repoRoot>/dist/obsidian-tc.mcpb` (the one live-tree write this module still
+//                   `<repoRoot>/dist/reliquary-tc.mcpb` (the one live-tree write this module still
 //                   makes), never read back through staging.
 //   node_modules  — .mcpbignore already excludes it unconditionally from the packed bundle, and
 //                   `os.tmpdir()` can be a different filesystem from the repo checkout (measured
@@ -101,7 +101,7 @@ export async function stageBundleInputs(repoRoot, stagingDir) {
   await writeFile(join(stagingDir, "manifest.json"), mcpbManifest);
 }
 
-const EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+const EMBEDDER_PACKAGE = "@the-40-thieves/reliquary-tc-embedder-local";
 
 /**
  * Assembles the bundle's own `node_modules` (the one thing stageBundleInputs deliberately does not
@@ -155,7 +155,7 @@ export async function stageRuntimeModules(stagingDir, sources) {
  * to except `outFile` itself.
  */
 export async function packFromStaging(repoRoot, outFile, { pack, populate }) {
-  const stagingDir = await mkdtemp(join(tmpdir(), "obsidian-tc-mcpb-"));
+  const stagingDir = await mkdtemp(join(tmpdir(), "reliquary-tc-mcpb-"));
   try {
     await stageBundleInputs(repoRoot, stagingDir);
     await populate?.(stagingDir);

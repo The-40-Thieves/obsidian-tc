@@ -4,7 +4,7 @@
  * actually resolve to on THIS PATH against mise.toml's pins (and packages/native/rust-toolchain.toml
  * for Rust, which mise.toml itself does not pin — see that file's header for why it lives apart).
  *
- * This is NOT the `obsidian-tc doctor` CLI subcommand (packages/server/src/cli.ts) — that one
+ * This is NOT the `reliquary-tc doctor` CLI subcommand (packages/server/src/cli.ts) — that one
  * diagnoses a RUNNING server's own runtime/config. This one answers a question one layer earlier:
  * is your machine even set up to build and test the repo.
  *

@@ -11,8 +11,8 @@
       ]
     },
     "cacheDir": {
-      "default": ".obsidian-tc",
-      "description": "Directory holding both derived indexes and durable server state. `cache.db` includes write provenance and the source-of-truth memory entity graph, so deleting the database loses data that reindexing cannot restore. `experiential.db` holds captured retrieval and episode history that reindexing does not reproduce. Back up the databases, `auth-keys/` (signing keys and registry markers), and `server-secrets/` (wiki seals and HITL confirmation keys); `auth.db` contains revocations and key retirements. Use the confirmed, table-scoped `reset_vault_cache` tool for an index reset, with explicit include flags to preserve idempotency keys and history; never delete the database files or whole directory as an index-reset procedure. This default only applies when `embeddings.provider` is not \"local\" — a config file must set `cacheDir` explicitly when the embeddings provider is \"local\" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you.",
+      "default": ".reliquary-tc",
+      "description": "Directory holding both derived indexes and durable server state. `cache.db` includes write provenance and the source-of-truth memory entity graph, so deleting the database loses data that reindexing cannot restore. `experiential.db` holds captured retrieval and episode history that reindexing does not reproduce. Back up the databases, `auth-keys/` (signing keys and registry markers), and `server-secrets/` (wiki seals and HITL confirmation keys); `auth.db` contains revocations and key retirements. Use the confirmed, table-scoped `reset_vault_cache` tool for an index reset, with explicit include flags to preserve idempotency keys and history; never delete the database files or whole directory as an index-reset procedure. This default only applies when `embeddings.provider` is not \"local\" — a config file must set `cacheDir` explicitly when the embeddings provider is \"local\" (the default provider), or config load fails naming `cacheDir`; the bare `reliquary-tc <vault>` form (no config file) sets it for you.",
       "type": "string",
       "minLength": 1
     },
@@ -23,7 +23,7 @@
       "properties": {
         "busyTimeoutMs": {
           "default": 5000,
-          "description": "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault, not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
+          "description": "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising reliquary_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault, not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
@@ -31,7 +31,7 @@
       }
     },
     "resources": {
-      "description": "Note resources: which vaults the obsidian-tc:// resource surfaces serve.",
+      "description": "Note resources: which vaults the reliquary-tc:// resource surfaces serve.",
       "default": {},
       "type": "object",
       "properties": {
@@ -64,7 +64,7 @@
             "description": "Absolute path to the vault directory on disk."
           },
           "caseSensitive": {
-            "description": "Whether the filesystem holding THIS vault treats names differing only by case as different files (true: README.md and readme.md are two notes; false: they are one). \"auto\" (or absent) probes the vault root at startup and on each ACL build; true/false overrides the probe. Folder ACLs, the vault rename/identity key and convention classification match the way this filesystem resolves names rather than the way the host platform usually does. Set it when the probe cannot decide (obsidian-tc doctor's vaults.case-sensitivity check reports that).",
+            "description": "Whether the filesystem holding THIS vault treats names differing only by case as different files (true: README.md and readme.md are two notes; false: they are one). \"auto\" (or absent) probes the vault root at startup and on each ACL build; true/false overrides the probe. Folder ACLs, the vault rename/identity key and convention classification match the way this filesystem resolves names rather than the way the host platform usually does. Set it when the probe cannot decide (reliquary-tc doctor's vaults.case-sensitivity check reports that).",
             "anyOf": [
               {
                 "type": "string",
@@ -451,7 +451,7 @@
       "properties": {
         "mode": {
           "default": "none",
-          "description": "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`obsidian-tc auth rotate-key`). A `jwt` server with none of them refuses to start. `oidc` verifies access tokens from an external OpenID Connect provider configured in `auth.oidc`; discovery runs at boot and a failure refuses to start.",
+          "description": "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`reliquary-tc auth rotate-key`). A `jwt` server with none of them refuses to start. `oidc` verifies access tokens from an external OpenID Connect provider configured in `auth.oidc`; discovery runs at boot and a failure refuses to start.",
           "type": "string",
           "enum": [
             "none",
@@ -578,7 +578,7 @@
                 },
                 "scopes": {
                   "default": "scope",
-                  "description": "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings (`permissions`, `realm_access.roles`). Only this claim grants scopes, and only FULLY-QUALIFIED values (`read:notes`, `write:*`) are taken from it: a bare value such as the role `admin` is dropped (and logged once) unless `scopeMap` maps it, because obsidian-tc reads a bare family name as a wildcard over every resource.",
+                  "description": "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings (`permissions`, `realm_access.roles`). Only this claim grants scopes, and only FULLY-QUALIFIED values (`read:notes`, `write:*`) are taken from it: a bare value such as the role `admin` is dropped (and logged once) unless `scopeMap` maps it, because reliquary-tc reads a bare family name as a wildcard over every resource.",
                   "anyOf": [
                     {
                       "type": "string",
@@ -595,7 +595,7 @@
                   ]
                 },
                 "scopeMap": {
-                  "description": "Optional. Maps a value of the scopes claim (an IdP role or group name) to the obsidian-tc scopes it grants, e.g. `{ vault_admin: [\"admin:auth\"], reader: [\"read:notes\", \"read:search\"] }`. A mapped value grants exactly its list; an unmapped, non-qualified value grants nothing.",
+                  "description": "Optional. Maps a value of the scopes claim (an IdP role or group name) to the reliquary-tc scopes it grants, e.g. `{ vault_admin: [\"admin:auth\"], reader: [\"read:notes\", \"read:search\"] }`. A mapped value grants exactly its list; an unmapped, non-qualified value grants nothing.",
                   "type": "object",
                   "propertyNames": {
                     "type": "string",
@@ -725,7 +725,7 @@
           "additionalProperties": false
         },
         "jwtSecret": {
-          "description": "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this (or an HS256 key in the auth registry), never against the JWKS. It is the initial signing key (kid `config`); once `auth rotate-key` has retired that key it is no longer used to verify or mint, and can be removed (`obsidian-tc doctor` says when).",
+          "description": "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this (or an HS256 key in the auth registry), never against the JWKS. It is the initial signing key (kid `config`); once `auth rotate-key` has retired that key it is no longer used to verify or mint, and can be removed (`reliquary-tc doctor` says when).",
           "type": "string",
           "minLength": 32
         },
@@ -738,14 +738,14 @@
         },
         "rotationGraceSeconds": {
           "default": 0,
-          "description": "Seconds the previous signing key keeps verifying after `obsidian-tc auth rotate-key`, used when `--grace` is not passed (an explicit `--grace` always wins, including `--grace 0`). 0, the default, retires the previous key immediately. Maximum 604800 (7 days). A retiring key stops verifying at its `retire_after` whether or not anything has rewritten its state, so the window is exact; `obsidian-tc doctor` lists each retiring key with its time remaining.",
+          "description": "Seconds the previous signing key keeps verifying after `reliquary-tc auth rotate-key`, used when `--grace` is not passed (an explicit `--grace` always wins, including `--grace 0`). 0, the default, retires the previous key immediately. Maximum 604800 (7 days). A retiring key stops verifying at its `retire_after` whether or not anything has rewritten its state, so the window is exact; `reliquary-tc doctor` lists each retiring key with its time remaining.",
           "type": "integer",
           "minimum": 0,
           "maximum": 604800
         },
         "requireJti": {
           "default": false,
-          "description": "Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry, but `securityProfile: \"hardened\"` sets it true (an explicit value still wins); the default itself is planned to flip to true at the next major release. `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).",
+          "description": "Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry, but `securityProfile: \"hardened\"` sets it true (an explicit value still wins); the default itself is planned to flip to true at the next major release. `reliquary-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).",
           "type": "boolean"
         },
         "jwks": {
@@ -787,7 +787,7 @@
           ]
         },
         "allowMissingAudience": {
-          "description": "DEPRECATION OPT-OUT. A JWKS key source (jwks, jwksFile, jwksUri) with no EFFECTIVE audience accepts a token its issuer minted for another service. `audience` is effective; `resource` is used as the audience only when Protected Resource Metadata is complete (`authorizationServers` set too), so a `resource`-only config passes validation and binds nothing. That keeps working for one release with a warning at startup, in `obsidian-tc doctor` and in server_health, and becomes a startup error in the next minor release. Set `true` only if you really mean to accept tokens regardless of `aud`; the warning then stops. It does NOT waive the rule above: a JWKS still needs `audience` or `resource` at config load.",
+          "description": "DEPRECATION OPT-OUT. A JWKS key source (jwks, jwksFile, jwksUri) with no EFFECTIVE audience accepts a token its issuer minted for another service. `audience` is effective; `resource` is used as the audience only when Protected Resource Metadata is complete (`authorizationServers` set too), so a `resource`-only config passes validation and binds nothing. That keeps working for one release with a warning at startup, in `reliquary-tc doctor` and in server_health, and becomes a startup error in the next minor release. Set `true` only if you really mean to accept tokens regardless of `aud`; the warning then stops. It does NOT waive the rule above: a JWKS still needs `audience` or `resource` at config load.",
           "type": "boolean"
         },
         "issuer": {
@@ -946,14 +946,14 @@
               "additionalProperties": false
             },
             "setupTokenEnv": {
-              "default": "OBSIDIAN_TC_AS_SETUP_TOKEN",
-              "description": "Name of the environment variable whose value is the one-time setup token that claims the operator account on a host with no terminal (default `OBSIDIAN_TC_AS_SETUP_TOKEN`). The token is never read from the config file.",
+              "default": "RELIQUARY_TC_AS_SETUP_TOKEN",
+              "description": "Name of the environment variable whose value is the one-time setup token that claims the operator account on a host with no terminal (default `RELIQUARY_TC_AS_SETUP_TOKEN`). The token is never read from the config file.",
               "type": "string",
               "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
             },
             "resetTokenEnv": {
-              "default": "OBSIDIAN_TC_AS_RESET_TOKEN",
-              "description": "Name of the environment variable whose value is the one-time reset token that lets the operator set a new password on a host with no shell (default `OBSIDIAN_TC_AS_RESET_TOKEN`). While it is set, a claimed server shows a reset form at `/oauth/setup` until the boot window closes; the token works once, and it is refused after that. Remove the variable once the reset is done. The token is never read from the config file.",
+              "default": "RELIQUARY_TC_AS_RESET_TOKEN",
+              "description": "Name of the environment variable whose value is the one-time reset token that lets the operator set a new password on a host with no shell (default `RELIQUARY_TC_AS_RESET_TOKEN`). While it is set, a claimed server shows a reset form at `/oauth/setup` until the boot window closes; the token works once, and it is refused after that. Remove the variable once the reset is done. The token is never read from the config file.",
               "type": "string",
               "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
             },
@@ -1103,7 +1103,7 @@
       "properties": {
         "provider": {
           "default": "local",
-          "description": "Embeddings backend name, resolved against the provider registry at startup. Built-ins: local (a bundled, fully offline dense embedder via the optional @the-40-thieves/obsidian-tc-embedder-local package; no network, no Ollama, no API key), ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. `local` is the DEFAULT when this whole block is absent — semantic search works with zero configuration. An unregistered name is a startup error listing every valid option.",
+          "description": "Embeddings backend name, resolved against the provider registry at startup. Built-ins: local (a bundled, fully offline dense embedder via the optional @the-40-thieves/reliquary-tc-embedder-local package; no network, no Ollama, no API key), ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. `local` is the DEFAULT when this whole block is absent — semantic search works with zero configuration. An unregistered name is a startup error listing every valid option.",
           "type": "string",
           "minLength": 1
         },
@@ -1306,13 +1306,13 @@
       }
     },
     "reranker": {
-      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
+      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/reliquary-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
       "type": "object",
       "properties": {
         "provider": {
           "type": "string",
           "minLength": 1,
-          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package, and is also tried AUTOMATICALLY — no need to set provider: 'local' explicitly — when this whole block is left unset, model-tier is not configured, and no gateway URL is configured either), and the profile-gated module."
+          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/reliquary-tc-reranker-local package, and is also tried AUTOMATICALLY — no need to set provider: 'local' explicitly — when this whole block is left unset, model-tier is not configured, and no gateway URL is configured either), and the profile-gated module."
         },
         "model": {
           "description": "Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal \"rerank\".",
@@ -1345,12 +1345,12 @@
           "minLength": 1
         },
         "localModelPath": {
-          "description": "Absolute path to the ROOT directory under which <model-id>/<revision>/ lives (config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README) for provider 'local'. No longer required to be pre-populated — fetched and sha256-verified automatically on the first rerank call if not already present. Defaults to that package's own models/ directory. `bun run fetch-model` still works, for offline/CI pre-population. Ignored — and refused at boot if set — by every other provider.",
+          "description": "Absolute path to the ROOT directory under which <model-id>/<revision>/ lives (config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/reliquary-tc-reranker-local's README) for provider 'local'. No longer required to be pre-populated — fetched and sha256-verified automatically on the first rerank call if not already present. Defaults to that package's own models/ directory. `bun run fetch-model` still works, for offline/CI pre-population. Ignored — and refused at boot if set — by every other provider.",
           "type": "string",
           "minLength": 1
         },
         "localModulePath": {
-          "description": "Explicit path to @the-40-thieves/obsidian-tc-reranker-local's BUILT module entry (its dist/index.js), for provider 'local'. Absolute, or resolved against the config file's directory (same convention as modulePath). Tried FIRST, before the bare package specifier and the source-checkout default — see that package's README for when you need this. Ignored by every other provider.",
+          "description": "Explicit path to @the-40-thieves/reliquary-tc-reranker-local's BUILT module entry (its dist/index.js), for provider 'local'. Absolute, or resolved against the config file's directory (same convention as modulePath). Tried FIRST, before the bare package specifier and the source-checkout default — see that package's README for when you need this. Ignored by every other provider.",
           "type": "string",
           "minLength": 1
         },
@@ -1368,16 +1368,16 @@
       ]
     },
     "gateway": {
-      "description": "Inference gateway connection. ABSENT falls through to OBSIDIAN_TC_GATEWAY_URL / OBSIDIAN_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
+      "description": "Inference gateway connection. ABSENT falls through to RELIQUARY_TC_GATEWAY_URL / RELIQUARY_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
       "type": "object",
       "properties": {
         "baseUrl": {
-          "description": "Inference gateway base URL. Takes precedence over the OBSIDIAN_TC_GATEWAY_URL environment variable when both are set — set this when a host application rewrites its own env block on restart, which would otherwise silently drop the env var and degrade every generative seam with no error. Absent falls through to the env var, then to graceful degradation.",
+          "description": "Inference gateway base URL. Takes precedence over the RELIQUARY_TC_GATEWAY_URL environment variable when both are set — set this when a host application rewrites its own env block on restart, which would otherwise silently drop the env var and degrade every generative seam with no error. Absent falls through to the env var, then to graceful degradation.",
           "type": "string",
           "format": "uri"
         },
         "token": {
-          "description": "Bearer token (LiteLLM master/virtual key) for the gateway. Secret — never logged, and takes precedence over the OBSIDIAN_TC_GATEWAY_TOKEN environment variable when both are set.",
+          "description": "Bearer token (LiteLLM master/virtual key) for the gateway. Secret — never logged, and takes precedence over the RELIQUARY_TC_GATEWAY_TOKEN environment variable when both are set.",
           "type": "string",
           "minLength": 1
         }
@@ -1390,7 +1390,7 @@
       "properties": {
         "plainHttpHosts": {
           "default": [],
-          "description": "Exact hostnames a plain http:// provider URL may name: gateway.baseUrl / OBSIDIAN_TC_GATEWAY_URL, embeddings.baseUrl, embeddings.modelTier.*.baseUrl, reranker.baseUrl, plur.endpoint, a vault's restApiUrl, and JWT mode's auth.jwksUri. Case-insensitive, IDNA/punycode-normalized; no wildcards, ports or paths. One list for all of them (the two TypeSafe judge blocks keep their own plainHttpHosts, which config load enforces). https:// and loopback need no entry. A listed host is still refused when a request is sent unless EVERY address it resolves to is loopback, RFC1918 (10/8, 172.16/12, 192.168/16) or IPv6 unique-local (fc00::/7): a public address, link-local, the 169.254.169.254 cloud metadata address and the other cloud metadata addresses (100.100.100.200, fd00:ec2::254, fd00:64:64:64::254, fd20:ce::254) are never allowed, listed or not. Requests go straight to that checked address (never through HTTP_PROXY / ALL_PROXY) with the original Host header, and redirects are refused (an https:// answer that redirects is refused too, so a 307/308 can never replay the key and vault text elsewhere). DEPRECATED, removed at the next major release: until then a host that is NOT listed but resolves only to private addresses still works, with a warning that names it (`obsidian-tc doctor` and `server_health` report it); list it here to silence the warning. Intended for a gateway on a host-local docker network or an encrypted overlay, e.g. `[\"litellm\"]` for `http://litellm:4000`. The bearer key and vault text still travel in clear over that link. A LISTED host may also resolve to the Tailscale/CGNAT range 100.64.0.0/10 (list only a host that is a tailnet peer: Tailscale traffic is WireGuard-encrypted, ISP CGNAT space is not); an unlisted host in that range is refused, with no deprecation path.",
+          "description": "Exact hostnames a plain http:// provider URL may name: gateway.baseUrl / RELIQUARY_TC_GATEWAY_URL, embeddings.baseUrl, embeddings.modelTier.*.baseUrl, reranker.baseUrl, plur.endpoint, a vault's restApiUrl, and JWT mode's auth.jwksUri. Case-insensitive, IDNA/punycode-normalized; no wildcards, ports or paths. One list for all of them (the two TypeSafe judge blocks keep their own plainHttpHosts, which config load enforces). https:// and loopback need no entry. A listed host is still refused when a request is sent unless EVERY address it resolves to is loopback, RFC1918 (10/8, 172.16/12, 192.168/16) or IPv6 unique-local (fc00::/7): a public address, link-local, the 169.254.169.254 cloud metadata address and the other cloud metadata addresses (100.100.100.200, fd00:ec2::254, fd00:64:64:64::254, fd20:ce::254) are never allowed, listed or not. Requests go straight to that checked address (never through HTTP_PROXY / ALL_PROXY) with the original Host header, and redirects are refused (an https:// answer that redirects is refused too, so a 307/308 can never replay the key and vault text elsewhere). DEPRECATED, removed at the next major release: until then a host that is NOT listed but resolves only to private addresses still works, with a warning that names it (`reliquary-tc doctor` and `server_health` report it); list it here to silence the warning. Intended for a gateway on a host-local docker network or an encrypted overlay, e.g. `[\"litellm\"]` for `http://litellm:4000`. The bearer key and vault text still travel in clear over that link. A LISTED host may also resolve to the Tailscale/CGNAT range 100.64.0.0/10 (list only a host that is a tailnet peer: Tailscale traffic is WireGuard-encrypted, ISP CGNAT space is not); an unlisted host in that range is refused, with no deprecation path.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1485,7 +1485,7 @@
         },
         "useSearchModePreference": {
           "default": false,
-          "description": "Let search_vault use the caller's learned preferred.search_mode when the call names no mode: a stored search_text preference (profile weight >= 3.0, for this vault and this caller only) selects mode=text instead of auto. The weight counts evidence observed across extraction runs, not distinct windows: re-running `obsidian-tc reflect` re-counts unchanged evidence. An explicit mode, including an explicit auto, always wins; a stored value with no safe search_vault counterpart (search_regex, search_vault, vault_graph_search, search_omnisearch) and an object query are ignored. When on, search_vault reports mode_source (explicit, preference or default). The profile is written only by `obsidian-tc reflect` (extraction is deliberately not scheduled, because it is not idempotent), so it is as fresh as the last run. Needs the experiential store. Off by default — ranking-adjacent, ADR-0007 bar not met; off is byte-identical to before.",
+          "description": "Let search_vault use the caller's learned preferred.search_mode when the call names no mode: a stored search_text preference (profile weight >= 3.0, for this vault and this caller only) selects mode=text instead of auto. The weight counts evidence observed across extraction runs, not distinct windows: re-running `reliquary-tc reflect` re-counts unchanged evidence. An explicit mode, including an explicit auto, always wins; a stored value with no safe search_vault counterpart (search_regex, search_vault, vault_graph_search, search_omnisearch) and an object query are ignored. When on, search_vault reports mode_source (explicit, preference or default). The profile is written only by `reliquary-tc reflect` (extraction is deliberately not scheduled, because it is not idempotent), so it is as fresh as the last run. Needs the experiential store. Off by default — ranking-adjacent, ADR-0007 bar not met; off is byte-identical to before.",
           "type": "boolean"
         },
         "searchAutoRoute": {
@@ -1913,7 +1913,7 @@
                 },
                 "allowPlainHttp": {
                   "default": false,
-                  "description": "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this judge.baseUrl's own host is listed in plainHttpHosts. It no longer waives anything else: the connect-time private-address check still applies, and a host that resolves to a public address is refused. `obsidian-tc doctor` and server_health warn while it is set.",
+                  "description": "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this judge.baseUrl's own host is listed in plainHttpHosts. It no longer waives anything else: the connect-time private-address check still applies, and a host that resolves to a public address is refused. `reliquary-tc doctor` and server_health warn while it is set.",
                   "type": "boolean"
                 },
                 "timeoutMs": {
@@ -2616,7 +2616,7 @@
           "type": "object",
           "properties": {
             "urlEnv": {
-              "default": "OBSIDIAN_TC_REDIS_URL",
+              "default": "RELIQUARY_TC_REDIS_URL",
               "description": "NAME of the environment variable holding the Redis URL (`redis://[user:password@]host:6379[/db]`, `rediss://` for TLS). There is no inline url field: the URL carries the password and must not sit in config.json.",
               "type": "string",
               "minLength": 1
@@ -2627,7 +2627,7 @@
               "minLength": 1
             },
             "keyPrefix": {
-              "default": "obsidian-tc:rl:",
+              "default": "reliquary-tc:rl:",
               "description": "Prefix for every bucket key, so several deployments can share one Redis without colliding.",
               "type": "string",
               "minLength": 1
@@ -2930,7 +2930,7 @@
       "type": "object",
       "properties": {
         "eventLoopDeferMs": {
-          "description": "Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and obsidian_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point.",
+          "description": "Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and reliquary_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -2982,7 +2982,7 @@
       "properties": {
         "enabled": {
           "default": true,
-          "description": "Record one provenance row per committed mutating tool call: tool, vault, the paths it named with sha256 digests before and after (never content), timestamp, principal, session, client and claimed model/project/agent/machine, each field tagged verified or self_reported. Rows are hash-chained per vault and signed with the auth registry's EdDSA key when one is active. Verify with `obsidian-tc provenance verify`.",
+          "description": "Record one provenance row per committed mutating tool call: tool, vault, the paths it named with sha256 digests before and after (never content), timestamp, principal, session, client and claimed model/project/agent/machine, each field tagged verified or self_reported. Rows are hash-chained per vault and signed with the auth registry's EdDSA key when one is active. Verify with `reliquary-tc provenance verify`.",
           "type": "boolean"
         },
         "host": {
@@ -3020,7 +3020,7 @@
           "properties": {
             "maxScanRows": {
               "default": 100000,
-              "description": "Most provenance rows one get_provenance call examines. A query is one newest-first pass over the vault's chain (the signed body is the only record of a path, so there is no index to seek by); each row examined costs one substring test over its ~0.5 KB body, so the default 100000 is a few hundred milliseconds at worst. A chain longer than this is read newest-first and the answer carries scan_truncated: older history was not examined. Raise it for a long-retention vault; `obsidian-tc provenance verify` is not bounded by it.",
+              "description": "Most provenance rows one get_provenance call examines. A query is one newest-first pass over the vault's chain (the signed body is the only record of a path, so there is no index to seek by); each row examined costs one substring test over its ~0.5 KB body, so the default 100000 is a few hundred milliseconds at worst. A chain longer than this is read newest-first and the answer carries scan_truncated: older history was not examined. Raise it for a long-retention vault; `reliquary-tc provenance verify` is not bounded by it.",
               "type": "integer",
               "minimum": 1000,
               "maximum": 10000000
@@ -3034,7 +3034,7 @@
           "properties": {
             "gitTrailers": {
               "default": false,
-              "description": "Append `Obsidian-TC-*` trailers to a commit made through the git_commit tool, summarising the recorded writes whose current bytes are in that commit: session, principal (the verified principal, else `unverified`), model (always tagged `(self-reported)`) and the provenance seq range. A commit that includes no recorded write gets none. Any `Obsidian-TC-*` trailer the caller wrote itself is removed first, so a trailer in the log is always the server's. Needs `provenance.enabled`.",
+              "description": "Append `Reliquary-TC-*` trailers to a commit made through the git_commit tool, summarising the recorded writes whose current bytes are in that commit: session, principal (the verified principal, else `unverified`), model (always tagged `(self-reported)`) and the provenance seq range. A commit that includes no recorded write gets none. Any `Reliquary-TC-*` trailer the caller wrote itself is removed first, so a trailer in the log is always the server's. Needs `provenance.enabled`.",
               "type": "boolean"
             },
             "frontmatter": {
@@ -3043,7 +3043,7 @@
               "type": "boolean"
             },
             "frontmatterKey": {
-              "default": "obsidian_tc_provenance",
+              "default": "reliquary_tc_provenance",
               "description": "The frontmatter key the stamp is written under when `frontmatter` is on. A caller-supplied value under this key in a note being created is replaced by the real stamp.",
               "type": "string",
               "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
@@ -3099,7 +3099,7 @@
       "properties": {
         "excludePaths": {
           "default": [],
-          "description": "Gitignore-style glob patterns (vault-relative), compiled with the same glob engine as auth.acl.readPaths, plus a NORMALISATION and a WIDENING that auth.acl.readPaths does not get, because a pattern here that matches nothing protects nothing and says so nowhere. Normalisation: a backslash is read as a separator (a vault path can never contain one, so `Private\\**` is `Private/**` rather than a pattern that silently matches nothing), a leading \"/\" or \"./\" is stripped and repeated separators collapse, so \"/Private\", \"./Private\", \"Private\" and \"Private//\" are one and the same root-anchored pattern. Widening: EVERY pattern also matches everything beneath it, so \"Private\", \"Private/\", \"Private*/\" and \"Private/*\" each withhold that folder's whole subtree, not just its direct children; \"**/Private\" matches a Private folder at ANY depth (root included) and its subtree. Consequences worth stating, both in the safe direction (this is a security control, so an ambiguous pattern excludes too much, never too little): a folder-shaped pattern also matches a FILE of that exact name, so \"Private/\" or \"Private*/\" additionally excludes a root note named \"Private.md\"; a literal pattern naming a specific file (\"Private/a.md\") still matches only that exact file, never a sibling like \"Private/a.md.bak\"; and matching stays case- and unicode-sensitive exactly as auth.acl.readPaths is. \"**\" is the EXCLUDE-ALL form: it withholds every note from every hosted provider, which is a supported fully-local deployment (the plane still runs; nothing vault-derived leaves the machine through it). One spelling is REFUSED at config load rather than compiled: a pattern that normalises to nothing (\"\", \"/\", \"./\", or whitespace only), which would sit in the config looking like a configured exclusion while protecting nothing. Enforced at the PORT, not merely by each caller: every GatewayClient this server constructs (gateway/client.ts's createGatewayClient) and every EmbeddingProvider it constructs (embeddings/index.ts's createEmbeddingProvider(Async)) refuses a request that does not declare which vault paths its text came from, or that names an excluded one — so a call site that forgets to filter fails loudly instead of leaking, not only the ones that remember to check first. Covers every content-bearing egress leg in the tree: contradiction judging, synthesis, citation inference (both the scheduled job and the citation-infer CLI), index-time embedding (the batched reconcile AND the single-note write path — write_note/append_note/patch_note and the filesystem watcher), reflect and knowledge_challenge's gateway calls, the note- and cluster-level summarizers (the `obsidian-tc index`/`cluster` CLI passes), densify-llm's semantic-edge extraction, the hosted /rerank passthrough, and the scheduled proactive-advisory sweep's candidate embedding. An excluded chunk is still chunked, stored, and text/regex-searchable, but gets no vector, so semantic_search will not surface it. This is the documented COST of exclusion: embeddings are themselves egress (a hosted embedding provider can, in principle, receive text it never sees in plaintext form), so an excluded folder is withheld from embedding too, not only from generative jobs. Best-effort, like every comparable exclusion file in this ecosystem (.gitignore, .cursorignore, .aiignore): a caller with direct filesystem or MCP-tool read access to the vault is unaffected — this is an EGRESS control, not a read-visibility control (see auth.acl.readPaths for that). NOT covered: lexical/regex search over an excluded chunk stays local and searchable by design (the point is withholding it from a model, not hiding it from the vault owner). Paths are re-evaluated on every pass, not baked in once: renaming a folder into or out of the exclusion re-includes or re-excludes it on the very next consolidation pass, reconcile, or write, never retroactively.",
+          "description": "Gitignore-style glob patterns (vault-relative), compiled with the same glob engine as auth.acl.readPaths, plus a NORMALISATION and a WIDENING that auth.acl.readPaths does not get, because a pattern here that matches nothing protects nothing and says so nowhere. Normalisation: a backslash is read as a separator (a vault path can never contain one, so `Private\\**` is `Private/**` rather than a pattern that silently matches nothing), a leading \"/\" or \"./\" is stripped and repeated separators collapse, so \"/Private\", \"./Private\", \"Private\" and \"Private//\" are one and the same root-anchored pattern. Widening: EVERY pattern also matches everything beneath it, so \"Private\", \"Private/\", \"Private*/\" and \"Private/*\" each withhold that folder's whole subtree, not just its direct children; \"**/Private\" matches a Private folder at ANY depth (root included) and its subtree. Consequences worth stating, both in the safe direction (this is a security control, so an ambiguous pattern excludes too much, never too little): a folder-shaped pattern also matches a FILE of that exact name, so \"Private/\" or \"Private*/\" additionally excludes a root note named \"Private.md\"; a literal pattern naming a specific file (\"Private/a.md\") still matches only that exact file, never a sibling like \"Private/a.md.bak\"; and matching stays case- and unicode-sensitive exactly as auth.acl.readPaths is. \"**\" is the EXCLUDE-ALL form: it withholds every note from every hosted provider, which is a supported fully-local deployment (the plane still runs; nothing vault-derived leaves the machine through it). One spelling is REFUSED at config load rather than compiled: a pattern that normalises to nothing (\"\", \"/\", \"./\", or whitespace only), which would sit in the config looking like a configured exclusion while protecting nothing. Enforced at the PORT, not merely by each caller: every GatewayClient this server constructs (gateway/client.ts's createGatewayClient) and every EmbeddingProvider it constructs (embeddings/index.ts's createEmbeddingProvider(Async)) refuses a request that does not declare which vault paths its text came from, or that names an excluded one — so a call site that forgets to filter fails loudly instead of leaking, not only the ones that remember to check first. Covers every content-bearing egress leg in the tree: contradiction judging, synthesis, citation inference (both the scheduled job and the citation-infer CLI), index-time embedding (the batched reconcile AND the single-note write path — write_note/append_note/patch_note and the filesystem watcher), reflect and knowledge_challenge's gateway calls, the note- and cluster-level summarizers (the `reliquary-tc index`/`cluster` CLI passes), densify-llm's semantic-edge extraction, the hosted /rerank passthrough, and the scheduled proactive-advisory sweep's candidate embedding. An excluded chunk is still chunked, stored, and text/regex-searchable, but gets no vector, so semantic_search will not surface it. This is the documented COST of exclusion: embeddings are themselves egress (a hosted embedding provider can, in principle, receive text it never sees in plaintext form), so an excluded folder is withheld from embedding too, not only from generative jobs. Best-effort, like every comparable exclusion file in this ecosystem (.gitignore, .cursorignore, .aiignore): a caller with direct filesystem or MCP-tool read access to the vault is unaffected — this is an EGRESS control, not a read-visibility control (see auth.acl.readPaths for that). NOT covered: lexical/regex search over an excluded chunk stays local and searchable by design (the point is withholding it from a model, not hiding it from the vault owner). Paths are re-evaluated on every pass, not baked in once: renaming a folder into or out of the exclusion re-includes or re-excludes it on the very next consolidation pass, reconcile, or write, never retroactively.",
           "type": "array",
           "items": {
             "type": "string"
@@ -3164,7 +3164,7 @@
         },
         "allowPlainHttp": {
           "default": false,
-          "description": "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this baseUrl's own host is listed in plainHttpHosts, with the connect-time private-address check still applied (a host that resolves to a public address is refused). `obsidian-tc doctor` and server_health warn while it is set.",
+          "description": "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this baseUrl's own host is listed in plainHttpHosts, with the connect-time private-address check still applied (a host that resolves to a public address is refused). `reliquary-tc doctor` and server_health warn while it is set.",
           "type": "boolean"
         },
         "maxCallsPerRequest": {
@@ -3209,7 +3209,7 @@
         },
         "traceContent": {
           "default": true,
-          "description": "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface.",
+          "description": "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `reliquary-tc rerun`. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface.",
           "type": "boolean"
         },
         "windowSeconds": {
@@ -3235,7 +3235,7 @@
       "properties": {
         "enabled": {
           "default": false,
-          "description": "Opt in to anonymous usage telemetry. Off by default. Turning this on with no `endpoint` set is a CONFIG ERROR at boot (refused below), never a silent no-op — there is no default telemetry endpoint. When on, an aggregate document (never paths, note content, queries, vault ids, principals, tokens, hostnames or env) is POSTed to `endpoint` once every `intervalMinutes`, never at boot before the first interval elapses. `obsidian-tc telemetry preview` prints the exact document that would be sent right now.",
+          "description": "Opt in to anonymous usage telemetry. Off by default. Turning this on with no `endpoint` set is a CONFIG ERROR at boot (refused below), never a silent no-op — there is no default telemetry endpoint. When on, an aggregate document (never paths, note content, queries, vault ids, principals, tokens, hostnames or env) is POSTed to `endpoint` once every `intervalMinutes`, never at boot before the first interval elapses. `reliquary-tc telemetry preview` prints the exact document that would be sent right now.",
           "type": "boolean"
         },
         "endpoint": {
@@ -3279,7 +3279,7 @@
       "maximum": 9007199254740991
     },
     "setupOrigin": {
-      "description": "Set only by `obsidian-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `obsidian-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one.",
+      "description": "Set only by `reliquary-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `reliquary-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one.",
       "type": "string",
       "enum": [
         "first-run-fallback"
@@ -3289,6 +3289,6 @@
   "required": [
     "vaults"
   ],
-  "title": "obsidian-tc server config",
-  "description": "Configuration for obsidian-tc. Generated from packages/shared/src/config.schema.ts — do not edit by hand. Add `\"$schema\": \"./obsidian-tc.config.schema.json\"` to your config for editor autocomplete."
+  "title": "reliquary-tc server config",
+  "description": "Configuration for reliquary-tc. Generated from packages/shared/src/config.schema.ts — do not edit by hand. Add `\"$schema\": \"./reliquary-tc.config.schema.json\"` to your config for editor autocomplete."
 }

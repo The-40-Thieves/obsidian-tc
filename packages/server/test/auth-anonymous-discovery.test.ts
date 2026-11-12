@@ -15,7 +15,7 @@
 //     string[] of RFC 7235 challenges; scheme entries are `{type:"noauth"}` / `{type:"oauth2",scopes}`.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanupFlows, type Flow, issue, makeFlow } from "./as-flow-harness";
 import { ISSUER, RESOURCE } from "./as-operator-harness";
@@ -93,7 +93,7 @@ function clientFor(flow: Flow, path: string, token?: string) {
 }
 
 const challengeFor = (path: string) =>
-  `Bearer realm="obsidian-tc", resource_metadata="${prmOf(path)}"`;
+  `Bearer realm="reliquary-tc", resource_metadata="${prmOf(path)}"`;
 
 describe("default (anonymousDiscovery: none): 401 + challenge for every request without a token", () => {
   const METHODS = [

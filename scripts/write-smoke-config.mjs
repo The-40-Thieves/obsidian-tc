@@ -1,4 +1,4 @@
-// Writes a minimal obsidian-tc config for the install smoke test (ci-install-smoke.yml):
+// Writes a minimal reliquary-tc config for the install smoke test (ci-install-smoke.yml):
 // one vault rooted at <vaultDir>, cache at <cacheDir>. Creates both dirs. Node serializes
 // the JSON so OS-native paths (including Windows backslashes) are escaped correctly across
 // the linux/macos/windows runners — no shell-specific path munging needed.

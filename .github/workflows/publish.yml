@@ -6,7 +6,7 @@ on:
   # aarch64-pc-windows-msvc) are built ONLY here, so nothing on a PR ever proves they compile — the
   # first time anyone finds out is mid-release. Do NOT "just push a throwaway tag" to test: the push
   # trigger above matches any v*, the preflight only checks that the version is UNpublished, so a
-  # v0.0.0-test tag would pass and really publish obsidian-tc + all 8 platform sub-packages to npm
+  # v0.0.0-test tag would pass and really publish reliquary-tc + all 8 platform sub-packages to npm
   # (immutable, unrevocable) and push a ghcr image. A dispatch with dry_run=true builds the same
   # 8-target matrix and publishes nothing.
   #   gh workflow run publish.yml --ref <branch> -f dry_run=true
@@ -35,9 +35,9 @@ permissions:
 # generated per package below (non-blocking); every release artifact is keyless-signed with cosign by
 # the sign-artifacts job (Sigstore bundle per file, attached to the GitHub Release); text bun.lock. Fires only on a
 # human-pushed v* tag — it is config-verified here, not executed. R5: the sub-packages
-# now publish under the owned @the-40-thieves scope (obsidian-tc-shared / obsidian-tc-native);
-# the server stays the owned unscoped obsidian-tc. The pin-workspace-deps step below rewrites
-# workspace:* to concrete versions (npm publish does not), so the published obsidian-tc carries
+# now publish under the owned @the-40-thieves scope (reliquary-tc-shared / reliquary-tc-native);
+# the server stays the owned unscoped reliquary-tc. The pin-workspace-deps step below rewrites
+# workspace:* to concrete versions (npm publish does not), so the published reliquary-tc carries
 # real dep versions. The npm-publish jobs still require the NPM_TOKEN secret before a tag.
 jobs:
   # the v* tag triggers this entire release — ghcr image, npm publishes, SBOMs and
@@ -249,8 +249,8 @@ jobs:
     # verify-tag added directly to read needs.verify-tag.outputs.prerelease below --
     # build-native already needs verify-tag, so this changes no scheduling, only visibility.
     # publish-embedder-local is ordered first so that the version a user installs by name (the
-    # install the docs tell them to run, at obsidian-tc's own version) already exists on npm by the
-    # time obsidian-tc is published. The job SUCCEEDS whether it published a new version this run or
+    # install the docs tell them to run, at reliquary-tc's own version) already exists on npm by the
+    # time reliquary-tc is published. The job SUCCEEDS whether it published a new version this run or
     # found it already published (its own preflight only skips the publish step, never the job).
     #
     # sign-artifacts added: npm versions are immutable, so nothing may be published until every
@@ -284,7 +284,7 @@ jobs:
           pattern: native-*
           path: packages/native/artifacts
       # napi artifacts only *fills* per-platform dirs; it does not create them.
-      # create-npm-dirs generates npm/<triple>/ (scoped @the-40-thieves/obsidian-tc-native-<triple>)
+      # create-npm-dirs generates npm/<triple>/ (scoped @the-40-thieves/reliquary-tc-native-<triple>)
       # from the napi config before the .node files are moved in.
       - name: create napi npm dirs (per-platform package dirs)
         working-directory: packages/native
@@ -301,8 +301,8 @@ jobs:
         working-directory: packages/server
         run: bun run build
       # npm publish does NOT rewrite the workspace: protocol, so pin workspace:* deps to concrete
-      # versions before publishing — otherwise the published obsidian-tc would ship
-      # "@the-40-thieves/obsidian-tc-shared": "workspace:*" and fail to install.
+      # versions before publishing — otherwise the published reliquary-tc would ship
+      # "@the-40-thieves/reliquary-tc-shared": "workspace:*" and fail to install.
       - name: pin workspace deps to concrete versions
         run: bun scripts/pin-workspace-deps.mjs
       # F3 preflight: npm publish is immutable and this job publishes 3 packages (+ napi
@@ -385,7 +385,7 @@ jobs:
             node -e 'const fs=require("fs");const f=process.argv[1];const p=JSON.parse(fs.readFileSync(f,"utf8"));p.publishConfig=Object.assign({},p.publishConfig,{access:"public"});fs.writeFileSync(f,JSON.stringify(p,null,2)+"\n");' "$f"
             echo "publishConfig.access=public -> $f"
           done
-      # Platform sub-packages (one per built triple, @the-40-thieves/obsidian-tc-native-<triple>)
+      # Platform sub-packages (one per built triple, @the-40-thieves/reliquary-tc-native-<triple>)
       # + the umbrella optionalDependencies are generated and published by `napi pre-publish`.
       - name: publish platform sub-packages (napi)
         if: steps.preflight.outputs.already_published != 'true'
@@ -394,7 +394,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # publish straight to the release dist-tag, in dependency order, with the
-      # user-facing `obsidian-tc` LAST. This replaces the earlier publish-to-`pending`-then-promote
+      # user-facing `reliquary-tc` LAST. This replaces the earlier publish-to-`pending`-then-promote
       # design, which cannot work under trusted publishing: OIDC authorises `npm publish` only, so
       # the `npm dist-tag add` promote fell back to token auth and failed EOTP on every release.
       #
@@ -402,21 +402,21 @@ jobs:
       # facts rather than by the holding tag:
       #
       #   1. Every inter-package dependency is EXACT-pinned, never ranged. pin-workspace-deps.mjs
-      #      rewrites workspace:* to the concrete version, so published obsidian-tc@X depends on
+      #      rewrites workspace:* to the concrete version, so published reliquary-tc@X depends on
       #      exactly -native@X and -shared@X, and -native@X optionalDepends on exactly the eight
       #      -native-<triple>@X. Nothing resolves a sub-package through a dist-tag, so what `latest`
       #      points at on the sub-packages cannot affect any install, and no already-installed
       #      release can drift onto a half-published version.
-      #   2. `obsidian-tc` publishes LAST. It is the only package installed by name, so its
+      #   2. `reliquary-tc` publishes LAST. It is the only package installed by name, so its
       #      `latest` is the only one that matters. If the sequence dies before it, `npm install
-      #      obsidian-tc` keeps resolving the previous release, wholly intact — exactly the property
+      #      reliquary-tc` keeps resolving the previous release, wholly intact — exactly the property
       #      `pending` existed to provide.
       #
       # Prereleases go to `next`, never `latest`: bare `npm publish` defaults to `latest` regardless
       # of semver, which would otherwise drag the stable tag onto a prerelease. The
       # prerelease/dist-tag classification comes from verify-tag's single computation now, not a
       # local recompute -- $version is still read locally for the log lines below.
-      - name: publish umbrellas to the release dist-tag (obsidian-tc last)
+      - name: publish umbrellas to the release dist-tag (reliquary-tc last)
         if: steps.preflight.outputs.already_published != 'true'
         run: |
           set -euo pipefail
@@ -440,9 +440,9 @@ jobs:
           set -uo pipefail
           mkdir -p sboms
           for p in native shared server; do
-            if ! (cd "packages/$p" && npm sbom --sbom-format cyclonedx) > "sboms/obsidian-tc-$p.cdx.json" 2>/dev/null; then
+            if ! (cd "packages/$p" && npm sbom --sbom-format cyclonedx) > "sboms/reliquary-tc-$p.cdx.json" 2>/dev/null; then
               echo "::warning::SBOM generation failed for packages/$p"
-              rm -f "sboms/obsidian-tc-$p.cdx.json"
+              rm -f "sboms/reliquary-tc-$p.cdx.json"
             fi
           done
           ls -la sboms/
@@ -468,7 +468,7 @@ jobs:
   # `github.event_name == 'push'` to exactly that.
   #
   # `needs: publish-npm` (plus the sign-artifacts barrier) — review question, ruled by the controller: server.json's
-  # `packages[]` today lists exactly one npm package (`obsidian-tc`), and `packages/reranker-local`
+  # `packages[]` today lists exactly one npm package (`reliquary-tc`), and `packages/reranker-local`
   # is deliberately NOT one of them — it is an optional add-on resolved at runtime (its own README),
   # not how the server is launched, so the registry validates nothing about it and no publish job
   # for it needs to feed into this one. If `server.json`'s `packages[]` ever DOES grow a second npm
@@ -543,12 +543,12 @@ jobs:
       # preflight found them already published on a resumed release. Either way this is a
       # load-bearing wait, not decoration: registry.modelcontextprotocol.io validates package
       # ownership by fetching the exact npm VERSION document for each `packages[]` npm entry
-      # (`<registryBaseUrl>/<identifier>/<version>` — e.g. https://registry.npmjs.org/obsidian-tc/1.25.0),
+      # (`<registryBaseUrl>/<identifier>/<version>` — e.g. https://registry.npmjs.org/reliquary-tc/1.25.0),
       # not the packument `npm view`/`GET /<name>` fetches. Those are separate CDN objects with
       # independent propagation — polling the packument (as an earlier version of this job did) can
       # go green while the version document a moment later still 404s. This polls the SAME url the
       # registry itself builds, derived from server.json rather than hardcoded (I3), and loops
-      # every npm entry in `packages[]` (today: just `obsidian-tc`; see the `needs:` comment above
+      # every npm entry in `packages[]` (today: just `reliquary-tc`; see the `needs:` comment above
       # for what changes if a second one is ever added).
       #
       # the old budget (10 attempts x 10s = 100s) was measured too short on two real
@@ -592,8 +592,8 @@ jobs:
             # literal string "null" (jq -r's rendering of a JSON null) baked into $url.
             base=$(jq -r '.registryBaseUrl // "https://registry.npmjs.org"' <<<"$row")
             # G1 fix: jq's `@uri` percent-encodes EVERY reserved character per RFC 3986,
-            # including `@` — so a scoped npm identifier ("@the-40-thieves/obsidian-tc-shared")
-            # became "%40the-40-thieves%2Fobsidian-tc-shared". That is not what the registry
+            # including `@` — so a scoped npm identifier ("@the-40-thieves/reliquary-tc-shared")
+            # became "%40the-40-thieves%2Freliquary-tc-shared". That is not what the registry
             # itself sends: its own npm validator builds the URL with Go's `url.PathEscape`,
             # which leaves `@` literal (it is a valid `pchar` — RFC 3986 allows `@` unescaped
             # in a path segment) and escapes only `/` (the one character that would otherwise
@@ -688,7 +688,7 @@ jobs:
           MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
         run: |
           "$MCP_PUBLISHER_BIN" publish
-  # @the-40-thieves/obsidian-tc-reranker-local. Deliberately its OWN job rather than a step
+  # @the-40-thieves/reliquary-tc-reranker-local. Deliberately its OWN job rather than a step
   # folded into publish-npm above: packages/reranker-local is NOT a root workspace member (see its
   # own README — its ~230 MB unpacked @huggingface/transformers dependency would otherwise be
   # downloaded by every `bun install --frozen-lockfile` at the repo root, whether or not anyone uses
@@ -938,7 +938,7 @@ jobs:
       # ships a build for (all but darwin-x64): the first-run matrix (ci-first-run-smoke.yml) builds
       # it with this same script and runs a real semantic search.
       - name: compile standalone binary
-        run: bun scripts/build-binary.ts --target ${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
+        run: bun scripts/build-binary.ts --target ${{ matrix.target }} --outfile packages/server/dist/reliquary-tc-${{ matrix.target }}
         shell: bash
       # RUN the thing we are about to ship. Two assertions, because the first alone is not
       # enough: `version` proves the module graph loads (the old failure was at load time, in
@@ -954,7 +954,7 @@ jobs:
           set -euo pipefail
           # bun appends .exe on the windows target. Checked explicitly rather than globbed: the name
           # is deterministic, and `ls | head` would silently pick a wrong file (shellcheck SC2012).
-          bin="packages/server/dist/obsidian-tc-$TARGET"
+          bin="packages/server/dist/reliquary-tc-$TARGET"
           [ -f "$bin.exe" ] && bin="$bin.exe"
           [ -f "$bin" ] || { echo "::error::compiled binary not found at $bin"; exit 1; }
           echo "smoking: $bin"
@@ -1002,7 +1002,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: binary-${{ matrix.target }}
-          path: packages/server/dist/obsidian-tc-*
+          path: packages/server/dist/reliquary-tc-*
 
   build-plugin:
     # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
@@ -1060,20 +1060,20 @@ jobs:
       # is only the version when the ref is a tag whose NAME encodes it. On any other ref it
       # silently produces nonsense, and the workflow declares a workflow_dispatch trigger, so a
       # non-tag ref is reachable: dispatching on a branch yielded
-      # "obsidian-tc-plugin-release/v1.11.0-artifacts.zip", whose slash made zip fail with
+      # "reliquary-tc-plugin-release/v1.11.0-artifacts.zip", whose slash made zip fail with
       # "Could not create output file".
       - name: zip plugin
         run: |
           version=$(node -p "require('./packages/server/package.json').version")
           cd packages/plugin/dist
-          zip -r "../obsidian-tc-plugin-${version}.zip" main.js manifest.json styles.css
+          zip -r "../reliquary-tc-plugin-${version}.zip" main.js manifest.json styles.css
         shell: bash
-      # obsidian-tc was renamed to tc-bridge/"TC Bridge" (the community directory bans
+      # reliquary-tc was renamed to tc-bridge/"TC Bridge" (the community directory bans
       # "obsidian" in a plugin id). Existing users on the OLD id get exactly one more release: a
       # sunset build (packages/plugin/legacy/) that only shows a notice pointing them at TC
       # Bridge — its manifest version was bumped once by hand and it is NOT part of the repo's
       # version lockstep (check-version-coherence.mjs does not track it; it never updates again).
-      # Zipped under the existing `obsidian-tc-*` asset pattern below so draft-release's files:
+      # Zipped under the existing `reliquary-tc-*` asset pattern below so draft-release's files:
       # glob (further down this workflow) picks it up with no change there. Its loose
       # manifest.json/main.js/styles.css are deliberately NOT uploaded standalone — those three
       # filenames are reserved for the tc-bridge community-store submission assets just above,
@@ -1085,7 +1085,7 @@ jobs:
         run: |
           legacy_version=$(node -p "require('./packages/plugin/legacy/manifest.json').version")
           cd packages/plugin/legacy/dist
-          zip -r "../../obsidian-tc-legacy-final-notice-${legacy_version}.zip" main.js manifest.json styles.css
+          zip -r "../../reliquary-tc-legacy-final-notice-${legacy_version}.zip" main.js manifest.json styles.css
         shell: bash
       # Upload the zips AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading, not only the zip.
@@ -1098,8 +1098,8 @@ jobs:
         with:
           name: plugin
           path: |
-            packages/plugin/obsidian-tc-plugin-*.zip
-            packages/plugin/obsidian-tc-legacy-final-notice-*.zip
+            packages/plugin/reliquary-tc-plugin-*.zip
+            packages/plugin/reliquary-tc-legacy-final-notice-*.zip
             packages/plugin/dist/manifest.json
             packages/plugin/dist/main.js
             packages/plugin/dist/styles.css
@@ -1143,8 +1143,8 @@ jobs:
       - name: assert both image prebuilds are in the build context
         run: |
           ls -l packages/native/*.node
-          test -f packages/native/obsidian-tc-native.linux-x64-gnu.node
-          test -f packages/native/obsidian-tc-native.linux-arm64-gnu.node
+          test -f packages/native/reliquary-tc-native.linux-x64-gnu.node
+          test -f packages/native/reliquary-tc-native.linux-arm64-gnu.node
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -1153,7 +1153,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # Same reasoning as the plugin zip: on a non-tag ref the old form produced the docker tag
-      # "ghcr.io/the-40-thieves/obsidian-tc:release/v1.11.0-artifacts", which buildx rejected as an
+      # "ghcr.io/the-40-thieves/reliquary-tc:release/v1.11.0-artifacts", which buildx rejected as an
       # "invalid reference format" because a docker tag cannot contain a slash. Deriving from the
       # version also makes the prerelease test agree with publish-npm's, which already
       # classifies from the version string rather than the ref: a tag named v1.12.0-beta.1 was
@@ -1166,7 +1166,7 @@ jobs:
       # was a genuinely dead local recompute, not just a duplicate-looking one.
       # OCI labels are INHERITED from the base image unless overridden. oven/bun:1-slim carries its
       # own org.opencontainers.image.revision and .created, so the published image advertised Bun's
-      # commit (0d9b296a, which exists in no obsidian-tc history) and Bun's build date (2026-05-13)
+      # commit (0d9b296a, which exists in no reliquary-tc history) and Bun's build date (2026-05-13)
       # next to OUR source URL. That combination is worse than either label alone: `source` being
       # correct lends credibility to a `revision` that resolves to nothing, so anyone asking "which
       # commit built this image" got a confidently wrong answer. Override every field we assert.
@@ -1184,14 +1184,14 @@ jobs:
           # Pushed under a STAGING tag only: the public tags (:<version>, :latest) move in the
           # promote step below, after both platform images of this exact digest boot offline with
           # native=on vec=on. A failed smoke leaves only `smoke-<version>` behind.
-          tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ needs.verify-tag.outputs.version }}
+          tags: ghcr.io/the-40-thieves/reliquary-tc:smoke-${{ needs.verify-tag.outputs.version }}
           labels: |
-            org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
+            org.opencontainers.image.source=https://github.com/the-40-thieves/reliquary-tc
             org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
-            org.opencontainers.image.title=obsidian-tc
+            org.opencontainers.image.title=reliquary-tc
       # The -git variant (git-sync --supervise): the runtime stage plus git and openssh-client, built from
       # the same context and staged under its own tag. It is smoked (git mode) and promoted by its own
       # smoke-and-promote call below; the default image above is unchanged.
@@ -1203,14 +1203,14 @@ jobs:
           target: git
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ needs.verify-tag.outputs.version }}-git
+          tags: ghcr.io/the-40-thieves/reliquary-tc:smoke-${{ needs.verify-tag.outputs.version }}-git
           labels: |
-            org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
+            org.opencontainers.image.source=https://github.com/the-40-thieves/reliquary-tc
             org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
-            org.opencontainers.image.title=obsidian-tc
+            org.opencontainers.image.title=reliquary-tc
       # Keyless cosign signing of the image happens inside the smoke-and-promote action, by DIGEST, after
       # the boot smoke and before any public tag moves: a tag can be re-pointed later, a signature over the
       # digest cannot. The installer pin is the same as sign-artifacts'; it must run before the action.
@@ -1224,20 +1224,20 @@ jobs:
       - name: boot-smoke, sign and verify both platforms, then promote the digest to the public tags
         uses: ./.github/actions/smoke-and-promote-image
         with:
-          image: ghcr.io/the-40-thieves/obsidian-tc
+          image: ghcr.io/the-40-thieves/reliquary-tc
           digest: ${{ steps.push.outputs.digest }}
           tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
-            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
+            ghcr.io/the-40-thieves/reliquary-tc:${{ needs.verify-tag.outputs.version }}
+            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/reliquary-tc:latest' || '' }}
       - name: boot-smoke (git sync), sign and verify, then promote the -git digest
         uses: ./.github/actions/smoke-and-promote-image
         with:
-          image: ghcr.io/the-40-thieves/obsidian-tc
+          image: ghcr.io/the-40-thieves/reliquary-tc
           digest: ${{ steps.push-git.outputs.digest }}
           smoke-mode: git
           tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}-git
-            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest-git' || '' }}
+            ghcr.io/the-40-thieves/reliquary-tc:${{ needs.verify-tag.outputs.version }}-git
+            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/reliquary-tc:latest-git' || '' }}
       # An SBOM of the IMAGE, which nothing else produces. The SBOM step in publish-npm runs
       # `npm sbom` over the three packages — npm dependency trees only. It cannot see what actually
       # ships in the container: the Debian base packages, the bun runtime, or the compiled native
@@ -1253,7 +1253,7 @@ jobs:
       - name: syft — SBOM of the published image (SPDX)
         continue-on-error: true
         env:
-          IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
+          IMAGE: ghcr.io/the-40-thieves/reliquary-tc:${{ needs.verify-tag.outputs.version }}
         run: |
           # errexit: a failed checksum must stop here, not fall through to running the binary.
           set -euo pipefail
@@ -1265,13 +1265,13 @@ jobs:
             https://github.com/anchore/syft/releases/download/v1.49.0/syft_1.49.0_linux_amd64.tar.gz
           echo "7aa2f03ee92739cf643279ba3990548b9925d4e22cae13f46831ee62821147fe  $RUNNER_TEMP/syft.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP/syft-bin" syft
-          if ! "$RUNNER_TEMP/syft-bin/syft" "$IMAGE" -o spdx-json > "sboms/obsidian-tc-image.spdx.json"; then
+          if ! "$RUNNER_TEMP/syft-bin/syft" "$IMAGE" -o spdx-json > "sboms/reliquary-tc-image.spdx.json"; then
             echo "::warning::image SBOM generation failed for $IMAGE"
-            rm -f sboms/obsidian-tc-image.spdx.json
+            rm -f sboms/reliquary-tc-image.spdx.json
           fi
           ls -la sboms/
       - name: upload image SBOM
-        if: hashFiles('sboms/obsidian-tc-image.spdx.json') != ''
+        if: hashFiles('sboms/reliquary-tc-image.spdx.json') != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-image
@@ -1312,7 +1312,7 @@ jobs:
         with:
           name: mcpb
           path: |
-            dist/obsidian-tc.mcpb
+            dist/reliquary-tc.mcpb
 
   # Keyless cosign signatures (GitHub OIDC -> Fulcio certificate -> Rekor entry) for EVERY binary
   # artifact the release ships: the 8 native `.node` prebuilds (published through npm as the
@@ -1390,9 +1390,9 @@ jobs:
           sign_family native artifacts/native-*/*.node
           # A standalone binary ships with its sourcemap; each is signed, under its own family so the
           # binary count stays the build matrix's row count.
-          sign_family binary artifacts/binary-*/obsidian-tc-!(*.map)
-          sign_family binary-map artifacts/binary-*/obsidian-tc-*.map
-          sign_family plugin-zip artifacts/plugin/**/obsidian-tc-*.zip
+          sign_family binary artifacts/binary-*/reliquary-tc-!(*.map)
+          sign_family binary-map artifacts/binary-*/reliquary-tc-*.map
+          sign_family plugin-zip artifacts/plugin/**/reliquary-tc-*.zip
           sign_family plugin-main artifacts/plugin/**/main.js
           sign_family plugin-manifest artifacts/plugin/**/manifest.json
           sign_family plugin-styles artifacts/plugin/**/styles.css
@@ -1425,7 +1425,7 @@ jobs:
           # only the assets the release attaches; skip native-* and the .dockerbuild record
           pattern: '{binary-*,plugin,mcpb}'
       # Downloaded OUTSIDE artifacts/ on purpose: a bundle is named `<file>.sigstore.json`, so
-      # `obsidian-tc-<x>.sigstore.json` under artifacts/ would match the `artifacts/**/obsidian-tc-*`
+      # `reliquary-tc-<x>.sigstore.json` under artifacts/ would match the `artifacts/**/reliquary-tc-*`
       # pattern below AND its own `signatures/` pattern — the double-match that queues an asset
       # twice and fails the upload (see the note above `files:`). It also keeps the bundles out of
       # SHASUMS256.txt, which lists the signed files, not their signatures.
@@ -1436,7 +1436,7 @@ jobs:
       - name: generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name 'obsidian-tc-*' -o -name '*.mcpb' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
+          find . -type f \( -name 'reliquary-tc-*' -o -name '*.mcpb' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
         shell: bash
       # The release is created as a DRAFT and only published by the last step of this job, after
       # check-release-assets.sh has confirmed every artifact and every cosign bundle is attached.
@@ -1465,15 +1465,15 @@ jobs:
           prerelease: ${{ needs.verify-tag.outputs.prerelease == 'true' }}
           make_latest: ${{ needs.verify-tag.outputs.prerelease != 'true' }}
           # `artifacts/**/*.zip` used to sit between the .mcpb and manifest.json lines and
-          # was REDUNDANT — build-plugin emits exactly one zip, obsidian-tc-plugin-<version>.zip,
-          # which already matches `obsidian-tc-*`. Being matched by two patterns queued it for
+          # was REDUNDANT — build-plugin emits exactly one zip, reliquary-tc-plugin-<version>.zip,
+          # which already matches `reliquary-tc-*`. Being matched by two patterns queued it for
           # upload TWICE, and with overwrite_files the second copy takes the *update* path: it looks
           # up an asset the first copy has not finished creating, gets a 404, and fails the job.
-          # It is the only double-match here (obsidian-tc.mcpb has no hyphen after `obsidian-tc`;
+          # It is the only double-match here (reliquary-tc.mcpb has no hyphen after `reliquary-tc`;
           # the bun binaries are not .zip), which is why the plugin bundle specifically went missing.
           # Do not re-add a pattern that overlaps another.
           files: |
-            artifacts/**/obsidian-tc-*
+            artifacts/**/reliquary-tc-*
             artifacts/**/*.mcpb
             artifacts/**/manifest.json
             artifacts/**/main.js
@@ -1511,7 +1511,7 @@ jobs:
 
   # Obsidian's community-directory validator (and the community.obsidian.md self-service
   # submission form) reads the release whose TAG EQUALS manifest.json's version, not this repo's
-  # own `v<version>` convention — every obsidian-tc release is tagged `v<version>`, so the
+  # own `v<version>` convention — every reliquary-tc release is tagged `v<version>`, so the
   # plugin's manifest version never had a matching release until this job was added (fixed by hand
   # for 1.27.0; see scripts/mirror-plugin-release.mjs's header for the rejection text). `needs:
   # [draft-release]` on purpose: the signed `v<version>` release must exist FIRST, so that

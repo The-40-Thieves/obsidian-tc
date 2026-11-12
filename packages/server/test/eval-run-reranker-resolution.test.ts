@@ -14,7 +14,7 @@
 // `config.reranker` from the eval config JSON. `resolveRerankerFn` is injected here so this test
 // never imports the real provider registry (and, transitively, never needs
 // @huggingface/transformers or the local reranker's model weights) to prove the wiring.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it, vi } from "vitest";
 import { buildEvalReranker } from "../eval/run";
 import type { Reranker } from "../src/search/rerank";

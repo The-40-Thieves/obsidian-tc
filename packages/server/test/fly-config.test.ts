@@ -52,7 +52,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("fly.toml", () => {
   it("runs the published image, not a build of the repository Dockerfile", () => {
-    expect(fly.build?.image).toBe("ghcr.io/the-40-thieves/obsidian-tc:latest");
+    expect(fly.build?.image).toBe("ghcr.io/the-40-thieves/reliquary-tc:latest");
   });
 
   it("mounts one volume at /data, as a single table", () => {
@@ -80,46 +80,46 @@ describe("fly.toml", () => {
     expect(checks[0]?.headers?.Host).toBe("localhost");
   });
 
-  it("copies the shared HTTP config to the path OBSIDIAN_TC_CONFIG names, from the repo", () => {
+  it("copies the shared HTTP config to the path RELIQUARY_TC_CONFIG names, from the repo", () => {
     const file = fly.files?.[0];
-    expect(file?.guest_path).toBe(env.OBSIDIAN_TC_CONFIG);
-    expect(file?.local_path).toBe("deploy/config/obsidian-tc.config.json");
+    expect(file?.guest_path).toBe(env.RELIQUARY_TC_CONFIG);
+    expect(file?.local_path).toBe("deploy/config/reliquary-tc.config.json");
     const shared = JSON.parse(readFileSync(join(repoRoot, file?.local_path ?? ""), "utf8")) as {
       vaults?: { path?: string }[];
       transports?: { http?: { host?: string } };
     };
-    expect(shared.vaults?.[0]?.path).toBe(env.OBSIDIAN_TC_VAULT_PATH);
+    expect(shared.vaults?.[0]?.path).toBe(env.RELIQUARY_TC_VAULT_PATH);
     expect(shared.transports?.http?.host).toBe("0.0.0.0");
   });
 
   it("keeps secrets and the public URL out of [env]", () => {
     for (const key of [
-      "OBSIDIAN_TC_JWT_SECRET",
-      "OBSIDIAN_TC_AS_SETUP_TOKEN",
+      "RELIQUARY_TC_JWT_SECRET",
+      "RELIQUARY_TC_AS_SETUP_TOKEN",
       "OPENAI_API_KEY",
-      "OBSIDIAN_TC_PUBLIC_URL",
+      "RELIQUARY_TC_PUBLIC_URL",
     ]) {
       expect(env).not.toHaveProperty(key);
     }
-    expect(env.OBSIDIAN_TC_VAULT_PATH?.startsWith("/data/")).toBe(true);
-    expect(env.OBSIDIAN_TC_CACHE_DIR?.startsWith("/data/")).toBe(true);
+    expect(env.RELIQUARY_TC_VAULT_PATH?.startsWith("/data/")).toBe(true);
+    expect(env.RELIQUARY_TC_CACHE_DIR?.startsWith("/data/")).toBe(true);
   });
 
   it("loads through the real config loader, and the check's Host header passes the guard", () => {
     const dir = makeTempDir("obtc-fly-config-");
     try {
       vi.stubEnv("PORT", env.PORT ?? "");
-      vi.stubEnv("OBSIDIAN_TC_PUBLIC_URL", "https://obsidian-tc.fly.dev");
-      vi.stubEnv("OBSIDIAN_TC_JWT_SECRET", "fly-smoke-secret-that-is-at-least-32-chars-long");
-      vi.stubEnv("OBSIDIAN_TC_VAULT_PATH", join(dir, "vault"));
-      vi.stubEnv("OBSIDIAN_TC_CACHE_DIR", join(dir, "cache"));
+      vi.stubEnv("RELIQUARY_TC_PUBLIC_URL", "https://reliquary-tc.fly.dev");
+      vi.stubEnv("RELIQUARY_TC_JWT_SECRET", "fly-smoke-secret-that-is-at-least-32-chars-long");
+      vi.stubEnv("RELIQUARY_TC_VAULT_PATH", join(dir, "vault"));
+      vi.stubEnv("RELIQUARY_TC_CACHE_DIR", join(dir, "cache"));
       mkdirSync(join(dir, "vault"));
 
-      const config = loadConfig(join(repoRoot, "deploy/config/obsidian-tc.config.json"));
+      const config = loadConfig(join(repoRoot, "deploy/config/reliquary-tc.config.json"));
 
       expect(config.transports.http).toMatchObject({ enabled: true, host: "0.0.0.0", port: 8765 });
       const allowed = config.transports.http.allowedHosts ?? [];
-      expect(allowed).toContain("obsidian-tc.fly.dev");
+      expect(allowed).toContain("reliquary-tc.fly.dev");
       expect(isHostAllowed("localhost", allowed)).toBe(true);
       expect(isHostAllowed("[fdaa::3]:8765", allowed)).toBe(false);
     } finally {

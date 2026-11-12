@@ -44,7 +44,7 @@ export interface IndexHealthSnapshot {
 
 export interface HealthInfo {
   status: "ok";
-  name: "obsidian-tc";
+  name: "reliquary-tc";
   version: string;
   /** True when the compiled native search module is loaded (accelerated path). Non-identifying. */
   native_loaded: boolean;
@@ -57,7 +57,7 @@ export interface HealthInfo {
    *  queries with silently incomplete results. It cannot go false when the index is broken, so it
    *  is not a signal about index health. Soundness is reported by `doctor --probe`
    *  (`search.notes_fts`), which runs the FTS5 integrity-check; boot-time detection and repair is
-   *  opt-in via OBSIDIAN_TC_VERIFY_FTS=1. */
+   *  opt-in via RELIQUARY_TC_VERIFY_FTS=1. */
   fts_enabled: boolean;
   /** GH #1433: unbound authenticated callers only (THE-924): process RSS is process-wide, so a
    *  vault-bound token would see other tenants' activity at MiB resolution (as /metrics refuses). */
@@ -178,7 +178,7 @@ const FtsHealthOutput = z
     last_error: z.string().optional(),
   })
   .describe(
-    "Full-text (notes_fts) state. available; recovering (a transient database lock at startup, retried in the background with attempts, max_attempts and next_retry_at, and searches use slower exhaustive disk scans meanwhile); or unavailable with a reason (lock_contention once retries are spent, disabled by OBSIDIAN_TC_DISABLE_FTS, no_notes_table, provision_failed, integrity_failed). last_error is withheld from callers that may not read every vault.",
+    "Full-text (notes_fts) state. available; recovering (a transient database lock at startup, retried in the background with attempts, max_attempts and next_retry_at, and searches use slower exhaustive disk scans meanwhile); or unavailable with a reason (lock_contention once retries are spent, disabled by RELIQUARY_TC_DISABLE_FTS, no_notes_table, provision_failed, integrity_failed). last_error is withheld from callers that may not read every vault.",
   );
 
 function ftsView(s: FtsStatus, detail: boolean): FtsHealthView {
@@ -320,7 +320,7 @@ const HealthMemoryOutput = z.object({
 
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
-  name: z.literal("obsidian-tc"),
+  name: z.literal("reliquary-tc"),
   version: z.string(),
   native_loaded: z.boolean(),
   vec_enabled: z.boolean(),
@@ -558,7 +558,7 @@ export function createHealthTool(opts: {
       const fts = opts.getFtsStatus?.();
       return {
         status: "ok",
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: opts.version,
         native_loaded: opts.nativeLoaded,
         vec_enabled: opts.vecEnabled,
@@ -635,7 +635,7 @@ export function createHealthTool(opts: {
               deprecations: indexDetail
                 ? [...opts.deprecations]
                 : [
-                    `${opts.deprecations.length} deprecation notice${opts.deprecations.length === 1 ? "" : "s"} in effect; the detail names hosts and vaults and is withheld from this caller (run \`obsidian-tc doctor\` on the server, or call server_health as an unrestricted administrator)`,
+                    `${opts.deprecations.length} deprecation notice${opts.deprecations.length === 1 ? "" : "s"} in effect; the detail names hosts and vaults and is withheld from this caller (run \`reliquary-tc doctor\` on the server, or call server_health as an unrestricted administrator)`,
                   ],
             }
           : {}),

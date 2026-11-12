@@ -4,7 +4,7 @@
 // coverage theater. See that file for the calling convention and m1-helpers.ts for the fixture
 // harness this file reuses verbatim.
 import { chmodSync } from "node:fs";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { nativeVaultIo } from "../src/vault/notes-io";
@@ -506,7 +506,7 @@ describe("read_notes: a permission-denied read is classified, not swallowed as a
 
   // THE-608: the EXPECTED CODE depends on which I/O implementation is loaded, and both are correct.
   //   - JS path (nativeVaultIo === false): openSync raises a plain EACCES Error, not an
-  //     ObsidianTcError, so the handler's catch must fall through to "internal_error" rather than
+  //     ReliquaryTcError, so the handler's catch must fall through to "internal_error" rather than
   //     mis-typing it. That is the branch this test was originally written for.
   //   - Native path (nativeVaultIo === true): the THE-272 symlink-safe open refuses the path, and
   //     mapNativeReadError (vault/notes-io.ts:67) DELIBERATELY reclassifies an exists-but-refused

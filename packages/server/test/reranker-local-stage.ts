@@ -110,7 +110,7 @@ export function buildStagedRerankerLocal(stagedPkg: string): string {
   return join(stagedPkg, "dist", "index.js");
 }
 
-const REAL_RERANKER_LOCAL_PACKAGE_NAME = "@the-40-thieves/obsidian-tc-reranker-local";
+const REAL_RERANKER_LOCAL_PACKAGE_NAME = "@the-40-thieves/reliquary-tc-reranker-local";
 
 /** Writes ONLY the anchor `packages/reranker-local/package.json` (correct name; no dist, no
  *  node_modules) under `root` — the "not built at all" shape

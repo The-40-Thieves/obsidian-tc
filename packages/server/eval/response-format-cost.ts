@@ -19,7 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BootstrapConfigSchema, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { BootstrapConfigSchema, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { FolderAcl } from "../src/acl";
 import { CapabilityCache } from "../src/bridge";
 import { runMigrations } from "../src/db/migrate";

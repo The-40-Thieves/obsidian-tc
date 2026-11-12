@@ -2,7 +2,7 @@
 // only as private as its path filter. Red cases first: an unreadable path must be indistinguishable
 // from a path that was never written, a record naming several paths must not reveal the ones the
 // caller cannot read, and one vault's records and ACL must never serve another vault.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";

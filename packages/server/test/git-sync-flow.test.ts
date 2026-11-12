@@ -81,7 +81,7 @@ describe.skipIf(process.platform === "win32")("git-sync bidirectional synchroniz
     await sync.syncOnce();
     const log = git(fixture.vault, ["log", "-1", "--format=%an <%ae>%n%B"]);
     expect(log).toContain("Vault Bot <vault@example.test>");
-    expect(log).toContain("obsidian-tc: update 2 notes");
+    expect(log).toContain("reliquary-tc: update 2 notes");
     expect(log).toContain("a.md");
     expect(log).toContain("b.md");
     git(fixture.laptop, ["pull", "--ff-only"]);
@@ -144,9 +144,9 @@ describe.skipIf(process.platform === "win32")("git-sync conflict and retry polic
     const conflictRef = git(fixture.origin, [
       "for-each-ref",
       "--format=%(refname:short)",
-      "refs/heads/obsidian-tc/conflict",
+      "refs/heads/reliquary-tc/conflict",
     ]);
-    expect(conflictRef).toMatch(/^obsidian-tc\/conflict\//);
+    expect(conflictRef).toMatch(/^reliquary-tc\/conflict\//);
     expect(git(fixture.origin, ["show", `${conflictRef}:a.md`])).toBe("edited during push");
   });
 
@@ -179,7 +179,7 @@ describe.skipIf(process.platform === "win32")("git-sync conflict and retry polic
     const executor: GitExecutor = async (file, args, options) => {
       const command = gitSubcommand(args);
       if (command === "push") {
-        if (args.some((arg) => arg.startsWith("HEAD:refs/heads/obsidian-tc/conflict/"))) {
+        if (args.some((arg) => arg.startsWith("HEAD:refs/heads/reliquary-tc/conflict/"))) {
           throw Object.assign(new Error("conflict push unavailable"), {
             stderr: "conflict push unavailable",
           });
@@ -226,10 +226,10 @@ describe.skipIf(process.platform === "win32")("git-sync conflict and retry polic
     const refs = git(fixture.origin, [
       "for-each-ref",
       "--format=%(refname:short)",
-      "refs/heads/obsidian-tc/conflict",
+      "refs/heads/reliquary-tc/conflict",
     ]);
     const conflictRef = refs.split("\n").find(Boolean);
-    expect(conflictRef).toMatch(/^obsidian-tc\/conflict\/\d{4}-\d{2}-\d{2}T/);
+    expect(conflictRef).toMatch(/^reliquary-tc\/conflict\/\d{4}-\d{2}-\d{2}T/);
     git(fixture.laptop, ["fetch", "origin", `${conflictRef}:refs/remotes/origin/conflict-test`]);
     expect(git(fixture.laptop, ["show", "origin/conflict-test:a.md"])).toBe("vault text");
     const status = JSON.parse(readFileSync(join(fixture.cache, "git-sync", "status.json"), "utf8"));
@@ -247,7 +247,7 @@ describe.skipIf(process.platform === "win32")("git-sync conflict and retry polic
       git(fixture.origin, [
         "for-each-ref",
         "--format=%(refname)",
-        "refs/heads/obsidian-tc/conflict",
+        "refs/heads/reliquary-tc/conflict",
       ]),
     ).toBe("");
     expect(git(fixture.vault, ["rev-list", "--left-right", "--count", "origin/main...HEAD"])).toBe(
@@ -268,7 +268,7 @@ describe.skipIf(process.platform === "win32")("git-sync conflict and retry polic
       git(fixture.origin, [
         "for-each-ref",
         "--format=%(refname:short)",
-        "refs/heads/obsidian-tc/conflict",
+        "refs/heads/reliquary-tc/conflict",
       ]),
     ).not.toBe("");
     expect(existsSync(join(fixture.vault, "rejected.md"))).toBe(false);

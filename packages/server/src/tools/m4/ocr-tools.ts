@@ -4,7 +4,7 @@
 // set server-side and ACL-filters it before the bridge call; it overrides its
 // throttle scope class to `bulk` and ALWAYS requires human confirmation (a bulk HITL
 // floor: OCR is expensive). Plugin id is "text-extractor".
-import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import { fingerprintTargets } from "../../elicit-drift";

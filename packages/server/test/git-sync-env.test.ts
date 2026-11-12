@@ -7,59 +7,63 @@ import { buildSshCommand, type GitSyncConfig, loadGitSyncConfig } from "../src/g
 import { makeTempDir } from "./tmp";
 
 const base = {
-  OBSIDIAN_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
-  OBSIDIAN_TC_VAULT_PATH: "/tmp/vault",
-  OBSIDIAN_TC_CACHE_DIR: "/tmp/cache",
+  RELIQUARY_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
+  RELIQUARY_TC_VAULT_PATH: "/tmp/vault",
+  RELIQUARY_TC_CACHE_DIR: "/tmp/cache",
 };
 
 describe.skipIf(process.platform === "win32")("git-sync environment", () => {
   it.each([
-    ["OBSIDIAN_TC_VAULT_GIT_URL", { OBSIDIAN_TC_VAULT_GIT_URL: undefined }, "missing"],
+    ["RELIQUARY_TC_VAULT_GIT_URL", { RELIQUARY_TC_VAULT_GIT_URL: undefined }, "missing"],
     [
-      "OBSIDIAN_TC_VAULT_GIT_URL",
-      { OBSIDIAN_TC_VAULT_GIT_URL: "http://bad-SECRET/x" },
+      "RELIQUARY_TC_VAULT_GIT_URL",
+      { RELIQUARY_TC_VAULT_GIT_URL: "http://bad-SECRET/x" },
       "bad-SECRET",
     ],
     [
-      "OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL",
-      { OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL: "9-SECRET" },
+      "RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL",
+      { RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL: "9-SECRET" },
       "9-SECRET",
     ],
     [
-      "OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL",
-      { OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL: "10.5-SECRET" },
+      "RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL",
+      { RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL: "10.5-SECRET" },
       "10.5-SECRET",
     ],
-    ["OBSIDIAN_TC_VAULT_GIT_PUSH", { OBSIDIAN_TC_VAULT_GIT_PUSH: "now-SECRET" }, "now-SECRET"],
-    ["OBSIDIAN_TC_VAULT_GIT_AUTHOR", { OBSIDIAN_TC_VAULT_GIT_AUTHOR: "bad-SECRET" }, "bad-SECRET"],
+    ["RELIQUARY_TC_VAULT_GIT_PUSH", { RELIQUARY_TC_VAULT_GIT_PUSH: "now-SECRET" }, "now-SECRET"],
     [
-      "OBSIDIAN_TC_VAULT_GIT_SSH_KEY",
-      { OBSIDIAN_TC_VAULT_GIT_URL: "git@example.test:o/r.git" },
+      "RELIQUARY_TC_VAULT_GIT_AUTHOR",
+      { RELIQUARY_TC_VAULT_GIT_AUTHOR: "bad-SECRET" },
+      "bad-SECRET",
+    ],
+    [
+      "RELIQUARY_TC_VAULT_GIT_SSH_KEY",
+      { RELIQUARY_TC_VAULT_GIT_URL: "git@example.test:o/r.git" },
       "git@example.test:o/r.git",
     ],
     [
-      "OBSIDIAN_TC_VAULT_GIT_TOKEN",
-      { OBSIDIAN_TC_VAULT_GIT_URL: "https://example.test/o/r.git" },
+      "RELIQUARY_TC_VAULT_GIT_TOKEN",
+      { RELIQUARY_TC_VAULT_GIT_URL: "https://example.test/o/r.git" },
       "https://example.test/o/r.git",
     ],
     [
-      "OBSIDIAN_TC_VAULT_GIT_URL",
+      "RELIQUARY_TC_VAULT_GIT_URL",
       {
-        OBSIDIAN_TC_VAULT_GIT_URL: "ssh://user:ssh-SECRET@example.test/o/r.git",
-        OBSIDIAN_TC_VAULT_GIT_SSH_KEY: "key",
+        RELIQUARY_TC_VAULT_GIT_URL: "ssh://user:ssh-SECRET@example.test/o/r.git",
+        RELIQUARY_TC_VAULT_GIT_SSH_KEY: "key",
       },
       "ssh-SECRET",
     ],
     [
-      "OBSIDIAN_TC_VAULT_GIT_URL",
-      { OBSIDIAN_TC_VAULT_GIT_URL: "https://bad host/url-SECRET" },
+      "RELIQUARY_TC_VAULT_GIT_URL",
+      { RELIQUARY_TC_VAULT_GIT_URL: "https://bad host/url-SECRET" },
       "url-SECRET",
     ],
-    ["OBSIDIAN_TC_VAULT_PATH", { OBSIDIAN_TC_VAULT_PATH: undefined }, "missing-vault"],
-    ["OBSIDIAN_TC_CACHE_DIR", { OBSIDIAN_TC_CACHE_DIR: undefined }, "missing-cache"],
+    ["RELIQUARY_TC_VAULT_PATH", { RELIQUARY_TC_VAULT_PATH: undefined }, "missing-vault"],
+    ["RELIQUARY_TC_CACHE_DIR", { RELIQUARY_TC_CACHE_DIR: undefined }, "missing-cache"],
     [
-      "OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL",
-      { OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL: "999999999999999999999-SECRET" },
+      "RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL",
+      { RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL: "999999999999999999999-SECRET" },
       "999999999999999999999-SECRET",
     ],
   ])("names %s without exposing its bad value", (variable, overlay, secret) => {
@@ -76,15 +80,15 @@ describe.skipIf(process.platform === "win32")("git-sync environment", () => {
   it("accepts local and file URLs without credentials and applies defaults", () => {
     expect(loadGitSyncConfig(base)).toMatchObject({
       url: "file:///tmp/origin.git",
-      authorName: "obsidian-tc",
-      authorEmail: "obsidian-tc@localhost",
+      authorName: "reliquary-tc",
+      authorEmail: "reliquary-tc@localhost",
       pullIntervalMs: 30_000,
       push: "batched",
     });
     expect(
-      loadGitSyncConfig({ ...base, OBSIDIAN_TC_VAULT_GIT_URL: "/tmp/origin.git" }).urlKind,
+      loadGitSyncConfig({ ...base, RELIQUARY_TC_VAULT_GIT_URL: "/tmp/origin.git" }).urlKind,
     ).toBe("local");
-    expect(loadGitSyncConfig({ ...base, OBSIDIAN_TC_VAULT_GIT_URL: "./origin.git" }).url).toBe(
+    expect(loadGitSyncConfig({ ...base, RELIQUARY_TC_VAULT_GIT_URL: "./origin.git" }).url).toBe(
       resolve("./origin.git"),
     );
   });
@@ -92,10 +96,10 @@ describe.skipIf(process.platform === "win32")("git-sync environment", () => {
   it("refuses to place git-sync state inside the vault", () => {
     const env = {
       ...base,
-      OBSIDIAN_TC_VAULT_PATH: "/tmp/vault-SECRET",
-      OBSIDIAN_TC_CACHE_DIR: "/tmp/vault-SECRET/cache",
+      RELIQUARY_TC_VAULT_PATH: "/tmp/vault-SECRET",
+      RELIQUARY_TC_CACHE_DIR: "/tmp/vault-SECRET/cache",
     };
-    expect(() => loadGitSyncConfig(env)).toThrow(/OBSIDIAN_TC_(?:VAULT_PATH|CACHE_DIR)/);
+    expect(() => loadGitSyncConfig(env)).toThrow(/RELIQUARY_TC_(?:VAULT_PATH|CACHE_DIR)/);
     try {
       loadGitSyncConfig(env);
     } catch (error) {
@@ -108,14 +112,14 @@ describe.skipIf(process.platform === "win32")("git-sync environment", () => {
     "-oProxyCommand=evil@host:repo.git",
     "ext::sh -c touch% /tmp/pwned",
   ])("refuses the unsafe repository URL %s", (url) => {
-    expect(() => loadGitSyncConfig({ ...base, OBSIDIAN_TC_VAULT_GIT_URL: url })).toThrow(
-      /OBSIDIAN_TC_VAULT_GIT_URL/,
+    expect(() => loadGitSyncConfig({ ...base, RELIQUARY_TC_VAULT_GIT_URL: url })).toThrow(
+      /RELIQUARY_TC_VAULT_GIT_URL/,
     );
   });
 
   it.each(["--foo", "a..b", "bad\nbranch"])('refuses the unsafe branch "%s"', (branch) => {
-    expect(() => loadGitSyncConfig({ ...base, OBSIDIAN_TC_VAULT_GIT_BRANCH: branch })).toThrow(
-      /OBSIDIAN_TC_VAULT_GIT_BRANCH/,
+    expect(() => loadGitSyncConfig({ ...base, RELIQUARY_TC_VAULT_GIT_BRANCH: branch })).toThrow(
+      /RELIQUARY_TC_VAULT_GIT_BRANCH/,
     );
   });
 
@@ -128,17 +132,17 @@ describe.skipIf(process.platform === "win32")("git-sync environment", () => {
     expect(() =>
       loadGitSyncConfig({
         ...base,
-        OBSIDIAN_TC_VAULT_PATH: vaultLink,
-        OBSIDIAN_TC_CACHE_DIR: join(vault, "cache"),
+        RELIQUARY_TC_VAULT_PATH: vaultLink,
+        RELIQUARY_TC_CACHE_DIR: join(vault, "cache"),
       }),
-    ).toThrow(/OBSIDIAN_TC_(?:VAULT_PATH|CACHE_DIR)/);
+    ).toThrow(/RELIQUARY_TC_(?:VAULT_PATH|CACHE_DIR)/);
     expect(() =>
       loadGitSyncConfig({
         ...base,
-        OBSIDIAN_TC_VAULT_PATH: join(root, "cache", "git-sync", "vault"),
-        OBSIDIAN_TC_CACHE_DIR: join(root, "cache"),
+        RELIQUARY_TC_VAULT_PATH: join(root, "cache", "git-sync", "vault"),
+        RELIQUARY_TC_CACHE_DIR: join(root, "cache"),
       }),
-    ).toThrow(/OBSIDIAN_TC_(?:VAULT_PATH|CACHE_DIR)/);
+    ).toThrow(/RELIQUARY_TC_(?:VAULT_PATH|CACHE_DIR)/);
   });
 
   it("builds pinned and trust-on-first-use SSH commands with safely quoted paths", () => {
@@ -160,7 +164,7 @@ describe.skipIf(process.platform === "win32")("git-sync CLI parsing", () => {
   it("parses the long-running and once forms and advertises their POSIX support", () => {
     expect(parseCliArgs(["git-sync"])).toMatchObject({ kind: "git-sync", once: false });
     expect(parseCliArgs(["git-sync", "--once"])).toMatchObject({ kind: "git-sync", once: true });
-    expect(USAGE).toContain("obsidian-tc git-sync [--once | --supervise");
+    expect(USAGE).toContain("reliquary-tc git-sync [--once | --supervise");
     expect(USAGE).toContain("POSIX only (Linux, macOS)");
   });
 

@@ -1,6 +1,6 @@
 # Contributing
 
-This is a condensed guide. The authoritative version is [`CONTRIBUTING.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CONTRIBUTING.md); start there and in [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/ARCHITECTURE.md).
+This is a condensed guide. The authoritative version is [`CONTRIBUTING.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CONTRIBUTING.md); start there and in [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/ARCHITECTURE.md).
 
 ## Toolchains
 
@@ -11,8 +11,8 @@ This is a condensed guide. The authoritative version is [`CONTRIBUTING.md`](http
 ## Bootstrap
 
 ```bash
-git clone https://github.com/the-40-thieves/obsidian-tc.git
-cd obsidian-tc
+git clone https://github.com/the-40-thieves/reliquary-tc.git
+cd reliquary-tc
 bun install      # native falls back to pure-JS if Rust is absent; also installs a DCO git hook
 bun run build    # shared + native + server + plugin (warns if the two local packages below are unbuilt)
 (cd packages/embedder-local && bun install && bun run build)   # default local embedder: not built by the root
@@ -20,7 +20,7 @@ bun run build    # shared + native + server + plugin (warns if the two local pac
 just test        # CI-equivalent suite (packages/server explicitly under Node, not `bun run test`)
 ```
 
-No Rust? `bun run --filter='!@the-40-thieves/obsidian-tc-native' build`. Toolchain versions off? `just doctor`.
+No Rust? `bun run --filter='!@the-40-thieves/reliquary-tc-native' build`. Toolchain versions off? `just doctor`.
 
 ## Dev loops
 
@@ -30,7 +30,7 @@ cd packages/plugin && bun run dev    # plugin, esbuild watch
 cd packages/native && cargo test     # Rust unit tests
 ```
 
-Point your config at a **scratch vault**, never your real one — `examples/scratch-vault/` ships a synthetic one, paired with `examples/config.scratch.json`. `just link-plugin <vault>` symlinks the plugin build into it. Force the fallback path with `OBSIDIAN_TC_FORCE_JS_FALLBACK=1 bun run test`; CI runs both native and fallback.
+Point your config at a **scratch vault**, never your real one — `examples/scratch-vault/` ships a synthetic one, paired with `examples/config.scratch.json`. `just link-plugin <vault>` symlinks the plugin build into it. Force the fallback path with `RELIQUARY_TC_FORCE_JS_FALLBACK=1 bun run test`; CI runs both native and fallback.
 
 ## Conventions
 
@@ -48,7 +48,7 @@ A typical tool touches four files:
 3. `packages/server/src/tools/<domain>/<tool_name>.test.ts` — tests
 4. `docs/src/content/docs/tools/<domain>/<tool_name>.md` — user reference
 
-Annotate the tool with **ACL / HITL / idempotency / rate-limit** metadata per the [G2.1 conventions](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md). Any new Rust function must ship a numerically identical TypeScript fallback that passes the same tests.
+Annotate the tool with **ACL / HITL / idempotency / rate-limit** metadata per the [G2.1 conventions](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/G2.1-tools.md). Any new Rust function must ship a numerically identical TypeScript fallback that passes the same tests.
 
 ## Pull requests
 
@@ -60,4 +60,4 @@ Maintainers run `bun run release <patch|minor|major>` (sets versions across ever
 
 ## Getting help
 
-GitHub Discussions for design questions, Issues for bugs/features. Security issues go through [`SECURITY.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/SECURITY.md), never public Issues. The project follows the [Contributor Covenant](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CODE_OF_CONDUCT.md).
+GitHub Discussions for design questions, Issues for bugs/features. Security issues go through [`SECURITY.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/SECURITY.md), never public Issues. The project follows the [Contributor Covenant](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CODE_OF_CONDUCT.md).

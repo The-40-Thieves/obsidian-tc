@@ -273,7 +273,7 @@ describe("dispatch idempotency metrics (THE-197)", () => {
     await reg.dispatch("kv_put", { k: "a", v: "1", idempotency_key: "K" }, ctx(db));
     await reg.dispatch("kv_put", { k: "a", v: "1", idempotency_key: "K" }, ctx(db));
     const text = await metrics.metrics();
-    expect(text).toContain('obsidian_tc_idempotency_hits_total{vault="v1",tool="kv_put"} 1');
+    expect(text).toContain('reliquary_tc_idempotency_hits_total{vault="v1",tool="kv_put"} 1');
   });
 
   it("records a cache-skip when a keyed result overflows the byte cap", async () => {
@@ -291,7 +291,7 @@ describe("dispatch idempotency metrics (THE-197)", () => {
     expect(r.ok).toBe(false);
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_idempotency_cache_skipped_total{vault="v1",tool="big_keyed"} 1',
+      'reliquary_tc_idempotency_cache_skipped_total{vault="v1",tool="big_keyed"} 1',
     );
   });
 

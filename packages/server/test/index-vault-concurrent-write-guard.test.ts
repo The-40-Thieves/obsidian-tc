@@ -166,7 +166,7 @@ describe("indexVault's batched apply guards against a concurrent index-on-write 
       recordIngestStats(db, metrics, VAULT, stats);
       const text = await metrics.metrics();
       expect(text).toMatch(
-        new RegExp(`obsidian_tc_index_stale_skipped_total\\{vault="${VAULT}"\\} 1`),
+        new RegExp(`reliquary_tc_index_stale_skipped_total\\{vault="${VAULT}"\\} 1`),
       );
     } finally {
       rmTemp(root);

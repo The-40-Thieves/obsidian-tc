@@ -3,9 +3,9 @@ import {
   EmbeddingsConfigSchema,
   ExperientialConfigSchema,
   isFeedbackExemptFromReadOnly,
-  ObsidianTcError,
   PersonaConfigSchema,
   PersonasConfigSchema,
+  ReliquaryTcError,
   ServerConfigSchema,
 } from "../src/index";
 
@@ -17,7 +17,7 @@ describe("ServerConfigSchema", () => {
     const r = ServerConfigSchema.safeParse({ ...base, cacheDir: "" });
     expect(r.success).toBe(false);
     expect(r.error?.issues[0]?.path).toEqual(["cacheDir"]);
-    expect(ServerConfigSchema.parse(base).cacheDir).toBe(".obsidian-tc");
+    expect(ServerConfigSchema.parse(base).cacheDir).toBe(".reliquary-tc");
     expect(ServerConfigSchema.parse({ ...base, cacheDir: "/c" }).cacheDir).toBe("/c");
   });
 
@@ -1120,14 +1120,14 @@ describe("ServerConfigSchema — toolFacade.explainAutoMode", () => {
   });
 });
 
-describe("ObsidianTcError", () => {
+describe("ReliquaryTcError", () => {
   it("marks throttled retryable and forbidden non-retryable", () => {
-    expect(new ObsidianTcError("throttled", "x").retryable).toBe(true);
-    expect(new ObsidianTcError("forbidden", "x").retryable).toBe(false);
+    expect(new ReliquaryTcError("throttled", "x").retryable).toBe(true);
+    expect(new ReliquaryTcError("forbidden", "x").retryable).toBe(false);
   });
 
   it("serializes to a structured ErrorJSON with details", () => {
-    const j = new ObsidianTcError("acl_denied", "denied", { path: "/x" }).toJSON();
+    const j = new ReliquaryTcError("acl_denied", "denied", { path: "/x" }).toJSON();
     expect(j).toMatchObject({ code: "acl_denied", retryable: false, details: { path: "/x" } });
   });
 });

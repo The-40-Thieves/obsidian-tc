@@ -27,7 +27,7 @@ const dirs: string[] = [];
 const open: Database[] = [];
 afterEach(() => {
   vi.useRealTimers();
-  delete process.env.OBSIDIAN_TC_DISABLE_FTS;
+  delete process.env.RELIQUARY_TC_DISABLE_FTS;
   for (const db of open.splice(0)) db.close?.();
   for (const d of dirs.splice(0)) rmTemp(d);
 });
@@ -167,10 +167,10 @@ describe("a non-transient failure stays distinct and loud", () => {
     expect(execs).toBe(before); // memoized: a real fault is not retried like a lock
   });
 
-  it("OBSIDIAN_TC_DISABLE_FTS is a deliberate, distinct unavailable(disabled)", async () => {
+  it("RELIQUARY_TC_DISABLE_FTS is a deliberate, distinct unavailable(disabled)", async () => {
     const { path } = await seedCache();
     const db = await connect(path, 50);
-    process.env.OBSIDIAN_TC_DISABLE_FTS = "1";
+    process.env.RELIQUARY_TC_DISABLE_FTS = "1";
     expect(ensureNotesFts(db)).toBe(false);
     expect(ftsStatus(db)).toEqual({ state: "unavailable", reason: "disabled" });
   });
@@ -276,7 +276,7 @@ describe("FTS monitor: background recovery with no restart", () => {
     const logs: string[] = [];
     const monitor = createFtsMonitor(broken, { log: (m) => logs.push(m) });
     expect(logs).toEqual([
-      "obsidian-tc: notes_fts failed (provision_failed: no such module: fts5)",
+      "reliquary-tc: notes_fts failed (provision_failed: no such module: fts5)",
     ]);
     expect(monitor.status()).toMatchObject({ state: "unavailable", reason: "provision_failed" });
     monitor.cancel();

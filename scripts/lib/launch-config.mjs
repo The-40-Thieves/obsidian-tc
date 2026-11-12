@@ -1,6 +1,6 @@
 // The server's stdio launch config, derived from server.json (the MCP Registry manifest) so the
 // plugin manifests, the deep links and their tests all read ONE source instead of each restating
-// `npx -y obsidian-tc`. Runtime hint: the README's recommended launcher is npx.
+// `npx -y reliquary-tc`. Runtime hint: the README's recommended launcher is npx.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** The placeholder every install snippet and deep link shows for the config path. */
-export const CONFIG_PLACEHOLDER = "/ABSOLUTE/PATH/TO/obsidian-tc.config.json";
+export const CONFIG_PLACEHOLDER = "/ABSOLUTE/PATH/TO/reliquary-tc.config.json";
 
 /**
  * @param {() => any} [readServerJson] injectable for tests; defaults to the repo's server.json.
@@ -28,7 +28,7 @@ export function launchConfig(
     );
   }
   return {
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     command: "npx",
     args: ["-y", pkg.identifier],
     configEnv: required[0].name,

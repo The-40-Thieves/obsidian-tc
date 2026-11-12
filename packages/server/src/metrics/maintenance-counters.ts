@@ -10,13 +10,13 @@ export class MaintenanceCounters {
 
   constructor(registers: Registry[]) {
     this.memoryOrphansSwept = new Counter({
-      name: "obsidian_tc_memory_orphans_swept_total",
+      name: "reliquary_tc_memory_orphans_swept_total",
       help: "Memory rows deleted by the periodic orphan sweep, by class (dangling_relations, dangling_intervals, retired_entities, removed_vault_entities, removed_vault_relations, removed_vault_intervals). Cumulative. Only the two dangling_* classes are on by default; the other four move only when the operator sets their retention window. A dry run does not increment it.",
       labelNames: ["class"],
       registers,
     });
     this.morgianaSpoolPruned = new Counter({
-      name: "obsidian_tc_morgiana_spool_files_pruned_total",
+      name: "reliquary_tc_morgiana_spool_files_pruned_total",
       help: "Morgiana event spool day files deleted by the retention sweep, by reason (age = older than observability.retention.spoolRetentionDays, size = oldest files dropped to fit spoolMaxBytes). Cumulative. The current day's file is never deleted.",
       labelNames: ["reason"],
       registers,

@@ -5,7 +5,7 @@
 // SUMMARIES (not raw note content — summarizing summaries is exactly what makes this tier-2
 // rather than a second copy of tier-1).
 //
-// Runs on the OFFLINE cluster cadence (the `obsidian-tc cluster` CLI command — see cli/commands/
+// Runs on the OFFLINE cluster cadence (the `reliquary-tc cluster` CLI command — see cli/commands/
 // cluster.ts), NOT per-write and NOT inside indexVault: cluster membership is only meaningful
 // after a fresh assignClusters-style pass, and re-deriving it per note write would be both wrong
 // (clustering needs the whole corpus) and wasteful (a single edited note does not usually change
@@ -297,7 +297,7 @@ export interface ClusterSummaryPassConfig {
  * The gate for the WHOLE cluster-summary pass — same "off means provably untouched" contract as
  * maybeSummarizeVault: `cfg.enabled === false` returns before `makeGateway` is invoked, so no
  * GatewayClient is ever constructed and buildClusterSummaries never runs. Callers (the
- * `obsidian-tc cluster` CLI command) pass a lazy gateway factory for the same reason tier-1 does.
+ * `reliquary-tc cluster` CLI command) pass a lazy gateway factory for the same reason tier-1 does.
  */
 export async function maybeBuildClusterSummaries(
   db: Database,

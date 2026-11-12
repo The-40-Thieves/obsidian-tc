@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { existsSync } from "node:fs";
 import { type AddressInfo, createServer } from "node:net";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { loadGitSyncConfig } from "../src/git-sync/env";
@@ -13,7 +13,7 @@ import { wireTransports } from "../src/runtime/transport-wiring";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
-const SECRET_VARIABLE = "OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET";
+const SECRET_VARIABLE = "RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET";
 const SECRET = "wiring-test-webhook-secret-0123456789abcdef";
 const SHORT = "short-secret-value-0123";
 const BODY = '{"ref":"refs/heads/main"}';
@@ -97,9 +97,9 @@ describe("vault-sync webhook: startup validation", () => {
   it("makes loadGitSyncConfig refuse the same short secret", () => {
     const { root, cacheDir } = configFor({ enabled: false });
     const env = {
-      OBSIDIAN_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
-      OBSIDIAN_TC_VAULT_PATH: join(root, "vault"),
-      OBSIDIAN_TC_CACHE_DIR: cacheDir,
+      RELIQUARY_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
+      RELIQUARY_TC_VAULT_PATH: join(root, "vault"),
+      RELIQUARY_TC_CACHE_DIR: cacheDir,
       [SECRET_VARIABLE]: SHORT,
     };
 

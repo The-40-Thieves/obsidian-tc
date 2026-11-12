@@ -58,16 +58,16 @@ describe("THE-518 config provenance", () => {
   });
 
   it("attributes an env-supplied value to the env, naming the variable", () => {
-    const e = explainConfig(base(), { env: { OBSIDIAN_TC_JWT_SECRET: SECRET_A } });
+    const e = explainConfig(base(), { env: { RELIQUARY_TC_JWT_SECRET: SECRET_A } });
     const entry = find(e, "auth.jwtSecret");
     expect(entry?.source).toBe("env");
-    expect(entry?.detail).toBe("OBSIDIAN_TC_JWT_SECRET");
+    expect(entry?.detail).toBe("RELIQUARY_TC_JWT_SECRET");
   });
 
   it("reports the SOURCE of a secret without printing the secret", () => {
     // The whole point of tracing rather than dumping: this output is what a user pastes into an
-    // issue, and "it came from OBSIDIAN_TC_JWT_SECRET" is the useful half.
-    const e = explainConfig(base(), { env: { OBSIDIAN_TC_JWT_SECRET: SECRET_A } });
+    // issue, and "it came from RELIQUARY_TC_JWT_SECRET" is the useful half.
+    const e = explainConfig(base(), { env: { RELIQUARY_TC_JWT_SECRET: SECRET_A } });
     const entry = find(e, "auth.jwtSecret");
     expect(entry?.value).toBe("<redacted>");
     expect(entry?.redacted).toBe(true);
@@ -84,28 +84,28 @@ describe("THE-518 config provenance", () => {
 
   it("puts env ABOVE file — the precedence load.ts actually implements", () => {
     const e = explainConfig(base({ auth: { jwtSecret: SECRET_A } }), {
-      env: { OBSIDIAN_TC_JWT_SECRET: SECRET_B },
+      env: { RELIQUARY_TC_JWT_SECRET: SECRET_B },
     });
     // finalizeConfig spreads the env value over the file's, so the env wins and the report must
     // say so — otherwise a user edits the file and nothing changes.
     expect(find(e, "auth.jwtSecret")?.source).toBe("env");
-    expect(find(e, "auth.jwtSecret")?.detail).toBe("OBSIDIAN_TC_JWT_SECRET");
+    expect(find(e, "auth.jwtSecret")?.detail).toBe("RELIQUARY_TC_JWT_SECRET");
   });
 
   it("marks a relative cacheDir as derived, not as the file's value", () => {
-    const e = explainConfig(base({ cacheDir: ".obsidian-tc" }), { env: {} });
+    const e = explainConfig(base({ cacheDir: ".reliquary-tc" }), { env: {} });
     const entry = find(e, "cacheDir");
     // The resolved value is an absolute home-anchored path that appears nowhere in the file, so
     // calling it "file" would be a lie about a value the user cannot find by reading their config.
     expect(entry?.source).toBe("derived");
     expect(entry?.detail).toMatch(/anchored/);
-    expect(String(entry?.value)).not.toBe(".obsidian-tc");
+    expect(String(entry?.value)).not.toBe(".reliquary-tc");
   });
 
   it("leaves an absolute cacheDir attributed to the file", () => {
-    const e = explainConfig(base({ cacheDir: "/var/lib/obsidian-tc" }), { env: {} });
+    const e = explainConfig(base({ cacheDir: "/var/lib/reliquary-tc" }), { env: {} });
     expect(find(e, "cacheDir")).toMatchObject({
-      value: "/var/lib/obsidian-tc",
+      value: "/var/lib/reliquary-tc",
       source: "file",
     });
   });
@@ -152,10 +152,10 @@ describe("deployment env overlays in config explain", () => {
     const e = explainConfig(base(), {
       env: {
         PORT: "8080",
-        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
-        OBSIDIAN_TC_JWKS_URI: "https://as.example.com/jwks",
-        OBSIDIAN_TC_VAULT_PATH: "/data/vault",
-        OBSIDIAN_TC_CACHE_DIR: "/data/cache",
+        RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com",
+        RELIQUARY_TC_JWKS_URI: "https://as.example.com/jwks",
+        RELIQUARY_TC_VAULT_PATH: "/data/vault",
+        RELIQUARY_TC_CACHE_DIR: "/data/cache",
       },
     });
     expect(find(e, "transports.http.port")).toMatchObject({
@@ -166,43 +166,46 @@ describe("deployment env overlays in config explain", () => {
     expect(find(e, "auth.resource")).toMatchObject({
       value: "https://vault.example.com/mcp",
       source: "env",
-      detail: "OBSIDIAN_TC_PUBLIC_URL",
+      detail: "RELIQUARY_TC_PUBLIC_URL",
     });
     expect(find(e, "auth.jwksUri")).toMatchObject({
       source: "env",
-      detail: "OBSIDIAN_TC_JWKS_URI",
+      detail: "RELIQUARY_TC_JWKS_URI",
     });
-    expect(find(e, "vaults")).toMatchObject({ source: "env", detail: "OBSIDIAN_TC_VAULT_PATH" });
+    expect(find(e, "vaults")).toMatchObject({ source: "env", detail: "RELIQUARY_TC_VAULT_PATH" });
     expect(find(e, "cacheDir")).toMatchObject({
       value: "/data/cache",
       source: "env",
-      detail: "OBSIDIAN_TC_CACHE_DIR",
+      detail: "RELIQUARY_TC_CACHE_DIR",
     });
   });
 
   it("attributes allowedHosts to whichever of PUBLIC_URL and ALLOWED_HOSTS supplied it, naming both when both did", () => {
     const allowedHosts = (env: Record<string, string>) =>
       find(explainConfig(base(), { env }), "transports.http.allowedHosts");
-    expect(allowedHosts({ OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765" })).toMatchObject({
+    expect(allowedHosts({ RELIQUARY_TC_ALLOWED_HOSTS: "umbrel.local:8765" })).toMatchObject({
       source: "env",
-      detail: "OBSIDIAN_TC_ALLOWED_HOSTS",
+      detail: "RELIQUARY_TC_ALLOWED_HOSTS",
     });
-    expect(allowedHosts({ OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com" })).toMatchObject({
+    expect(allowedHosts({ RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com" })).toMatchObject({
       source: "env",
-      detail: "OBSIDIAN_TC_PUBLIC_URL",
+      detail: "RELIQUARY_TC_PUBLIC_URL",
     });
     expect(
       allowedHosts({
-        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
-        OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765",
+        RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com",
+        RELIQUARY_TC_ALLOWED_HOSTS: "umbrel.local:8765",
       }),
-    ).toMatchObject({ source: "env", detail: "OBSIDIAN_TC_PUBLIC_URL, OBSIDIAN_TC_ALLOWED_HOSTS" });
+    ).toMatchObject({
+      source: "env",
+      detail: "RELIQUARY_TC_PUBLIC_URL, RELIQUARY_TC_ALLOWED_HOSTS",
+    });
   });
 
-  it("attributes auth.audience to OBSIDIAN_TC_AUDIENCE", () => {
+  it("attributes auth.audience to RELIQUARY_TC_AUDIENCE", () => {
     expect(
-      find(explainConfig(base(), { env: { OBSIDIAN_TC_AUDIENCE: "nas-vault" } }), "auth.audience"),
-    ).toMatchObject({ value: "nas-vault", source: "env", detail: "OBSIDIAN_TC_AUDIENCE" });
+      find(explainConfig(base(), { env: { RELIQUARY_TC_AUDIENCE: "nas-vault" } }), "auth.audience"),
+    ).toMatchObject({ value: "nas-vault", source: "env", detail: "RELIQUARY_TC_AUDIENCE" });
   });
 
   it("does not credit PORT with enabling HTTP when the file explicitly disabled it", () => {
@@ -214,13 +217,13 @@ describe("deployment env overlays in config explain", () => {
   });
 
   it("keeps the JWT secret out of both explain and config show output", () => {
-    const env = { OBSIDIAN_TC_JWT_SECRET: SECRET_A };
+    const env = { RELIQUARY_TC_JWT_SECRET: SECRET_A };
     const raw = base({ auth: { mode: "jwt" } });
     const explained = explainConfig(raw, { env });
     const shown = redactConfig(finalizeConfig(structuredClone(raw), env));
     expect(find(explained, "auth.jwtSecret")).toMatchObject({
       source: "env",
-      detail: "OBSIDIAN_TC_JWT_SECRET",
+      detail: "RELIQUARY_TC_JWT_SECRET",
     });
     expect(JSON.stringify(explained)).not.toContain(SECRET_A);
     expect(JSON.stringify(shown)).not.toContain(SECRET_A);

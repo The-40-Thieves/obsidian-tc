@@ -40,7 +40,7 @@ describe("render.yaml", () => {
   it("declares one web service, pulled from the published ghcr image", () => {
     expect(services).toHaveLength(1);
     expect(web?.runtime).toBe("image");
-    expect(web?.image?.url).toBe("ghcr.io/the-40-thieves/obsidian-tc:latest");
+    expect(web?.image?.url).toBe("ghcr.io/the-40-thieves/reliquary-tc:latest");
   });
 
   it("runs on the 2 GB Standard plan: a disk needs a paid plan and Starter (512 MB) is too small", () => {
@@ -58,15 +58,15 @@ describe("render.yaml", () => {
   });
 
   it("prompts for the public URL instead of guessing it", () => {
-    expect(env("OBSIDIAN_TC_PUBLIC_URL")?.sync).toBe(false);
+    expect(env("RELIQUARY_TC_PUBLIC_URL")?.sync).toBe(false);
   });
 
   it("generates the one-time authorization server setup token", () => {
-    expect(env("OBSIDIAN_TC_AS_SETUP_TOKEN")?.generateValue).toBe(true);
+    expect(env("RELIQUARY_TC_AS_SETUP_TOKEN")?.generateValue).toBe(true);
   });
 
   it("points the config file at the volume", () => {
-    expect(env("OBSIDIAN_TC_CONFIG")?.value).toBe("/data/config.json");
+    expect(env("RELIQUARY_TC_CONFIG")?.value).toBe("/data/config.json");
   });
 
   it("prompts for the embeddings key rather than storing it in the file", () => {

@@ -1,7 +1,7 @@
 // ACT-R activation recompute — THE-227. Turns the append-only chunk_retrievals log into a
 // cached_activation_score per chunk in vault_object_state, so bubble_safe_rerank (graph_search) is
 // no longer inert. ACT-R base-level learning: a chunk's activation rises with how RECENTLY and how
-// OFTEN it was retrieved, and decays with time. Runs offline (obsidian-tc activation-recompute) over
+// OFTEN it was retrieved, and decays with time. Runs offline (reliquary-tc activation-recompute) over
 // the experiential store; the retrieval-LOGGING half (writing chunk_retrievals on each retrieval) is
 // a separate slice, so until that lands this recompute is a no-op over an empty log.
 import type { Database } from "../db/types";

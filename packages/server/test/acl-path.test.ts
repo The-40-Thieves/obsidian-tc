@@ -1,5 +1,5 @@
 import { tmpdir } from "node:os";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { enforcePathAcl } from "../src/vault/acl-path";
@@ -29,8 +29,8 @@ describe("enforcePathAcl", () => {
       enforcePathAcl(a, "write", "secret/x.md", tmpdir(), []);
       throw new Error("should have thrown");
     } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("acl_denied");
+      expect(e).toBeInstanceOf(ReliquaryTcError);
+      expect((e as ReliquaryTcError).code).toBe("acl_denied");
     }
   });
 
@@ -42,7 +42,7 @@ describe("enforcePathAcl", () => {
         enforcePathAcl(a, op, "x.md", tmpdir(), []);
         throw new Error("should have thrown");
       } catch (e) {
-        expect((e as ObsidianTcError).code).toBe("read_only_mode");
+        expect((e as ReliquaryTcError).code).toBe("read_only_mode");
       }
     }
   });
@@ -79,8 +79,8 @@ describe("enforcePathAcl never echoes a secret-shaped raw path (GH #994 M1)", ()
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ObsidianTcError);
-    const e = caught as ObsidianTcError;
+    expect(caught).toBeInstanceOf(ReliquaryTcError);
+    const e = caught as ReliquaryTcError;
     expect(e.code).toBe("acl_denied");
     expect(JSON.stringify(e.toJSON())).not.toContain(token);
     expect(String(e.details?.path)).not.toContain(token);
@@ -95,8 +95,8 @@ describe("enforcePathAcl never echoes a secret-shaped raw path (GH #994 M1)", ()
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ObsidianTcError);
-    const e = caught as ObsidianTcError;
+    expect(caught).toBeInstanceOf(ReliquaryTcError);
+    const e = caught as ReliquaryTcError;
     expect(e.code).toBe("acl_denied");
     expect(JSON.stringify(e.toJSON())).not.toContain(token);
     expect(String(e.details?.path)).not.toContain(token);
@@ -115,8 +115,8 @@ describe("enforcePathAcl never echoes a secret-shaped raw path (GH #994 M1)", ()
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ObsidianTcError);
-    const e = caught as ObsidianTcError;
+    expect(caught).toBeInstanceOf(ReliquaryTcError);
+    const e = caught as ReliquaryTcError;
     expect(e.code).toBe("acl_denied");
     expect(JSON.stringify(e.toJSON())).not.toContain(token);
     expect(String(e.details?.path)).not.toContain(token);

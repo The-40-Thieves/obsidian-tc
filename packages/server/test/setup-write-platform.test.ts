@@ -1,4 +1,4 @@
-// `obsidian-tc setup`'s writer — cross-filesystem/cross-platform finalization fallbacks (fix round
+// `reliquary-tc setup`'s writer — cross-filesystem/cross-platform finalization fallbacks (fix round
 // 2, Codex review 1001-verify-r2, findings 5 + Windows CI). Own file for the same `vi.mock`
 // isolation reason setup-write-crash.test.ts / setup-write-toctou.test.ts document.
 //

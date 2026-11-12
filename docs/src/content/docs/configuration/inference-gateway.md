@@ -25,8 +25,8 @@ Two environment variables — there is deliberately no config-file block, so the
 gateway can differ per launcher:
 
 ```
-OBSIDIAN_TC_GATEWAY_URL=http://127.0.0.1:4000
-OBSIDIAN_TC_GATEWAY_TOKEN=<optional bearer, e.g. a LiteLLM virtual key>
+RELIQUARY_TC_GATEWAY_URL=http://127.0.0.1:4000
+RELIQUARY_TC_GATEWAY_TOKEN=<optional bearer, e.g. a LiteLLM virtual key>
 ```
 
 The engine speaks the OpenAI-compatible chat API to that base URL and requests
@@ -61,7 +61,7 @@ docker run -d --name litellm-gateway --restart unless-stopped \
   ghcr.io/berriai/litellm:main-latest --config /app/config.yaml --port 4000
 ```
 
-Then set `OBSIDIAN_TC_GATEWAY_URL=http://127.0.0.1:4000` in your MCP client's
+Then set `RELIQUARY_TC_GATEWAY_URL=http://127.0.0.1:4000` in your MCP client's
 server entry (the `env` block) and restart the client.
 
 A plain `http://` gateway URL on loopback needs nothing else. A non-loopback `http://` URL (for example a
@@ -94,7 +94,7 @@ Then call the `reflect` tool with any query: a working gateway returns a grounde
 ## Choosing models per role
 
 The role→model map is a policy decision, and the yaml is the whole switch —
-obsidian-tc never changes:
+reliquary-tc never changes:
 
 - **All-local** (above): private, free, offline. Trade-off: a 7B-class
   `synthesize` produces grounded but imperfect prose — treat syntheses as drafts
@@ -127,7 +127,7 @@ to `false` and must be set explicitly:
 
 A deployment that has a gateway configured and never set this key gets a
 one-line notice on the server's stderr at boot, naming exactly this fix. The
-sleep-time half also runs offline via `obsidian-tc reflect` (CLI), which gates
+sleep-time half also runs offline via `reliquary-tc reflect` (CLI), which gates
 on the same env vars but not on `plane.enabled` — that flag only gates the
 scheduled/ambient path.
 

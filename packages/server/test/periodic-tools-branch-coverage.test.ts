@@ -4,7 +4,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { BridgeClient } from "../src/bridge";
@@ -348,8 +348,8 @@ describe("periodic-tools branch coverage: find_or_create_periodic_note expand_te
         request: async (req: { body?: Record<string, unknown> }) => {
           calls.push(req.body ?? {});
           if (opts.throwCode)
-            throw new ObsidianTcError(
-              opts.throwCode as ConstructorParameters<typeof ObsidianTcError>[0],
+            throw new ReliquaryTcError(
+              opts.throwCode as ConstructorParameters<typeof ReliquaryTcError>[0],
               "degraded",
             );
           const target = req.body?.target;
@@ -719,13 +719,13 @@ describe("periodic-tools branch coverage: find_or_create_periodic_note with a da
 
 describe("periodic-tools branch coverage: expandViaTemplater propagates a genuine (non-degrade) failure", () => {
   // TEMPLATER_DEGRADE only covers "expansion unavailable" codes; anything else (or a raw,
-  // non-ObsidianTcError throw) is a real execution failure and must propagate to the caller
+  // non-ReliquaryTcError throw) is a real execution failure and must propagate to the caller
   // rather than silently falling back to a verbatim copy.
-  it("rethrows an ObsidianTcError whose code is not in the degrade set", async () => {
+  it("rethrows a ReliquaryTcError whose code is not in the degrade set", async () => {
     const templaterBridge = () => ({
       client: {
         request: async () => {
-          throw new ObsidianTcError("internal", "template execution blew up");
+          throw new ReliquaryTcError("internal", "template execution blew up");
         },
       } as unknown as BridgeClient,
       timeoutMs: 1000,
@@ -748,7 +748,7 @@ describe("periodic-tools branch coverage: expandViaTemplater propagates a genuin
     }
   });
 
-  it("propagates a plain (non-ObsidianTcError) throw from the bridge as an internal error", async () => {
+  it("propagates a plain (non-ReliquaryTcError) throw from the bridge as an internal error", async () => {
     const templaterBridge = () => ({
       client: {
         request: async () => {

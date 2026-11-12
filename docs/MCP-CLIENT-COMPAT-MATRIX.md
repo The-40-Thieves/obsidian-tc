@@ -103,19 +103,19 @@ legacy too.
 
 The rows above are about what **this server** does; this table is about what the wider MCP client
 ecosystem is known to speak, gathered via `context7`/web search rather than by connecting a live
-client to obsidian-tc (that would be a `mcp-clients.md` update, not this page's job). Every claim
-below names its source; none is treated as ground truth for what obsidian-tc has actually shown
+client to reliquary-tc (that would be a `mcp-clients.md` update, not this page's job). Every claim
+below names its source; none is treated as ground truth for what reliquary-tc has actually shown
 working — `mcp-clients.md`'s own first-party rows outrank this table wherever they overlap.
 
 | Client | Protocol ceiling (as sourced) | Source | Provenance |
 |---|---|---|---|
-| **Claude Code** (1.20.0) | Negotiates **2025-11-25** against a real obsidian-tc instance | `mcp-clients.md` — first-party, measured directly against this server (re-verified 2026-08-07) | asserted (first-party) |
+| **Claude Code** (1.20.0) | Negotiates **2025-11-25** against a real reliquary-tc instance | `mcp-clients.md` — first-party, measured directly against this server (re-verified 2026-08-07) | asserted (first-party) |
 | Claude Code (generic) | Self-reports `2025-06-18` in its `clientInfo`/initialize payload | [canimcp.dev/client/claude-code](https://canimcp.dev/client/claude-code/) — third-party crawl, snapshot date unclear, disagrees with the first-party row above (a client's self-reported default is not the same claim as a negotiated ceiling against a specific server) | needs-live-client-verify (discrepancy noted, not resolved) |
 | Cursor | Self-reports `2025-06-18`; "Stateless requests & per-request negotiation," "Server discovery," and "Multi round-trip requests" are marked unknown/unverified by the source | [canimcp.dev/client/cursor-vscode](https://canimcp.dev/client/cursor-vscode/) | needs-live-client-verify |
 | Continue (CLI client) | Tracked at only ~6% feature coverage by the source; no protocol-version string surfaced by this pass | [canimcp.dev](https://canimcp.dev/) (client index; the per-client page returned 404 at fetch time) | needs-live-client-verify |
 | Claude Desktop | Not tracked by the source consulted | — (no source found this pass) | needs-live-client-verify |
 | Official Python `mcp` SDK, `1.28.1` | Ceiling **2025-11-25** — the v1.x line speaks the pre-stateless spec; `pip install mcp` now defaults to the 2.x (`2026-07-28`-capable) line, so `mcp>=1.28,<2` is what pins a deployment to the older ceiling | `packages/server/src/mcp/server.ts`'s own comment (verified directly against this SDK: "negotiated 2025-11-25, listed tools, called one") + [PyPI `mcp` release history](https://pypi.org/project/mcp/2.0.0a1/) | asserted from code (this repo) + third-party corroboration |
-| LiteLLM (the gateway in front of obsidian-tc's own production deployment) | Pins the Python `mcp` package at **1.28.1** → ceiling 2025-11-25; LiteLLM's own MCP protocol version independently reports **2025-11-25** as of `v1.80.18` | `CLAUDE.md`/this repo's own deployment notes (the `1.28.1` pin) + [LiteLLM MCP docs](https://docs.litellm.ai/docs/mcp) | asserted from code (this repo's pin) + third-party corroboration (LiteLLM's own docs) |
+| LiteLLM (the gateway in front of reliquary-tc's own production deployment) | Pins the Python `mcp` package at **1.28.1** → ceiling 2025-11-25; LiteLLM's own MCP protocol version independently reports **2025-11-25** as of `v1.80.18` | `CLAUDE.md`/this repo's own deployment notes (the `1.28.1` pin) + [LiteLLM MCP docs](https://docs.litellm.ai/docs/mcp) | asserted from code (this repo's pin) + third-party corroboration (LiteLLM's own docs) |
 
 **Why this table stays this thin.** `verify-ticket-premise` discipline applies here too: a
 compatibility claim about a client this repo has not connected to is worth exactly what its source
@@ -143,5 +143,5 @@ without a red CI run.
 - [`MCP-COMPATIBILITY.md`](./MCP-COMPATIBILITY.md) — the full protocol-conformance
   matrix (sessions, cache hints, Tasks, HITL, schema dialect, and more) — broader, less code-level.
 - [`mcp-clients.md`](./src/content/docs/getting-started/mcp-clients.md) — live, first-party
-  observations of real clients (currently: Claude Code) connecting to a running obsidian-tc
+  observations of real clients (currently: Claude Code) connecting to a running reliquary-tc
   instance over stdio and Streamable HTTP.

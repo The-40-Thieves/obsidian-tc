@@ -25,7 +25,7 @@ description: >-
 
 inputs:
   image:
-    description: Image repository without a tag or digest (e.g. ghcr.io/the-40-thieves/obsidian-tc).
+    description: Image repository without a tag or digest (e.g. ghcr.io/the-40-thieves/reliquary-tc).
     required: true
   digest:
     description: Digest of the staged multi-arch index (the `digest` output of the push step).

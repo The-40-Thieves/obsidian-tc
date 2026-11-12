@@ -8,7 +8,7 @@
 #
 # The allow-list below is DERIVED, not guessed: it is the exact set of licences present in the
 # current dependency graph (`cargo metadata | jq -r '.packages[].license'`), all permissive.
-# obsidian-tc-native itself is Apache-2.0, which the allow-list already covers, so the workspace
+# reliquary-tc-native itself is Apache-2.0, which the allow-list already covers, so the workspace
 # member needs no exception of its own.
 
 [graph]

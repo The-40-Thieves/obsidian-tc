@@ -1,4 +1,4 @@
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../db/migration-manifest";
 import { embeddedSql } from "../db/migrations-embedded";
 import type { Database } from "../db/types";

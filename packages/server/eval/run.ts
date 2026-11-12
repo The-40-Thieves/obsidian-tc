@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { parse as parseYaml } from "yaml";
 import { FolderAcl, makeIndexReadable } from "../src/acl";
 import { loadConfig } from "../src/config/load";
@@ -266,7 +266,7 @@ export interface RunEvalOptions {
 /** Representative metadata-prior rule set for the A/B, ported from the retired KMS/vault-sync prior
  *  (009_vault_search_priority.sql): canon/authority first, decided beats open, active work beats
  *  reference. Values are the KMS absolute boosts; the graph_search clamp rescales them to stay
- *  sub-dominant to obsidian-tc's k=10 RRF spread. */
+ *  sub-dominant to reliquary-tc's k=10 RRF spread. */
 export const METADATA_PRIOR_RULES: Array<{ field: string; value: string; boost: number }> = [
   { field: "status", value: "locked", boost: 0.02 },
   { field: "type", value: "decision", boost: 0.015 },
@@ -729,7 +729,7 @@ async function main(): Promise<void> {
   // THE-692: `--max-per-cluster <n>` caps how many chunks one cluster_id may contribute
   // (diversity.ts's diversifyByCluster). It had NO harness surface at all, so the ranking change
   // this repo requires an eval gate for could not be measured — a third layer of inertness on top
-  // of the two THE-692 records (unset in config, and every cluster_id NULL until `obsidian-tc
+  // of the two THE-692 records (unset in config, and every cluster_id NULL until `reliquary-tc
   // cluster` was first run on 2026-08-01).
   //
   // Requires a CLUSTERED corpus: diversifyByCluster skips rows whose cluster_id is NULL, so on an
@@ -761,7 +761,7 @@ async function main(): Promise<void> {
         "--decompose enables THE-404 sub-query decomposition for z-hard queries (Ollama; DECOMPOSE_MODEL/DECOMPOSE_Z envs).\n" +
         '--fanout <variants.json> enables the THE-448 multi-query fan-out over supplied phrasings ({"<query text>": ["variant", ...]}).\n' +
         "--path-dedup collapses EVERY arm to one hit per note, fetching at 2x depth to fill it. REQUIRED on both arms of a --fanout A/B (the fan-out dedupes by path; a plain search does not). It is a DEPTH switch as well as a dedup switch — see armDepth in the --json artifact.\n" +
-        "--max-per-cluster <n> caps chunks per cluster_id (THE-73 diversification). Requires a CLUSTERED index (`obsidian-tc cluster`); the run refuses rather than silently no-op.\n" +
+        "--max-per-cluster <n> caps chunks per cluster_id (THE-73 diversification). Requires a CLUSTERED index (`reliquary-tc cluster`); the run refuses rather than silently no-op.\n" +
         "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
         "--derived-defaults derives stat-conditional defaults (rrfK) from this index's measured stats, as retrieval.derivedDefaults does on serve (ADR-0007 class b).\n" +
@@ -880,7 +880,7 @@ async function main(): Promise<void> {
     if (!clustered) {
       process.stderr.write(
         `--max-per-cluster ${maxPerCluster} needs a CLUSTERED index: 0 of the chunks in vault ` +
-          `'${firstVault.id}' have a cluster_id. Run \`obsidian-tc cluster\` first, or the flag is ` +
+          `'${firstVault.id}' have a cluster_id. Run \`reliquary-tc cluster\` first, or the flag is ` +
           `a silent no-op and the A/B measures nothing.\n`,
       );
       process.exit(2);

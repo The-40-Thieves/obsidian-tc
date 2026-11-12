@@ -7,7 +7,7 @@ Every mutating tool call that commits writes one **provenance record** to `cache
 says which tool ran against which vault, which paths the call named and what their bytes hashed to
 before and after, when, and who the server believes called. Records are chained per vault and
 signed with the auth registry's EdDSA key, so a record that is later edited, reordered or removed
-fails `obsidian-tc provenance verify`.
+fails `reliquary-tc provenance verify`.
 
 Records hold **hashes and attribution only**: never note content, never prompts. They are written
 by the dispatch pipeline itself (one choke point for every mutating tool, derived from the tool
@@ -25,12 +25,12 @@ Every attribution field sits in exactly one of three groups, so a reader never h
 |---|---|---|
 | `verified` | `host`, `server_version`, `transport`; `principal` and `persona` **only when a bearer token was cryptographically verified** (`auth.mode: jwt` or `oidc`); `session_id` | Established by the server. A client cannot influence them. |
 | `unauthenticated` | `principal` label seen on stdio or under `auth.mode: none` | The server saw a label; nobody proved it. Kept apart from `verified` so it cannot pass for it. |
-| `self_reported` | MCP `clientInfo` name and version; the request `_meta` block `io.obsidian-tc/provenance` with `model`, `project`, `agent`, `machine` | **Whatever the client said.** A client can lie about its model, project, agent or machine; nothing here is checked. |
+| `self_reported` | MCP `clientInfo` name and version; the request `_meta` block `io.reliquary-tc/provenance` with `model`, `project`, `agent`, `machine` | **Whatever the client said.** A client can lie about its model, project, agent or machine; nothing here is checked. |
 
 A client names itself in the request `_meta`:
 
 ```json
-{ "_meta": { "io.obsidian-tc/provenance": { "model": "claude-sonnet-5-5", "project": "notes-sync" } } }
+{ "_meta": { "io.reliquary-tc/provenance": { "model": "claude-sonnet-5-5", "project": "notes-sync" } } }
 ```
 
 Values are strings only and length-bounded; an oversized or non-string value is dropped rather than
@@ -74,7 +74,7 @@ A record is signed with the auth registry's **active EdDSA key**. The registry e
 `auth.mode: jwt` / `oidc` servers on the HTTP transport; create the key with:
 
 ```bash
-obsidian-tc auth rotate-key --alg EdDSA
+reliquary-tc auth rotate-key --alg EdDSA
 ```
 
 Records written without such a key are stored **unsigned**. That is the case for a **stdio-only
@@ -103,7 +103,7 @@ If it fails, the server does **not** re-sign it and does **not** overwrite it. T
 recorded, chained from the real last record and stamped with `integrity.head_fault` naming the
 failed check, so `provenance verify` reports `head_untrusted` for it (never hidden by
 `--allow-unsigned`) on top of the bad head itself. The failure is also logged to stderr, counted in
-`obsidian_tc_provenance_faults_total{kind="head_untrusted"}`, and fails the doctor check. Retention
+`reliquary_tc_provenance_faults_total{kind="head_untrusted"}`, and fails the doctor check. Retention
 skips a vault whose head fails validation and logs why. The chain then stays failed until the
 operator restores `cache.db` from a trusted backup or archives it: re-baselining it silently would
 be exactly the laundering this prevents. A signer outage over a signed head records nothing for
@@ -122,9 +122,9 @@ the auth registry database is lost, an old signed head names a key nobody holds,
 ## Verifying
 
 ```bash
-obsidian-tc provenance verify                      # every vault with a chain
-obsidian-tc provenance verify --vault notes --json
-obsidian-tc provenance verify --allow-unsigned
+reliquary-tc provenance verify                      # every vault with a chain
+reliquary-tc provenance verify --vault notes --json
+reliquary-tc provenance verify --allow-unsigned
 ```
 
 The command is read-only, opens `cache.db` and the registry read-only, and exits **1** when any
@@ -139,7 +139,7 @@ checked.
 rewrite the chain. Pass the flag for stdio-only or pre-EdDSA deployments where chain-only integrity
 is what you have; a record that *has* a signature is always checked, flag or not.
 
-`obsidian-tc doctor` runs the same verification as the **provenance chain** check: it fails on any
+`reliquary-tc doctor` runs the same verification as the **provenance chain** check: it fails on any
 sign of tampering, warns when records exist without signatures, the chain cannot be read, or a
 recording fault is on file, and notes (without warning) a fresh install that has no EdDSA key yet.
 
@@ -209,7 +209,7 @@ not evidence of tampering); `chain_link` is `ok` or `broken`; `problems` lists t
 `provenance verify` uses; `ok` is true only for a valid signature with no problem. This reuses the
 verifier's own per-record check, so the two cannot disagree about one record. It does **not** prove
 the chain is complete: a removed later record or a forged head is only visible to
-`obsidian-tc provenance verify`. The query reads `cache.db`, as `verify` does, so a writer of that
+`reliquary-tc provenance verify`. The query reads `cache.db`, as `verify` does, so a writer of that
 file can forge records but not signatures (see the limits above).
 
 **Limits.** A record stores the paths the call named, up to 500 per call (see `paths_omitted`): a
@@ -230,9 +230,9 @@ first one does.
 Because settlement is fail-open after a write has committed, a write whose final record could not be stored (a dropped
 table, a sequence collision, a signer outage over a signed head) would otherwise look like "no
 write happened", and the chain would still verify. Each such fault is therefore made visible three
-ways: a `[provenance]` line on stderr, the `obsidian_tc_provenance_faults_total` counter (labels
+ways: a `[provenance]` line on stderr, the `reliquary_tc_provenance_faults_total` counter (labels
 `vault`, `tool`, `kind` of `omitted` or `head_untrusted`), and a `provenance_fault` row in
-`event_log`, which is what `obsidian-tc doctor` (a separate process) reads to warn "N committed
+`event_log`, which is what `reliquary-tc doctor` (a separate process) reads to warn "N committed
 writes left no record". The doctor warning ages out with `event_log` retention; the counter resets
 with the process. The pending-row exception fails before any write, as described above.
 
@@ -251,13 +251,13 @@ sends to the Git bridge:
 ```text
 snapshot
 
-Obsidian-TC-Session: 7f3c0e
-Obsidian-TC-Principal: alice
-Obsidian-TC-Model: claude-sonnet-5-5 (self-reported)
-Obsidian-TC-Provenance-Seq: notes:41-44
+Reliquary-TC-Session: 7f3c0e
+Reliquary-TC-Principal: alice
+Reliquary-TC-Model: claude-sonnet-5-5 (self-reported)
+Reliquary-TC-Provenance-Seq: notes:41-44
 ```
 
-- **Trust is in the text.** `Obsidian-TC-Principal` is the principal a bearer token proved
+- **Trust is in the text.** `Reliquary-TC-Principal` is the principal a bearer token proved
   (`auth.mode: jwt` or `oidc`), or the word `unverified` (stdio, `auth.mode: none`). The model is a
   client's own claim and is always followed by `(self-reported)`. A value is one line: control
   characters, including a newline in a claimed model, are replaced by a space, so a client cannot
@@ -269,15 +269,15 @@ Obsidian-TC-Provenance-Seq: notes:41-44
   matches. Only the newest 2000 records of the vault are searched. A commit that includes no
   recorded write gets **no trailers**, and so does a commit whose staged list could not be read:
   the commit itself is never failed or delayed by stamping.
-- **`Obsidian-TC-Provenance-Seq: <vault>:<from>-<to>`** bounds the matching records. Other records
+- **`Reliquary-TC-Provenance-Seq: <vault>:<from>-<to>`** bounds the matching records. Other records
   can sit between the two numbers (a write to a note that is not in this commit); the range says
   where to look, the digests say which.
 - **One value per writer.** If the commit holds writes from several sessions, principals or models,
   each distinct value gets its own trailer line (at most 10 of a kind; more adds
-  `Obsidian-TC-Truncated`).
+  `Reliquary-TC-Truncated`).
 - **Your message is kept.** Trailers go at the end, after a blank line, or into the message's
   existing trailer block (`Signed-off-by: ...`) the way `git interpret-trailers` would. The one
-  exception: an `Obsidian-TC-*` trailer **you wrote** in the final trailer block is removed when
+  exception: a `Reliquary-TC-*` trailer **you wrote** in the final trailer block is removed when
   this stamp is on, so that a trailer under the prefix is always the server's. The server does not
   run `git` on the vault to do any of this.
 - The tool result gains `stamped_trailers` (the lines that were added) when there were any.
@@ -291,7 +291,7 @@ server's own, but the model is only what the client said.
 `provenance.stamp.frontmatter: true` writes one key into a note an agent **creates**:
 
 ```yaml
-obsidian_tc_provenance:
+reliquary_tc_provenance:
   session: 7f3c0e
   principal: alice
   model_self_reported: claude-sonnet-5-5
@@ -331,7 +331,7 @@ obsidian_tc_provenance:
     "host": { "mode": "hashed" },
     "retentionDays": 365,
     "query": { "maxScanRows": 100000 },
-    "stamp": { "gitTrailers": false, "frontmatter": false, "frontmatterKey": "obsidian_tc_provenance" }
+    "stamp": { "gitTrailers": false, "frontmatter": false, "frontmatterKey": "reliquary_tc_provenance" }
   }
 }
 ```

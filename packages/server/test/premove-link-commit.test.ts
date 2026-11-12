@@ -9,7 +9,7 @@
 // Each case runs against move_note, bulk_move_notes and move_attachment: they share one planner.
 import { linkSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { registerM3Tools } from "../src/tools/m3";

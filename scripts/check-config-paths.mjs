@@ -10,7 +10,7 @@
  * prose — including inside a fenced ```json/```yaml config example — must resolve against the
  * REAL schema, so a doc cannot silently drift back onto a key that does not exist.
  *
- * Ground truth, not hand-maintained: `docs/obsidian-tc.config.schema.json`, the published JSON
+ * Ground truth, not hand-maintained: `docs/reliquary-tc.config.schema.json`, the published JSON
  * Schema, is generated from `packages/shared/src/config.schema.ts` and drift-gated by
  * `bun scripts/gen-config-schema.ts --check` (ci-docgen). This gate walks that committed file
  * rather than re-implementing Zod introspection in a plain-node script, so it is automatically
@@ -21,14 +21,14 @@
  *
  * CANDIDATE DEFINITION (the false-positive problem). A huge number of backticked dotted-looking
  * strings in this repo are NOT config paths: `packages/server/src`, `node:sqlite`,
- * `obsidian-tc.config.json`, `d.help`, `Array.prototype.map`, a bare version number, a filename
+ * `reliquary-tc.config.json`, `d.help`, `Array.prototype.map`, a bare version number, a filename
  * (`config.schema.ts`, `server.json`, `render.ts`). A gate that flags those is unusable. So a
  * candidate must pass TWO independent filters:
  *
  *   1. SHAPE: the ENTIRE backtick span (not a substring) is a chain of 2+ plain identifier
  *      segments (`[A-Za-z][A-Za-z0-9]*`, each optionally suffixed `[]` for an array field),
  *      joined by dots, with nothing else in the span (no colons, spaces, hyphens, slashes). This
- *      alone kills filenames with extensions containing a hyphen (`obsidian-tc.config.json`),
+ *      alone kills filenames with extensions containing a hyphen (`reliquary-tc.config.json`),
  *      protocol-prefixed names (`node:sqlite`), paths (`packages/server/src`), version numbers
  *      (a leading digit fails "starts with a letter"), and any span that embeds a value
  *      (`` `retention.morgiana_events_days: 90` `` has a colon+space, so it does not match at all —
@@ -60,7 +60,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const CONFIG_SCHEMA = resolve(ROOT, "docs/obsidian-tc.config.schema.json");
+const CONFIG_SCHEMA = resolve(ROOT, "docs/reliquary-tc.config.schema.json");
 
 const IGNORE_LINE = "config-path:ignore";
 const IGNORE_FILE = "config-path:ignore-file";

@@ -1,13 +1,13 @@
 # Observability
 
-obsidian-tc is **observable from day one**. The Observability layer is the last stage of the dispatch pipeline and **always fires** — on success and on every error path. Emission is non-blocking: a slow sink drops the span/event with an `[obsidian-tc:obs-drop]` log line rather than stalling the call. Full design: [`docs/G2.4-observability.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.4-observability.md).
+reliquary-tc is **observable from day one**. The Observability layer is the last stage of the dispatch pipeline and **always fires** — on success and on every error path. Emission is non-blocking: a slow sink drops the span/event with an `[reliquary-tc:obs-drop]` log line rather than stalling the call. Full design: [`docs/G2.4-observability.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/G2.4-observability.md).
 
 ## Five emitters per tool call
 
 | Emitter | What it produces |
 |---|---|
-| **OpenTelemetry** | A span `obsidian_tc.tool_call` tagged `{tool, vault, caller, status, args_hash}` with end-to-end duration, exported over OTLP |
-| **Prometheus** | Increments `obsidian_tc_tool_calls_total{tool, vault, status}` and records `obsidian_tc_tool_duration_seconds{tool, vault}` |
+| **OpenTelemetry** | A span `reliquary_tc.tool_call` tagged `{tool, vault, caller, status, args_hash}` with end-to-end duration, exported over OTLP |
+| **Prometheus** | Increments `reliquary_tc_tool_calls_total{tool, vault, status}` and records `reliquary_tc_tool_duration_seconds{tool, vault}` |
 | **CloudEvents / MORGIANA** | A structured event per call, async fire-and-forget |
 | **JSONL trace** | Appends to the current session's trace file |
 | **event_log row** | A SQLite insert for local debug replay |

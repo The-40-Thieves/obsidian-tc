@@ -1,4 +1,4 @@
-// THE-175 — `obsidian-tc import-ambient`. Pulls passive screen observations from a configured
+// THE-175 — `reliquary-tc import-ambient`. Pulls passive screen observations from a configured
 // ambient-capture backend (Pensieve first: capture/pensieve.ts) and stages them in capture_queue
 // via `ingestAmbient` (capture/ambient-import.ts), source: "ambient" — the same staged-content,
 // human-review-before-vault-write path every capture_queue producer uses (THE-855's poison scan

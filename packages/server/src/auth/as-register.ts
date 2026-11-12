@@ -7,7 +7,7 @@
 // peers with no usable address sharing one bucket; a forwarded header only from a trusted proxy,
 // client-ip.ts), a cap on registered clients, housekeeping for unused ones, public clients or
 // `client_secret_basic` (a secret shown once, stored hashed) and one startup info line.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Hono } from "hono";
 import { MemoryBackend } from "../ratelimit/memory-backend";
 import { cimdSourceKey } from "./as-cimd";

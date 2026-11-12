@@ -101,7 +101,7 @@ adapter speaks this, and `composeModelClient` routes `ModelClient.rerank` to it.
     python -m venv .venv && . .venv/Scripts/activate    # POSIX: . .venv/bin/activate
     pip install -e .
     BGE_AUTH_TOKEN=$(openssl rand -hex 16) \
-      python -m uvicorn obsidian_tc_bge.api:app --host 127.0.0.1 --port 8002
+      python -m uvicorn reliquary_tc_bge.api:app --host 127.0.0.1 --port 8002
 
 CPU works for correctness and the eval; a CUDA GPU (fp16) is the throughput path. This is a separate
 project from the Bun workspace - the server runs without it, and `embedFull()` is simply absent when

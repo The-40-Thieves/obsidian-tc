@@ -4,7 +4,7 @@
 // before any route does): losing the file is fail-safe, never a refusal to start, never a marker.
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";

@@ -1,4 +1,4 @@
-// A stand-in for `obsidian-tc <vault>` for first-run-smoke.test.ts: speaks MCP over stdio and prints
+// A stand-in for `reliquary-tc <vault>` for first-run-smoke.test.ts: speaks MCP over stdio and prints
 // the real boot banner, but its behaviour is picked by STUB_MODE so the harness can be watched
 // going green AND red without installing anything.
 //   good         dense retrieval works: vec=on, reconcile ok, search_semantic ranks sourdough.md first
@@ -24,7 +24,7 @@ if (mode === "crash") {
 
 const dense = mode === "good";
 process.stderr.write(
-  `obsidian-tc 9.9.9 ready on stdio (vault main; native=${dense ? "on" : "js-fallback"} vec=${dense ? "on" : "off"})\n`,
+  `reliquary-tc 9.9.9 ready on stdio (vault main; native=${dense ? "on" : "js-fallback"} vec=${dense ? "on" : "off"})\n`,
 );
 
 const server = new McpServer({ name: "first-run-stub", version: "0.0.0" });

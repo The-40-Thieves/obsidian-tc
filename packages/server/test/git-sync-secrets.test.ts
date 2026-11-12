@@ -17,8 +17,8 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
     const token = "tkn-SECRET-with-newline\n";
     const config = loadGitSyncConfig(
       syncEnv(fixture, {
-        OBSIDIAN_TC_VAULT_GIT_URL: "https://example.test/org/vault.git",
-        OBSIDIAN_TC_VAULT_GIT_TOKEN: token,
+        RELIQUARY_TC_VAULT_GIT_URL: "https://example.test/org/vault.git",
+        RELIQUARY_TC_VAULT_GIT_TOKEN: token,
       }),
     );
     const runner = await createGitRunner(config, async () => {
@@ -40,8 +40,8 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
       "-----BEGIN OPENSSH PRIVATE KEY-----\nssh-SECRET-line\n-----END OPENSSH PRIVATE KEY-----\n";
     const config = loadGitSyncConfig(
       syncEnv(fixture, {
-        OBSIDIAN_TC_VAULT_GIT_URL: "git@example.test:org/vault.git",
-        OBSIDIAN_TC_VAULT_GIT_SSH_KEY: key,
+        RELIQUARY_TC_VAULT_GIT_URL: "git@example.test:org/vault.git",
+        RELIQUARY_TC_VAULT_GIT_SSH_KEY: key,
       }),
     );
     const runner = await createGitRunner(config, async () => {
@@ -115,8 +115,8 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
       bootGitSync(
         loadGitSyncConfig(
           syncEnv(fixture, {
-            OBSIDIAN_TC_VAULT_GIT_URL: url,
-            OBSIDIAN_TC_VAULT_GIT_TOKEN: token,
+            RELIQUARY_TC_VAULT_GIT_URL: url,
+            RELIQUARY_TC_VAULT_GIT_TOKEN: token,
           }),
         ),
         { executor, logger: (line) => logs.push(line) },
@@ -129,7 +129,7 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
       logs.join("\n"),
     ];
     for (const artifact of artifacts) expect(artifact).not.toContain(token);
-    expect(invocations.some((entry) => entry.env.OBSIDIAN_TC_GIT_TOKEN === token)).toBe(true);
+    expect(invocations.some((entry) => entry.env.RELIQUARY_TC_GIT_TOKEN === token)).toBe(true);
   });
 
   it("writes an SSH key at 0600 and keeps its text out of argv, config, status, and logs", async () => {
@@ -148,8 +148,8 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
     await bootGitSync(
       loadGitSyncConfig(
         syncEnv(fixture, {
-          OBSIDIAN_TC_VAULT_GIT_URL: url,
-          OBSIDIAN_TC_VAULT_GIT_SSH_KEY: key,
+          RELIQUARY_TC_VAULT_GIT_URL: url,
+          RELIQUARY_TC_VAULT_GIT_SSH_KEY: key,
         }),
       ),
       { executor, logger: (line) => logs.push(line) },
@@ -176,8 +176,8 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
     symlinkSync(victim, join(state, "id_key"));
     const config = loadGitSyncConfig(
       syncEnv(fixture, {
-        OBSIDIAN_TC_VAULT_GIT_URL: "git@example.test:org/vault.git",
-        OBSIDIAN_TC_VAULT_GIT_SSH_KEY: "new secret",
+        RELIQUARY_TC_VAULT_GIT_URL: "git@example.test:org/vault.git",
+        RELIQUARY_TC_VAULT_GIT_SSH_KEY: "new secret",
       }),
     );
     await createGitRunner(config, async () => ({ stdout: "", stderr: "" }));
@@ -216,8 +216,8 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
     git(fixture.vault, ["remote", "set-url", "origin", "https://example.test/org/vault.git"]);
     const config = loadGitSyncConfig(
       syncEnv(fixture, {
-        OBSIDIAN_TC_VAULT_GIT_URL: "https://example.test/org/vault.git",
-        OBSIDIAN_TC_VAULT_GIT_TOKEN: "tkn-SECRET-789",
+        RELIQUARY_TC_VAULT_GIT_URL: "https://example.test/org/vault.git",
+        RELIQUARY_TC_VAULT_GIT_TOKEN: "tkn-SECRET-789",
       }),
     );
     const sync = await bootGitSync(config, {
@@ -230,7 +230,7 @@ describe.skipIf(process.platform === "win32")("git-sync secret handling", () => 
     expect(readFileSync(config.askpassPath, "utf8")).not.toContain("tkn-SECRET-789");
     expect(
       execFileSync(config.askpassPath, ["Password for https://example.test"], {
-        env: { ...process.env, OBSIDIAN_TC_GIT_TOKEN: "tkn-SECRET-789" },
+        env: { ...process.env, RELIQUARY_TC_GIT_TOKEN: "tkn-SECRET-789" },
         encoding: "utf8",
       }),
     ).toBe("tkn-SECRET-789\n");

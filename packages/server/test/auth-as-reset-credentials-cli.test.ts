@@ -1,10 +1,10 @@
-// `obsidian-tc auth as reset-credentials` (design v2 section 4.11.5, slice S10): the recovery when the
+// `reliquary-tc auth as reset-credentials` (design v2 section 4.11.5, slice S10): the recovery when the
 // passkey and the password are both lost. The CLI runs against a real config file and a real oauth.db
 // on disk, and the operator routes are mounted on that same file, so "an old session cookie gets 401
 // after the reset" and "the new password signs in" are observed at the HTTP surface.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureAsKey } from "../src/auth/as-boot";
 import { type OpenedOauthDb, openOauthDb, recordIssuedAccess } from "../src/auth/oauth-db";

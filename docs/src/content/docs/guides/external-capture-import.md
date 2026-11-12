@@ -3,7 +3,7 @@ title: External Capture & Import
 description: Pull ambient screen activity or Readwise highlights into your vault, staged for human review before anything is written.
 ---
 
-obsidian-tc can pull content in from outside your vault — passively-captured screen
+reliquary-tc can pull content in from outside your vault — passively-captured screen
 activity, or highlights from a read-later service — through the same
 **staged-and-reviewed** pipeline every capture producer uses: nothing lands in your
 vault until you explicitly approve it.
@@ -19,7 +19,7 @@ CLI command makes a network call or changes anything.
 backend (Pensieve, Readwise, …)
         │
         ▼
-  obsidian-tc CLI import command   (import-ambient / import-highlights)
+  reliquary-tc CLI import command   (import-ambient / import-highlights)
         │  redact secret-shaped substrings, drop exact duplicates
         ▼
      capture_queue                 (SQLite — not the vault)
@@ -42,7 +42,7 @@ persistence directives, hidden/obfuscated text) and carries that verdict —
 outright at `commit_capture` time, even if you try to commit it — it never
 reaches the vault regardless of review.
 
-This guide covers both importers obsidian-tc ships today: **ambient screen
+This guide covers both importers reliquary-tc ships today: **ambient screen
 capture** (via [Pensieve](https://github.com/arkohut/pensieve)) and **Readwise
 highlight import**. Ambient capture is the newer of the two and needs a companion
 app installed and configured, so it gets most of this page.
@@ -52,9 +52,9 @@ app installed and configured, so it gets most of this page.
 ### What it is
 
 [Pensieve](https://github.com/arkohut/pensieve) (Apache-2.0, formerly "Memos") is a
-privacy-focused passive screen recorder maintained outside obsidian-tc: it
+privacy-focused passive screen recorder maintained outside reliquary-tc: it
 screenshots your desktop on an interval, runs local OCR over each screenshot, and
-serves the result through a local HTTP API and web UI. obsidian-tc's `import-ambient`
+serves the result through a local HTTP API and web UI. reliquary-tc's `import-ambient`
 command polls that API, maps whatever it finds into a source-agnostic observation
 shape, and stages it for review — it does no screen capture of its own.
 
@@ -108,9 +108,9 @@ Avoid running it under WSL (WSL cannot capture the Windows host's screen) or und
 a Python installed from the Microsoft Store (its sandboxed filesystem breaks
 Pensieve's paths).
 
-### Pointing obsidian-tc at it
+### Pointing reliquary-tc at it
 
-Set `pensieve.baseUrl` in your obsidian-tc config to Pensieve's address:
+Set `pensieve.baseUrl` in your reliquary-tc config to Pensieve's address:
 
 ```json
 {
@@ -127,7 +127,7 @@ feature" state — `import-ambient` then no-ops with no network call.
 #### Running Pensieve on a different machine
 
 Pensieve's default bind (`127.0.0.1`) only accepts connections from the same
-machine it runs on. If obsidian-tc runs on a different box than the one being
+machine it runs on. If reliquary-tc runs on a different box than the one being
 recorded — the common setup, since you point ambient capture at whichever machine
 you actually work on — reach Pensieve over a private network you control (a
 Tailscale/WireGuard-style overlay, or a LAN you trust), not the open internet:
@@ -153,20 +153,20 @@ hostname in `pensieve.baseUrl`, but you can override it — useful if you run
 Pensieve on more than one computer and want to tell them apart in the queue:
 
 ```sh
-obsidian-tc import-ambient --vault primary --machine laptop
-obsidian-tc import-ambient --vault primary --machine desktop
+reliquary-tc import-ambient --vault primary --machine laptop
+reliquary-tc import-ambient --vault primary --machine desktop
 ```
 
 (Point `pensieve.baseUrl` at the right instance before each run if you're
-polling more than one machine from the same obsidian-tc config.)
+polling more than one machine from the same reliquary-tc config.)
 
 ### Running it
 
 ```
-obsidian-tc import-ambient [path] --vault <id> [--since <iso-date>] [--machine <label>] [--dry-run]
+reliquary-tc import-ambient [path] --vault <id> [--since <iso-date>] [--machine <label>] [--dry-run]
 ```
 
-- **One-shot:** `obsidian-tc import-ambient --vault primary` pulls the most recent
+- **One-shot:** `reliquary-tc import-ambient --vault primary` pulls the most recent
   observations (bounded per-run, newest first) and stages them.
 - **Incremental:** `--since <ISO 8601 timestamp>` scopes to observations captured
   after that instant — this is how you'd run it on a schedule without re-fetching
@@ -175,7 +175,7 @@ obsidian-tc import-ambient [path] --vault <id> [--since <iso-date>] [--machine <
   secrets would be redacted) without writing to the capture queue.
 
 ```sh
-obsidian-tc import-ambient --vault primary --since 2026-08-17T00:00:00Z --dry-run
+reliquary-tc import-ambient --vault primary --since 2026-08-17T00:00:00Z --dry-run
 ```
 
 #### Scheduling
@@ -187,19 +187,19 @@ pass it as `--since`.
 **cron** (Linux/macOS), every 15 minutes:
 
 ```
-*/15 * * * * /usr/local/bin/obsidian-tc import-ambient /home/user/.config/obsidian-tc/config.json --vault primary --since "$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" >> /home/user/.local/state/obsidian-tc/import-ambient.log 2>&1
+*/15 * * * * /usr/local/bin/reliquary-tc import-ambient /home/user/.config/reliquary-tc/config.json --vault primary --since "$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" >> /home/user/.local/state/reliquary-tc/import-ambient.log 2>&1
 ```
 
-**launchd** (macOS), a user LaunchAgent (`~/Library/LaunchAgents/io.obsidian-tc.import-ambient.plist`)
+**launchd** (macOS), a user LaunchAgent (`~/Library/LaunchAgents/io.reliquary-tc.import-ambient.plist`)
 running the same command every 900 seconds via `StartInterval`, invoking
-`obsidian-tc import-ambient <config> --vault primary --since <timestamp>` as its
+`reliquary-tc import-ambient <config> --vault primary --since <timestamp>` as its
 `ProgramArguments` — same idea as the cron line above, just launchd's XML shape
 instead of a crontab line.
 
 **Task Scheduler** (Windows), one-liner via `schtasks`:
 
 ```powershell
-schtasks /create /tn "obsidian-tc import-ambient" /sc minute /mo 15 /tr "obsidian-tc import-ambient C:\Users\you\obsidian-tc\config.json --vault primary" /st 00:00
+schtasks /create /tn "reliquary-tc import-ambient" /sc minute /mo 15 /tr "reliquary-tc import-ambient C:\Users\you\reliquary-tc\config.json --vault primary" /st 00:00
 ```
 
 (Overlapping `--since` windows are safe — re-observed screens dedupe out; see
@@ -218,7 +218,7 @@ The same staged-and-reviewed pipeline also backs `import-highlights`, which pull
 highlights from a [Readwise](https://readwise.io) account:
 
 ```
-obsidian-tc import-highlights [path] --vault <id> [--since <iso-date>] [--dry-run]
+reliquary-tc import-highlights [path] --vault <id> [--since <iso-date>] [--dry-run]
 ```
 
 Configure it with a Readwise access token
@@ -252,14 +252,14 @@ never re-stages the same highlight twice.
   `commit_capture` call naming a target path — there is no "auto-commit" setting.
   A capture that fails the poison scan at high risk is refused at commit time even
   if you try.
-- **Nothing is captured unless you set it up.** obsidian-tc does no screen
+- **Nothing is captured unless you set it up.** reliquary-tc does no screen
   recording itself. Without `pensieve.baseUrl` configured, `import-ambient` never
   makes a network call; without Pensieve running, there is nothing to import in
   the first place.
 
 :::caution
 **Pensieve stores unredacted screenshots and OCR text on the machine it runs on.**
-obsidian-tc's redaction only applies to what gets staged into `capture_queue` —
+reliquary-tc's redaction only applies to what gets staged into `capture_queue` —
 Pensieve's own local database (`~/.memos/`) keeps the raw, unredacted capture
 history it recorded, by design (that's what lets you browse it in Pensieve's own
 web UI). Enable full-disk encryption on that machine (FileVault on macOS,
@@ -284,6 +284,6 @@ logic in the server package's `capture/ambient-import.ts`. Pensieve's adapter
 real backend's API — a new one needs only a function that fetches from some other
 source and maps its results onto the same fields, the way `capture/pensieve.ts` does for
 Pensieve's `/api/search` endpoint. This is the extension point if you want
-obsidian-tc to pull ambient observations from a different backend: implement the
+reliquary-tc to pull ambient observations from a different backend: implement the
 mapping, wire it into a CLI entry point the same way, and you get redaction,
 dedup, poison scanning, and the human review gate for free.

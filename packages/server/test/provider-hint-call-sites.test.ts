@@ -7,7 +7,7 @@
 //
 // These drive a FAILING request through each real adapter and assert the hint the operator would
 // actually see. The mapping from call site to config key is the claim; this is what tests it.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { bgeM3VllmEncode } from "../src/embeddings/bge-m3";
@@ -25,8 +25,8 @@ async function hintFrom(run: () => Promise<unknown>): Promise<string> {
   try {
     await run();
   } catch (e) {
-    expect(e).toBeInstanceOf(ObsidianTcError);
-    return String((e as ObsidianTcError).details?.hint ?? "");
+    expect(e).toBeInstanceOf(ReliquaryTcError);
+    return String((e as ReliquaryTcError).details?.hint ?? "");
   }
   throw new Error("expected the adapter to throw");
 }

@@ -1,4 +1,4 @@
-// `obsidian-tc setup`'s config writer. Two jobs, kept together deliberately: build the exact raw
+// `reliquary-tc setup`'s config writer. Two jobs, kept together deliberately: build the exact raw
 // object the decision translates to (buildSetupConfig, pure), and get it onto disk safely
 // (writeSetupConfig, the only I/O in this module). See test/setup-write*.test.ts.
 import {
@@ -19,7 +19,7 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { CliError } from "../cli-error";
 import type { SetupDecision } from "./decide";
 
@@ -29,7 +29,7 @@ import type { SetupDecision } from "./decide";
 const MODE_OWNER_RW = 0o600;
 
 /**
- * The raw config object `obsidian-tc setup` writes — every key the decision made EXPLICIT (detect
+ * The raw config object `reliquary-tc setup` writes — every key the decision made EXPLICIT (detect
  * once, write the decision down, never re-detect silently at boot). Deliberately does NOT set
  * `embeddings.threads`: leaving it unset keeps the default cap (a quarter of the host's cores,
  * spinning disabled — see `EmbeddingsConfigLike.threads`'s own doc comment) in force, which is
@@ -188,7 +188,7 @@ function backupExistingFile(path: string): string {
 function writeTempFile(dir: string, content: string, mode: number): string {
   const tmpPath = join(
     dir,
-    `.tmp-obsidian-tc-setup-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    `.tmp-reliquary-tc-setup-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   );
   const fd = openSync(tmpPath, "wx", mode);
   try {
@@ -440,7 +440,7 @@ function exclusiveCreateRefused(target: string): CliError {
 // Finding 2: names the marker (target doesn't exist yet).
 function markerHeldRefused(marker: string, target: string): CliError {
   return new CliError(
-    `a config write for ${target} is already in progress by another obsidian-tc process (marker held at ${marker}) — wait a moment and retry, or remove ${marker} yourself if you are certain no obsidian-tc process is currently writing there.`,
+    `a config write for ${target} is already in progress by another reliquary-tc process (marker held at ${marker}) — wait a moment and retry, or remove ${marker} yourself if you are certain no reliquary-tc process is currently writing there.`,
   );
 }
 
@@ -477,7 +477,7 @@ export function writeSetupConfig(
 ): SetupWriteResult {
   if (/\.ya?ml$/i.test(path)) {
     throw new CliError(
-      `obsidian-tc's config loader reads JSON only (no YAML support) — refusing to write to "${path}". Pass --config with a .json path instead.`,
+      `reliquary-tc's config loader reads JSON only (no YAML support) — refusing to write to "${path}". Pass --config with a .json path instead.`,
     );
   }
   // decideSetup refused to guess an embeddings provider (decision.refusal set, decision.embeddings
@@ -485,7 +485,7 @@ export function writeSetupConfig(
   // defensively here too so no caller can accidentally write a config with no embeddings decision.
   if (decision.embeddings === undefined) {
     throw new CliError(
-      "obsidian-tc setup: refusing to write — no embeddings decision was made (see the printed refusal). Set embeddings explicitly and re-run, or edit the config by hand.",
+      "reliquary-tc setup: refusing to write — no embeddings decision was made (see the printed refusal). Set embeddings explicitly and re-run, or edit the config by hand.",
     );
   }
   const raw = buildSetupConfig(decision, opts.existingRaw, opts.provenance);

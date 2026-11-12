@@ -6,7 +6,7 @@ import importlib
 
 
 def _reload_config():
-    import obsidian_tc_bge.config as cfg
+    import reliquary_tc_bge.config as cfg
 
     return importlib.reload(cfg)
 

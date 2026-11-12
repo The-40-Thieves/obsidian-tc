@@ -10,7 +10,7 @@
 // READ ACL (declared as `pathAcl`, so dispatch enforces it centrally, and re-checked here) and an
 // existence check, so a note the caller cannot read is never revealed by being opened. The OS path
 // launches only a URI rebuilt by buildObsidianUri from that vault-relative path — never a raw URI.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -47,7 +47,7 @@ const ShowFileOutput = z.union([
 ]);
 
 const BRIDGE_HINT =
-  "Start Obsidian with the obsidian-tc companion plugin and Local REST API enabled for this vault, then retry.";
+  "Start Obsidian with the reliquary-tc companion plugin and Local REST API enabled for this vault, then retry.";
 const BRIDGE_TOO_OLD_HINT =
   "The companion plugin is too old to open files; update the companion plugin inside Obsidian.";
 const OS_DISABLED_HINT =
@@ -100,7 +100,7 @@ export function buildOpenTools(deps: M4Deps): ToolDefinition[] {
             method: "POST",
             path: "/files/open",
             body: { path: rel },
-            plugin: "obsidian-tc-companion",
+            plugin: "reliquary-tc-companion",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
           return { available: true as const, vault: v.id, path: rel, method: "bridge" as const };

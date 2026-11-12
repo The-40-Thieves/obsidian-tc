@@ -1,6 +1,6 @@
 // search_dql / search_vault(mode: dql): the Dataview bridge call, lifted out of search-tools.ts to
 // keep that file under the line ceiling.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { CallerContext } from "../../mcp/registry";
 import { filterBridgeDqlRowsByAcl, filterBridgeItemsByAcl } from "../../vault/acl-read-filter";
 import type { M2Deps } from "./shared";

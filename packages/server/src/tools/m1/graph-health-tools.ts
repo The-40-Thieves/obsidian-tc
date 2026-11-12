@@ -3,7 +3,7 @@
 // (find_link_cycles), and a graph-based link-recommendation pair (get_link_strength between two
 // notes, suggest_links for a note). All read-only, embedding-free — a single link-graph pass over
 // the readable note set (wikilinks/markdown links resolved via the shared vault index).
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";

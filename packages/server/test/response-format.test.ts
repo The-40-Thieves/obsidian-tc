@@ -1,7 +1,7 @@
 // GH #1027: the shared `response_format` parameter and its resolver. Precedence, in order:
 // explicit response_format > the legacy `verbosity` alias (terse -> concise, full -> detailed) >
 // the config default > "detailed".
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ResponseFormatInput, resolveResponseFormat } from "../src/util/response-format";

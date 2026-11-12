@@ -79,7 +79,7 @@ export function embeddingIntegrityCheck(view: EmbeddingIntegrityView): Check {
             `${s.multiActiveChunks} chunk(s) have several is_active = 1 rows (e.g. ${s.multiActiveSamples.join(" | ")}); the active-model lookup is arbitrary for them`,
           ],
           remediation:
-            "Start obsidian-tc on this build: migration 20261008_001 deactivates all but the newest generation per chunk and makes a second active row impossible. Then run index_vault so any dense-index gap refills.",
+            "Start reliquary-tc on this build: migration 20261008_001 deactivates all but the newest generation per chunk and makes a second active row impossible. Then run index_vault so any dense-index gap refills.",
         };
       }
       if (s.vecRows !== undefined && s.vecRows !== s.activeAtConfiguredWidth) {

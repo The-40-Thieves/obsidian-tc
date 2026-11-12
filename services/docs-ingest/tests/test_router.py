@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from obsidian_tc_docs_ingest.contracts import SourceRef
-from obsidian_tc_docs_ingest.router import select_parser
+from reliquary_tc_docs_ingest.contracts import SourceRef
+from reliquary_tc_docs_ingest.router import select_parser
 
 
 @pytest.mark.parametrize(

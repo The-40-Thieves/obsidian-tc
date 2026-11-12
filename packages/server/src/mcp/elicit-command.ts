@@ -1,4 +1,4 @@
-// The one place the `obsidian-tc elicit` mint command is rendered. Both channels a model can read
+// The one place the `reliquary-tc elicit` mint command is rendered. Both channels a model can read
 // an `elicit_required` refusal from (the text block, error-rendering.ts, and the structured
 // `recovery`, elicit-form.ts) build it here, so they cannot drift apart.
 
@@ -28,7 +28,7 @@ export function shellQuote(value: string): string {
  *  start with `-` (`VaultConfigSchema.id` allows it, and `SAFE_BARE_ARG` above happily treats `-`
  *  as bare-safe), so e.g. a vault named `-prod` rendered as `--vault -prod` passes a real shell
  *  through untouched — shell quoting cannot help here, since the shell already stripped it before
- *  `obsidian-tc` ever sees argv — but `cli/args.ts`'s `flagValue` then reads the NEXT token
+ *  `reliquary-tc` ever sees argv — but `cli/args.ts`'s `flagValue` then reads the NEXT token
  *  (`-prod`) as itself another flag and refuses with "requires a value". The `=` form sidesteps
  *  that: `flagValue` now recognises `--flag=value` as one token, so `-prod` never has to look like
  *  a free-standing argv element. Used unconditionally for every rendered flag (not just `--vault`)
@@ -38,7 +38,7 @@ function renderFlag(flag: string, value: string): string {
   return value.startsWith("-") ? `${flag}=${quoted}` : `${flag} ${quoted}`;
 }
 
-/** The concrete `obsidian-tc elicit` invocation for one refused call: hash and tool always, vault,
+/** The concrete `reliquary-tc elicit` invocation for one refused call: hash and tool always, vault,
  *  caller and state fingerprint when the error carried them. `--caller` matters: the CLI defaults
  *  it to `stdio`, and redemption refuses a token minted for a different caller than the one that
  *  made the call. `--state-fp` binds the minted token to the state THIS request was raised against:
@@ -53,7 +53,7 @@ export function renderElicitMintCommand(parts: {
   stateFp?: string;
 }): string {
   return (
-    `obsidian-tc elicit ${renderFlag("--hash", parts.hash)} ${renderFlag("--tool", parts.tool)}` +
+    `reliquary-tc elicit ${renderFlag("--hash", parts.hash)} ${renderFlag("--tool", parts.tool)}` +
     (parts.vault !== undefined ? ` ${renderFlag("--vault", parts.vault)}` : "") +
     (parts.caller !== undefined ? ` ${renderFlag("--caller", parts.caller)}` : "") +
     (parts.stateFp !== undefined ? ` ${renderFlag("--state-fp", parts.stateFp)}` : "")

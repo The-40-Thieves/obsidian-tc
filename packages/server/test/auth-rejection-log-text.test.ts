@@ -2,7 +2,7 @@
 // `token_max_age`. It used to be attached to ANY rejection of a token whose `exp` was still in the
 // future, which sent operators hunting for a ttl misconfiguration behind an audience, issuer or
 // signature failure.
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -41,7 +41,7 @@ async function rejectionLine(auth: unknown, token: string): Promise<string> {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: authOf(auth),

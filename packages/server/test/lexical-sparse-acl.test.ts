@@ -58,7 +58,7 @@ const readable = (p: string): boolean => !p.startsWith("09-private/");
  *
  * These tests originally `return`ed early when FTS5 was missing, so they could report PASSED having
  * asserted nothing; a security suite that is green because it ran nothing states the property as
- * HELD. The first fix threw unconditionally, which over-corrected: `OBSIDIAN_TC_DISABLE_FTS=1` is a
+ * HELD. The first fix threw unconditionally, which over-corrected: `RELIQUARY_TC_DISABLE_FTS=1` is a
  * SUPPORTED opt-out (see chunk_fts.ts), so a contributor exercising it would get a hard failure for
  * doing something legitimate.
  *
@@ -68,9 +68,9 @@ const readable = (p: string): boolean => !p.startsWith("09-private/");
  */
 function ftsState(db: Database): "ok" | "deliberately-disabled" {
   if (ensureChunkFts(db)) return "ok";
-  if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") return "deliberately-disabled";
+  if (process.env.RELIQUARY_TC_DISABLE_FTS === "1") return "deliberately-disabled";
   throw new Error(
-    "FTS5 is unavailable and OBSIDIAN_TC_DISABLE_FTS is not set — THE-632's ACL assertions cannot " +
+    "FTS5 is unavailable and RELIQUARY_TC_DISABLE_FTS is not set — THE-632's ACL assertions cannot " +
       "run and this suite refuses to pass vacuously. Set the env var if the omission is intended.",
   );
 }
@@ -83,7 +83,7 @@ describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
     // filtering the caller gets a hit — and, worse, a COUNT that betrays the term's existence.
     addChunk(db, "priv", PRIVATE, "zarquon classified codeword");
     addChunk(db, "pub", "00-public.md", "ordinary public words");
-    ctx.skip(ftsState(db) === "deliberately-disabled", "OBSIDIAN_TC_DISABLE_FTS=1");
+    ctx.skip(ftsState(db) === "deliberately-disabled", "RELIQUARY_TC_DISABLE_FTS=1");
 
     const leaky = bm25Chunks(db, VAULT, "zarquon", 10);
     const guarded = bm25Chunks(db, VAULT, "zarquon", 10, readable);
@@ -101,7 +101,7 @@ describe("THE-632: BM25 applies the read ACL before its top-k cut", () => {
     // SQL limit would return nothing — the private chunks would have consumed the slot.
     for (let i = 0; i < 12; i++) addChunk(db, `p${i}`, `09-private/n${i}.md`, "shared term here");
     addChunk(db, "vis", "00-visible.md", "shared term here");
-    ctx.skip(ftsState(db) === "deliberately-disabled", "OBSIDIAN_TC_DISABLE_FTS=1");
+    ctx.skip(ftsState(db) === "deliberately-disabled", "RELIQUARY_TC_DISABLE_FTS=1");
 
     const hits = bm25Chunks(db, VAULT, "shared term", 1, readable);
     expect(hits).toHaveLength(1);

@@ -5,7 +5,7 @@
 //     says the key set could not be checked and will be retried per request (the fetch decides
 //     again each time), and only a definitive policy refusal says REFUSED.
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { jwksModeLine } from "../src/auth/jwks-network";
 import { setProviderResolveHostForTest } from "../src/gateway/provider-fetch";

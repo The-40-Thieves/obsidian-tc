@@ -74,7 +74,7 @@ for i in "${!PATHS[@]}"; do
   printf '%s\n' "$DIFF" | grep -qxF "diff --git a/$P b/$P" || continue
   [ -n "$G" ] && [[ $CMD == *"$G"* ]] && continue
   # shellcheck disable=SC2016 # the backticks are literal markdown for the model
-  MSG+="[obsidian-tc] $P changed outside its generator: \`git checkout -- $P\`, then run \`${G:-its generator}\`."$'\n'
+  MSG+="[reliquary-tc] $P changed outside its generator: \`git checkout -- $P\`, then run \`${G:-its generator}\`."$'\n'
 done
 [ -n "$MSG" ] || exit 0
 

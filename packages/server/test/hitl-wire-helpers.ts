@@ -1,7 +1,7 @@
 // Shared wire harness for the HITL round trip over a real `startHttp`, in any auth mode.
 // hitl-multi-round-trip.test.ts owns the jwtSecret-mode matrix; this one exists so the same
 // destructive-tool round trip can be driven under `oidc` and asymmetric-only `jwt` too.
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -93,7 +93,7 @@ export async function bootHitl(opts: {
     },
   } as never);
   const h = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth: opts.auth,

@@ -19,7 +19,7 @@ import { escapeDiagnostic } from "./lib/diagnostic-text.mjs";
 // Trimmed because a key set from `read` or piped out of a file routinely arrives with a trailing
 // newline, and an HTTP header cannot carry one.
 const KEY = (process.env.LINEAR_API_KEY ?? "").trim();
-const PROJECT = process.argv[2] ?? "obsidian-tc";
+const PROJECT = process.argv[2] ?? "reliquary-tc";
 // Tests point this at a local server; nothing in normal use sets it.
 const API = process.env.LINEAR_API_URL ?? "https://api.linear.app/graphql";
 

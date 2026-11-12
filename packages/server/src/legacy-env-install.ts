@@ -5,7 +5,7 @@ import {
   applyLegacyEnvAliases,
   CURRENT_NAMES,
   LEGACY_NAMES,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 
 const aliased = applyLegacyEnvAliases(process.env);
 if (aliased.length > 0) {

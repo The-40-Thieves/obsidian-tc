@@ -1,4 +1,4 @@
-// THE-1124 — `obsidian-tc memory import --from <basic-memory|claude-code-memory> <dir>`.
+// THE-1124 — `reliquary-tc memory import --from <basic-memory|claude-code-memory> <dir>`.
 // Mirrors prefetch.ts's shape: build a throwaway ToolRegistry with the real M1 + M5 tools
 // registered, then dispatch through it — every entity/observation/relation write is the exact
 // call an MCP client makes (ACL-checked, audited via registry.dispatch's recordOutcome), never a
@@ -105,7 +105,7 @@ export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void
         .get() as { n: number };
       if (hasMemoryEntities.n === 0) {
         process.stderr.write(
-          `memory import: ${cacheDbPath} exists but its schema is missing memory_entities — migration required. Run an \`--apply\` (or \`obsidian-tc serve\` once) against this cacheDir first, or point --config at a fresh one.\n`,
+          `memory import: ${cacheDbPath} exists but its schema is missing memory_entities — migration required. Run an \`--apply\` (or \`reliquary-tc serve\` once) against this cacheDir first, or point --config at a fresh one.\n`,
         );
         cacheDb.close?.();
         process.exit(1);

@@ -12,7 +12,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -42,7 +42,7 @@ async function sign(scopes: string[]): Promise<string> {
 }
 
 beforeAll(async () => {
-  vaultRoot = makeTempDir("obsidian-tc-reslist-"); // deliberately EMPTY: no notes at all
+  vaultRoot = makeTempDir("reliquary-tc-reslist-"); // deliberately EMPTY: no notes at all
   const db = openMemoryDb();
   provisionCacheDb(db);
   const registry = new ToolRegistry({ rootResolver: () => undefined });
@@ -60,7 +60,7 @@ beforeAll(async () => {
     auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
   }).auth;
   handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,
@@ -120,7 +120,7 @@ describe("resources/list always carries a `resources` array (LiteLLM #29826)", (
       expect(r.error).toBeUndefined();
       expect(Array.isArray(r.result?.resources)).toBe(true);
       const rows = (r.result?.resources ?? []) as Array<{ uri: string }>;
-      expect(rows.map((x) => x.uri)).toEqual(["obsidian-tc://catalog"]);
+      expect(rows.map((x) => x.uri)).toEqual(["reliquary-tc://catalog"]);
     },
     stallTimeout(20_000),
   );

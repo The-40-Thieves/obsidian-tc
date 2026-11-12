@@ -5,13 +5,13 @@
 // instead of adopting the new default. Callers: runtime/server-runtime.ts (boot) and
 // cli/commands/doctor-probes.ts both call resolveStickyEmbeddings with the SAME inputs shape, so
 // boot and doctor cannot disagree about the resolved provider.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import { applyEmbedBatchingDefaults } from "./embed-batching-defaults";
 import { isEmbeddingsProviderExplicitOnConfig } from "./provider-explicit";
 
-/** Schema defaults obsidian-tc shipped BEFORE PR #980 (1.31.3 and earlier). Used as the FALLBACK
+/** Schema defaults reliquary-tc shipped BEFORE PR #980 (1.31.3 and earlier). Used as the FALLBACK
  *  identity when existing active embeddings are detected but not reliably mapped back to a
  *  reconstructable provider config (mapStoredModelToProviderConfig below) — "predates the default
  *  change, but not precisely what it was configured as" still means "don't silently switch it". */
@@ -276,38 +276,38 @@ export function formatStickyEmbeddingsNotice(
     if (resolution.keptFromStoredModel === undefined) {
       return (
         base +
-        "obsidian-tc found nothing to keep — the orphaned rows already belong to the default " +
+        "reliquary-tc found nothing to keep — the orphaned rows already belong to the default " +
         `provider's own family. Using "${resolution.provider}" for this run. If this vault ` +
-        "belongs in this config, add it back; run `obsidian-tc doctor` to inspect the cache " +
+        "belongs in this config, add it back; run `reliquary-tc doctor` to inspect the cache " +
         "directory's stored providers.\n"
       );
     }
     const identity = resolution.unmappableFallback
       ? `provider "${resolution.provider}" (the pre-1.31.4 default — the orphaned stored model id ` +
         `"${resolution.keptFromStoredModel}" could not be mapped to a known provider, so ` +
-        "obsidian-tc refused to guess)"
+        "reliquary-tc refused to guess)"
       : `provider "${resolution.provider}", model "${resolution.model}"` +
         (resolution.revision !== undefined ? `, revision "${resolution.revision}"` : "");
     return (
       base +
-      `obsidian-tc kept ${identity} from those orphaned rows rather than silently switching this ` +
+      `reliquary-tc kept ${identity} from those orphaned rows rather than silently switching this ` +
       "vault to the current default — this vault's OWN id matched nothing, so this may be the " +
       "WRONG provider. Resolve the ambiguity: add the missing vault back to config if it should " +
       "still be here, or set embeddings.provider explicitly (or embeddings.onProviderChange: " +
-      '"switch") to take the current default outright. Run `obsidian-tc doctor` to inspect the ' +
+      '"switch") to take the current default outright. Run `reliquary-tc doctor` to inspect the ' +
       "cache directory's stored providers.\n"
     );
   }
   if (resolution.source !== "kept-from-index") return undefined;
   const identity = resolution.unmappableFallback
     ? `provider "${resolution.provider}" (the pre-1.31.4 default — this vault's stored model id ` +
-      `"${resolution.keptFromStoredModel}" could not be mapped to a known provider, so obsidian-tc ` +
+      `"${resolution.keptFromStoredModel}" could not be mapped to a known provider, so reliquary-tc ` +
       "refused to guess)"
     : `provider "${resolution.provider}", model "${resolution.model}"` +
       (resolution.revision !== undefined ? `, revision "${resolution.revision}"` : "");
   return (
     `embeddings: kept ${identity} from this vault's existing index — embeddings.provider was not ` +
-    "set in config. obsidian-tc 1.31.4/1.31.5 silently switched an unconfigured install's provider " +
+    "set in config. reliquary-tc 1.31.4/1.31.5 silently switched an unconfigured install's provider " +
     'to "local" on upgrade, forcing a full in-process re-embed (GH #995); this version keeps your ' +
     "existing provider by default instead. To switch to the bundled local embedder, set " +
     'embeddings.provider: "local" (or embeddings.onProviderChange: "switch") in your config — either ' +
@@ -378,7 +378,7 @@ export function applyStickyEmbeddings<T extends StickyEmbeddingsConfigLike>(
         hint:
           "set embeddings.provider (and embeddings.model / embeddings.dimensions) explicitly to " +
           `match what "${resolution.keptFromStoredModel}" was actually embedded with — run ` +
-          "`obsidian-tc doctor` first if you are unsure which model/width that is.",
+          "`reliquary-tc doctor` first if you are unsure which model/width that is.",
       },
     );
   }

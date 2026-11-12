@@ -5,7 +5,7 @@
 // numbers are provably the same methodology docs/EVALUATION.md's table cites elsewhere.
 //
 // KEEP THIS FILE. An earlier THE-1122 pass wrote an equivalent ad-hoc script directly under
-// /data/obsidian-tc-eval/the-1122/ and then deleted it during "cleanup" along with the rest of
+// /data/reliquary-tc-eval/the-1122/ and then deleted it during "cleanup" along with the rest of
 // that eval directory — the only record of how the model-selection table's numbers were produced
 // went with it. This copy lives in the repo specifically so it does not happen again.
 //

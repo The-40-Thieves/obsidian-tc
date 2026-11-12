@@ -32,9 +32,9 @@ describe("ensureTextContent: non-text blocks always have a text alternative", ()
 
   it("a resource_link-only result gets text carrying the URI", () => {
     const out = ensureTextContent({
-      content: [{ type: "resource_link", uri: "obsidian-tc://v1/notes/a.md", name: "a.md" }],
+      content: [{ type: "resource_link", uri: "reliquary-tc://v1/notes/a.md", name: "a.md" }],
     });
-    expect(textOf(out as never)).toContain("obsidian-tc://v1/notes/a.md");
+    expect(textOf(out as never)).toContain("reliquary-tc://v1/notes/a.md");
   });
 
   it("an embedded blob resource gets text carrying the URI and media type", () => {
@@ -56,19 +56,19 @@ describe("ensureTextContent: non-text blocks always have a text alternative", ()
     const out = ensureTextContent({
       content: [
         { type: "text", text: "Saved." },
-        { type: "resource_link", uri: "obsidian-tc://v1/notes/b.md", name: "b.md" },
+        { type: "resource_link", uri: "reliquary-tc://v1/notes/b.md", name: "b.md" },
       ],
     });
-    expect(textOf(out as never)).toContain("obsidian-tc://v1/notes/b.md");
+    expect(textOf(out as never)).toContain("reliquary-tc://v1/notes/b.md");
     expect(textOf(out as never)).toContain("Saved.");
   });
 
   it("leaves a result that already says it unchanged (nothing doubled)", () => {
     const r = {
       content: [
-        { type: "text" as const, text: "a screenshot (image/png) at obsidian-tc://v1/a.png" },
+        { type: "text" as const, text: "a screenshot (image/png) at reliquary-tc://v1/a.png" },
         PNG,
-        { type: "resource_link" as const, uri: "obsidian-tc://v1/a.png", name: "a.png" },
+        { type: "resource_link" as const, uri: "reliquary-tc://v1/a.png", name: "a.png" },
       ],
     };
     expect(ensureTextContent(r)).toBe(r);

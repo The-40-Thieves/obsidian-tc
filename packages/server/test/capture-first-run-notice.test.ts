@@ -20,11 +20,11 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
     const notice = formatCaptureFirstRunNotice({
       captureContent: true,
       alreadyShown: false,
-      cacheDir: "/home/user/.obsidian-tc",
+      cacheDir: "/home/user/.reliquary-tc",
       retentionDays: 30,
     });
     expect(notice).not.toBeNull();
-    expect(notice).toContain("/home/user/.obsidian-tc");
+    expect(notice).toContain("/home/user/.reliquary-tc");
     expect(notice).toContain("30 days");
     expect(notice).toContain("experiential.captureContent=false");
     expect(notice).toContain("securityProfile");
@@ -34,7 +34,7 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
     const notice = formatCaptureFirstRunNotice({
       captureContent: true,
       alreadyShown: true,
-      cacheDir: "/home/user/.obsidian-tc",
+      cacheDir: "/home/user/.reliquary-tc",
       retentionDays: 30,
     });
     expect(notice).toBeNull();
@@ -45,7 +45,7 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
       formatCaptureFirstRunNotice({
         captureContent: false,
         alreadyShown: false,
-        cacheDir: "/home/user/.obsidian-tc",
+        cacheDir: "/home/user/.reliquary-tc",
         retentionDays: 30,
       }),
     ).toBeNull();
@@ -53,7 +53,7 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
       formatCaptureFirstRunNotice({
         captureContent: false,
         alreadyShown: true,
-        cacheDir: "/home/user/.obsidian-tc",
+        cacheDir: "/home/user/.reliquary-tc",
         retentionDays: 30,
       }),
     ).toBeNull();
@@ -63,7 +63,7 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
     const notice = formatCaptureFirstRunNotice({
       captureContent: true,
       alreadyShown: false,
-      cacheDir: "/home/user/.obsidian-tc",
+      cacheDir: "/home/user/.reliquary-tc",
       retentionDays: 0,
     });
     expect(notice).toContain("unlimited");

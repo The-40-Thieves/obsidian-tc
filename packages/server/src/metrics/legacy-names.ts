@@ -1,7 +1,7 @@
 // Through the 2.x line the Prometheus exposition carries every project metric family twice: under
 // its current name and under the pre-2.0 name, so existing dashboards and alerts keep working
 // while they are migrated. Only the metric name at the start of a line is rewritten, never a label.
-import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/obsidian-tc-shared";
+import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/reliquary-tc-shared";
 
 const CURRENT = CURRENT_NAMES.metricPrefix;
 const LEGACY = LEGACY_NAMES.metricPrefix;

@@ -1,4 +1,8 @@
-import { grantsScope, isLoopbackHost, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  grantsScope,
+  isLoopbackHost,
+  type ServerConfig,
+} from "@the-40-thieves/reliquary-tc-shared";
 import { Hono } from "hono";
 import type { TokenVerifier } from "../auth/verifier";
 import { isHostAllowed } from "../transports/host-guard";

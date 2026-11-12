@@ -44,8 +44,8 @@ describe("tool-description snapshot", () => {
     const keys = Object.keys(live);
     expect(keys.filter((k) => k.startsWith("flat/")).length).toBe(REGISTERED_TOOL_COUNT);
     for (const s of SNAPSHOT_SURFACES) expect(keys.some((k) => k.startsWith(`${s}/`))).toBe(true);
-    expect(live["triad/find_capability"]).toMatch(/obsidian-tc:\/\/catalog/);
-    expect(live["triad-no-vault/find_capability"]).not.toMatch(/obsidian-tc:\/\/catalog/);
+    expect(live["triad/find_capability"]).toMatch(/reliquary-tc:\/\/catalog/);
+    expect(live["triad-no-vault/find_capability"]).not.toMatch(/reliquary-tc:\/\/catalog/);
     expect(live["domain/notes"]).toMatch(/- read_note:/);
     expect(live["flat/read_note"]).toBeTruthy();
     expect(Object.values(live).every((d) => d.length > 0)).toBe(true);

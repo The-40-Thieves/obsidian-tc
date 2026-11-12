@@ -19,7 +19,7 @@
 // SAME (vaultId, caller) that opened it. An advisory is per-session (the interrupt budget in
 // advisory-policy.ts is per-session), so the event also carries sessionId for the client to key on.
 
-import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/obsidian-tc-shared";
+import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/reliquary-tc-shared";
 
 /** One sweep's selection for one session, ready to cross the wire. Deliberately NOT `ScoredAdvisory`
  *  verbatim — the wire shape is a boundary a caller depends on, the internal type is not, and the

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="obsidian-tc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="reliquary-tc">
   <!-- Every page referenced /favicon.svg and no such file existed, so the whole site 404'd on it.
        Starlight's default head links it unconditionally; the fix is to provide it. -->
   <rect width="32" height="32" rx="6" fill="#4c2889"/>

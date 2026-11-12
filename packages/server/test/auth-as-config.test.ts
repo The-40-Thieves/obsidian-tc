@@ -2,7 +2,7 @@
 // (sections 4.1, 4.4, 4.3 PRM row). Slice S3. Every refusal below is a RED test: on a `main` without
 // the block, `auth.as` is silently STRIPPED by the non-strict auth schema, so each of these configs
 // validates and the AS would simply never exist.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -43,8 +43,8 @@ describe("auth.as: shape and defaults", () => {
       dcr: { maxClients: 1000, perIpPerHour: 10, unusedDays: 90 },
       cimd: { allowedHosts: [] },
       consent: { loopback: "prompt" },
-      setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
-      resetTokenEnv: "OBSIDIAN_TC_AS_RESET_TOKEN",
+      setupTokenEnv: "RELIQUARY_TC_AS_SETUP_TOKEN",
+      resetTokenEnv: "RELIQUARY_TC_AS_RESET_TOKEN",
       login: { maxFailuresPerWindow: 5, windowSeconds: 900 },
       clients: [],
     });
@@ -108,7 +108,10 @@ describe("auth.as: shape and defaults", () => {
 
   it("a resetTokenEnv equal to setupTokenEnv is refused at load, naming both", () => {
     const issues = issuesOf(
-      jwtAuth({}, { setupTokenEnv: "OBSIDIAN_TC_AS_TOKEN", resetTokenEnv: "OBSIDIAN_TC_AS_TOKEN" }),
+      jwtAuth(
+        {},
+        { setupTokenEnv: "RELIQUARY_TC_AS_TOKEN", resetTokenEnv: "RELIQUARY_TC_AS_TOKEN" },
+      ),
     );
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatch(/^auth\.as\.resetTokenEnv: .*setupTokenEnv/);
@@ -173,7 +176,7 @@ describe("auth.as.enabled needs auth.mode 'jwt' (design 4.1)", () => {
   it("is refused under mode 'oidc': an external authorization server is already the issuer", () => {
     const issues = issuesOf({
       mode: "oidc",
-      oidc: { issuer: "https://idp.example.com", audience: "api://obsidian-tc" },
+      oidc: { issuer: "https://idp.example.com", audience: "api://reliquary-tc" },
       resource: RESOURCE,
       as: { enabled: true, issuer: ISSUER },
     });

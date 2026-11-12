@@ -16,7 +16,7 @@
 // Only markdown notes are mutated: a canvas, PDF or image that happens to be active is refused for
 // update/append/patch/delete (the byte-level note writers would corrupt it), and get_active_file
 // answers with metadata alone for it.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { ResponseFormatInput } from "../../util/response-format";
@@ -51,7 +51,7 @@ import {
 export type DelegateLookup = (name: string) => ToolDefinition | undefined;
 
 const COMPANION_HINT =
-  "Start Obsidian with the obsidian-tc companion plugin and Local REST API enabled for this vault, open a note, then retry.";
+  "Start Obsidian with the reliquary-tc companion plugin and Local REST API enabled for this vault, open a note, then retry.";
 const COMPANION_TOO_OLD_HINT =
   "The companion plugin is too old to report the active file; update the companion plugin inside Obsidian.";
 const NO_ACTIVE_HINT =
@@ -81,7 +81,7 @@ async function resolveActiveFile(deps: M4Deps, vaultInput: string): Promise<Acti
     raw = await client.request({
       method: "GET",
       path: "/files/active",
-      plugin: "obsidian-tc-companion",
+      plugin: "reliquary-tc-companion",
       timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
     });
   } catch (e) {
@@ -93,7 +93,7 @@ async function resolveActiveFile(deps: M4Deps, vaultInput: string): Promise<Acti
       e.details?.http_status === 404 ? COMPANION_TOO_OLD_HINT : COMPANION_HINT,
     );
   }
-  const report = parseBridgePayload(ActiveFileReport, raw, "obsidian-tc-companion");
+  const report = parseBridgePayload(ActiveFileReport, raw, "reliquary-tc-companion");
   if (report.path === null)
     throw err.noteNotFound("no note is open in Obsidian", {
       vault: v.id,

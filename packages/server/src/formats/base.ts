@@ -6,7 +6,7 @@
 // reused YAML engine does not preserve comments (a documented limitation it shares
 // with the M1 frontmatter engine); keys and values are preserved. Malformed YAML or
 // a non-mapping root throws bases_syntax_error.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import YAML from "yaml";
 import { z } from "zod";
 
@@ -23,9 +23,9 @@ export const BaseView = z
     type: z.string().optional(),
     filters: z.unknown().optional(),
     sort: z.unknown().optional(),
-    /** Deprecated obsidian-tc alias for real Bases `groupBy` (removal at v2.0). */
+    /** Deprecated reliquary-tc alias for real Bases `groupBy` (removal at v2.0). */
     group: z.unknown().optional(),
-    /** Deprecated obsidian-tc alias for real Bases `order` (removal at v2.0). */
+    /** Deprecated reliquary-tc alias for real Bases `order` (removal at v2.0). */
     columns: z.array(z.string()).optional(),
     // THE-280 — real Obsidian Bases view keys (namespaced property ids: file.*/note.*/formula.*).
     order: z.array(z.string()).optional(),
@@ -39,7 +39,7 @@ export const BaseView = z
 
 export const BaseDoc = z
   .object({
-    /** Deprecated obsidian-tc alias: real Bases has NO source block — the note set is the
+    /** Deprecated reliquary-tc alias: real Bases has NO source block — the note set is the
      *  top-level `filters` (removal at v2.0). */
     source: BaseSource.optional(),
     views: z.array(BaseView).optional(),

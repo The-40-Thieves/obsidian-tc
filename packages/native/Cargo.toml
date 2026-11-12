@@ -1,13 +1,13 @@
 [package]
-name = "obsidian-tc-native"
+name = "reliquary-tc-native"
 version = "0.0.0"
 edition = "2024"
 # THE-542: without this, a too-old toolchain fails with an opaque edition-2024 parse error instead of
 # "package requires rustc 1.99". Kept in step with packages/native/rust-toolchain.toml.
 rust-version = "1.99"
 license = "Apache-2.0"
-description = "Native perf module for obsidian-tc"
-repository = "https://github.com/The-40-Thieves/obsidian-tc"
+description = "Native perf module for reliquary-tc"
+repository = "https://github.com/The-40-Thieves/reliquary-tc"
 
 [lib]
 # `cdylib` is what napi-rs loads at runtime. `rlib` is added so `benches/` can link against the

@@ -68,7 +68,7 @@ describe("renderEntityNote", () => {
       observations: [ov("mathematician")],
       relations: [{ relationType: "collaborated_with", targetName: "Babbage" }],
     });
-    expect(out).toContain("obsidian_tc_id: ent_1");
+    expect(out).toContain("reliquary_tc_id: ent_1");
     expect(out).toContain("entity_type: person");
     expect(out).toContain("status: active");
     expect(out).toContain("# Ada");
@@ -239,7 +239,7 @@ describe("materializeEntity", () => {
       // A note Obsidian (or the user) edited: extra frontmatter + an aliases key.
       v.write(
         rel,
-        "---\nobsidian_tc_id: ent_1\nentity_type: person\ncssclasses:\n  - wide\naliases:\n  - Countess\n---\n# Ada\n",
+        "---\nreliquary_tc_id: ent_1\nentity_type: person\ncssclasses:\n  - wide\naliases:\n  - Countess\n---\n# Ada\n",
       );
       const r = materializeEntity({
         root: v.root,
@@ -259,7 +259,7 @@ describe("materializeEntity", () => {
       expect(after).toContain("- wide");
       expect(after).toContain("- Countess");
       // ...owned keys are regenerated from SQLite...
-      expect(after).toContain("obsidian_tc_id: ent_1");
+      expect(after).toContain("reliquary_tc_id: ent_1");
       expect(after).toContain("entity_type: person");
       // ...and the new relation [[link]] is present.
       expect(after).toContain("- knows [[Babbage]]");
@@ -299,7 +299,7 @@ describe("parseEntityNote [[link]] extraction", () => {
   it("recovers bare targets from aliases, headings, and block links", () => {
     const raw = [
       "---",
-      "obsidian_tc_id: ent_x",
+      "reliquary_tc_id: ent_x",
       "entity_type: concept",
       "---",
       "# Topic",

@@ -7,7 +7,7 @@ import {
   LOCAL_CATALOG_DIMENSIONS,
   type ServerConfig,
   ServerConfigSchema,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import {
   applyEmbedBatchingDefaults,
   markEmbedBatchingBaseline,
@@ -33,15 +33,15 @@ import { applySecurityProfile, requestsDynamicRegistration } from "./security-pr
  * bridge transport, never logged.
  */
 /** vaults[].caseSensitive via the environment. Same unambiguous-target rule as
- *  OBSIDIAN_TC_VAULT_PATH above (which runs first, so the two compose): exactly one vault. With
+ *  RELIQUARY_TC_VAULT_PATH above (which runs first, so the two compose): exactly one vault. With
  *  several, which vault the variable names is the operator's choice to make in the config file;
  *  with none it is meaningless and ignored like an empty set. */
 function overlayVaultCase(raw: Record<string, unknown>, vaultCase: string): void {
   const trimmed = vaultCase.trim().toLowerCase();
   if (trimmed !== "auto" && trimmed !== "true" && trimmed !== "false") {
     throw err.invalidInput(
-      `OBSIDIAN_TC_VAULT_CASE_SENSITIVE must be auto, true or false, got ${JSON.stringify(vaultCase)}`,
-      { variable: "OBSIDIAN_TC_VAULT_CASE_SENSITIVE" },
+      `RELIQUARY_TC_VAULT_CASE_SENSITIVE must be auto, true or false, got ${JSON.stringify(vaultCase)}`,
+      { variable: "RELIQUARY_TC_VAULT_CASE_SENSITIVE" },
     );
   }
   const value: string | boolean = trimmed === "auto" ? "auto" : trimmed === "true";
@@ -50,9 +50,9 @@ function overlayVaultCase(raw: Record<string, unknown>, vaultCase: string): void
     raw.vaults = [{ ...(vaults[0] as Record<string, unknown>), caseSensitive: value }];
   } else if (Array.isArray(vaults) && vaults.length > 1) {
     throw err.invalidInput(
-      `OBSIDIAN_TC_VAULT_CASE_SENSITIVE cannot pick one of ${vaults.length} configured vaults; ` +
+      `RELIQUARY_TC_VAULT_CASE_SENSITIVE cannot pick one of ${vaults.length} configured vaults; ` +
         "set each vault's caseSensitive in the config file",
-      { variable: "OBSIDIAN_TC_VAULT_CASE_SENSITIVE" },
+      { variable: "RELIQUARY_TC_VAULT_CASE_SENSITIVE" },
     );
   }
 }
@@ -61,7 +61,7 @@ export function applyEnvOverlays(
   raw: Record<string, unknown>,
   env: Record<string, string | undefined> = process.env,
 ): Record<string, unknown> {
-  const envSecret = env.OBSIDIAN_TC_JWT_SECRET;
+  const envSecret = env.RELIQUARY_TC_JWT_SECRET;
   if (envSecret) {
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
     raw.auth = { ...auth, jwtSecret: envSecret };
@@ -87,7 +87,7 @@ export function applyEnvOverlays(
       http: { ...http, port: n, ...(http.enabled === false ? {} : { enabled: true }) },
     };
   }
-  const publicUrl = env.OBSIDIAN_TC_PUBLIC_URL;
+  const publicUrl = env.RELIQUARY_TC_PUBLIC_URL;
   if (publicUrl) {
     const url = parsePublicUrl(publicUrl);
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
@@ -102,13 +102,13 @@ export function applyEnvOverlays(
   }
   // Merged after PUBLIC_URL so its host is already in the list: a Set keeps the first occurrence,
   // so file entries keep their place and the PUBLIC_URL host is not repeated.
-  const allowedHostsEnv = env.OBSIDIAN_TC_ALLOWED_HOSTS;
+  const allowedHostsEnv = env.RELIQUARY_TC_ALLOWED_HOSTS;
   if (allowedHostsEnv) {
     const entries = allowedHostsEnv.split(",").map(allowedHostEntry);
     if (entries.includes(undefined)) {
       throw err.invalidInput(
-        "OBSIDIAN_TC_ALLOWED_HOSTS must be a comma-separated list of host or host:port entries, with no wildcard, scheme, path, query, fragment, credentials or whitespace",
-        { variable: "OBSIDIAN_TC_ALLOWED_HOSTS" },
+        "RELIQUARY_TC_ALLOWED_HOSTS must be a comma-separated list of host or host:port entries, with no wildcard, scheme, path, query, fragment, credentials or whitespace",
+        { variable: "RELIQUARY_TC_ALLOWED_HOSTS" },
       );
     }
     const transports = (raw.transports as Record<string, unknown> | undefined) ?? {};
@@ -119,21 +119,21 @@ export function applyEnvOverlays(
       http: { ...http, allowedHosts: [...new Set([...hosts, ...entries])] },
     };
   }
-  const jwksUri = env.OBSIDIAN_TC_JWKS_URI;
+  const jwksUri = env.RELIQUARY_TC_JWKS_URI;
   if (jwksUri) {
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
     raw.auth = { ...auth, jwksUri };
   }
   // The single `aud` a token must carry. A LAN install has no PUBLIC_URL to derive it from, and a
   // non-loopback JWT server refuses to start without one (THE-456, server.schema.ts).
-  const audience = env.OBSIDIAN_TC_AUDIENCE;
+  const audience = env.RELIQUARY_TC_AUDIENCE;
   if (audience) {
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
     raw.auth = { ...auth, audience };
   }
-  const cacheDir = env.OBSIDIAN_TC_CACHE_DIR;
+  const cacheDir = env.RELIQUARY_TC_CACHE_DIR;
   if (cacheDir) raw.cacheDir = cacheDir;
-  const vaultPath = env.OBSIDIAN_TC_VAULT_PATH;
+  const vaultPath = env.RELIQUARY_TC_VAULT_PATH;
   if (vaultPath) {
     // Only an unambiguous target is overlaid: no vault, or the one vault. Several vaults would need
     // a choice of which one this path replaces, and that choice is the operator's to make.
@@ -144,16 +144,16 @@ export function applyEnvOverlays(
       raw.vaults = [{ ...(vaults[0] as Record<string, unknown>), path: vaultPath }];
     } else if (Array.isArray(vaults)) {
       throw err.invalidInput(
-        `OBSIDIAN_TC_VAULT_PATH cannot pick one of ${vaults.length} configured vaults; ` +
+        `RELIQUARY_TC_VAULT_PATH cannot pick one of ${vaults.length} configured vaults; ` +
           "remove the variable and set each vault's path in the config file",
-        { variable: "OBSIDIAN_TC_VAULT_PATH" },
+        { variable: "RELIQUARY_TC_VAULT_PATH" },
       );
     }
   }
-  if (env.OBSIDIAN_TC_VAULT_CASE_SENSITIVE)
-    overlayVaultCase(raw, env.OBSIDIAN_TC_VAULT_CASE_SENSITIVE);
-  const plurEndpoint = env.OBSIDIAN_TC_PLUR_ENDPOINT;
-  const plurToken = env.OBSIDIAN_TC_PLUR_TOKEN;
+  if (env.RELIQUARY_TC_VAULT_CASE_SENSITIVE)
+    overlayVaultCase(raw, env.RELIQUARY_TC_VAULT_CASE_SENSITIVE);
+  const plurEndpoint = env.RELIQUARY_TC_PLUR_ENDPOINT;
+  const plurToken = env.RELIQUARY_TC_PLUR_TOKEN;
   if (plurEndpoint || plurToken) {
     const plur = (raw.plur as Record<string, unknown> | undefined) ?? {};
     raw.plur = {
@@ -165,7 +165,7 @@ export function applyEnvOverlays(
   return raw;
 }
 
-/** One OBSIDIAN_TC_ALLOWED_HOSTS entry: `host`, `host:port`, an IPv4 address or `[ipv6]:port`. The
+/** One RELIQUARY_TC_ALLOWED_HOSTS entry: `host`, `host:port`, an IPv4 address or `[ipv6]:port`. The
  *  WHATWG URL parser reads it as the authority of an http URL, and the entry is valid only when that
  *  authority is the whole thing. `*`, whitespace and a trailing colon are refused explicitly, because
  *  the URL parser drops or accepts them silently. Returns the canonical `url.host`, or undefined. */
@@ -190,7 +190,7 @@ function allowedHostEntry(raw: string): string | undefined {
   return valid ? url.host : undefined;
 }
 
-/** OBSIDIAN_TC_PUBLIC_URL must be the bare origin of the public HTTPS endpoint. Its value is never
+/** RELIQUARY_TC_PUBLIC_URL must be the bare origin of the public HTTPS endpoint. Its value is never
  *  echoed into the error: a mistyped URL can carry credentials, and errors reach logs. */
 function parsePublicUrl(value: string): URL {
   let url: URL | undefined;
@@ -208,8 +208,8 @@ function parsePublicUrl(value: string): URL {
     url.password === "";
   if (url === undefined || url.protocol !== "https:" || !bare) {
     throw err.invalidInput(
-      "OBSIDIAN_TC_PUBLIC_URL must be an https://host[:port] URL with no path, query or credentials",
-      { variable: "OBSIDIAN_TC_PUBLIC_URL" },
+      "RELIQUARY_TC_PUBLIC_URL must be an https://host[:port] URL with no path, query or credentials",
+      { variable: "RELIQUARY_TC_PUBLIC_URL" },
     );
   }
   return url;
@@ -280,7 +280,7 @@ export function isEmbeddingsDimensionsExplicit(raw: Record<string, unknown>): bo
 }
 
 /** THE-1122 review round 3: same "read the RAW pre-parse object" pattern as the two functions
- *  above. `cacheDir` has a schema-level default (`.obsidian-tc`, anchored to the home directory
+ *  above. `cacheDir` has a schema-level default (`.reliquary-tc`, anchored to the home directory
  *  below) — every OTHER provider tolerates that default silently, but `provider: "local"` cannot:
  *  its model cache lives under `<cacheDir>/models/embedder-local/`, and a config that never named
  *  where that should live is far more likely a genuine oversight (the operator wrote out an
@@ -414,20 +414,18 @@ export function finalizeConfig(
       {
         provider: "local",
         hint:
-          'set "cacheDir" in your config (e.g. "~/.obsidian-tc" or an absolute path) — the local ' +
+          'set "cacheDir" in your config (e.g. "~/.reliquary-tc" or an absolute path) — the local ' +
           "embedder's model cache lives under <cacheDir>/models/embedder-local/, and this must be " +
           "named explicitly rather than silently defaulted for this provider.",
       },
     );
   }
-  // The cacheDir default (".obsidian-tc") is relative, so cli.ts mkdir's it against the process
+  // The cacheDir default (".reliquary-tc") is relative, so cli.ts mkdir's it against the process
   // CWD, which breaks when a GUI launcher spawns the server in a non-writable directory: Claude
-  // Desktop starts MCP servers in C:\WINDOWS\system32, so `mkdir .obsidian-tc` is EPERM at boot
+  // Desktop starts MCP servers in C:\WINDOWS\system32, so `mkdir .reliquary-tc` is EPERM at boot
   // (a terminal only worked because its CWD was the vault). Anchor a relative cacheDir to the
   // user's home so it is absolute and CWD-independent; the shared cache.db isolates vaults by
   // vault_id, so one machine-local dir is correct. An explicit absolute cacheDir is honored as-is.
-  // The schema default keeps a pre-2.0 install on its existing `~/.obsidian-tc` when that is the
-  // only folder present (home-dir.ts); an explicitly configured cacheDir is never redirected.
   if (config.cacheDir === CURRENT_NAMES.homeDirName) config.cacheDir = defaultHomeDir();
   if (!isAbsolute(config.cacheDir)) config.cacheDir = join(homedir(), config.cacheDir);
   // Every provider client's default transport reads this list (gateway/provider-fetch.ts).
@@ -437,7 +435,7 @@ export function finalizeConfig(
 
 /**
  * Load and validate server config from a JSON file. The JWT secret may be
- * supplied via OBSIDIAN_TC_JWT_SECRET to keep it out of the file on disk.
+ * supplied via RELIQUARY_TC_JWT_SECRET to keep it out of the file on disk.
  */
 export function loadConfig(path: string): ServerConfig {
   return finalizeConfig(readConfigFile(path));

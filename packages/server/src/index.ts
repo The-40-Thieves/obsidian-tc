@@ -1,4 +1,4 @@
-// Public entry for the obsidian-tc server core (M0 walking skeleton).
+// Public entry for the reliquary-tc server core (M0 walking skeleton).
 //
 // This barrel exposes the foundation pieces that are implemented and verified
 // in M0: the synchronous Database interface, the migration runner, folder ACL,

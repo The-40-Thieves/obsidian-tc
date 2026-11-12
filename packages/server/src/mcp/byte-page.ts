@@ -49,7 +49,7 @@
 // signature / malformed), `foreign` (other principal or tool) or `request_mismatch` (other args).
 import { createHash, randomBytes } from "node:crypto";
 import { createRequestStateCodec, type ServerContext } from "@modelcontextprotocol/server";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { argsHash } from "../hash";
 import { traceItem } from "../otel/dispatch-spans";
 
@@ -85,7 +85,7 @@ export interface PagingDeps {
 
 /** Derive the codec key from `secret`, domain-separated so it differs from the elicit key. */
 function derivePageCursorKey(secret: string): Uint8Array {
-  return new Uint8Array(createHash("sha256").update(`${secret}|obsidian-tc/page-cursor`).digest());
+  return new Uint8Array(createHash("sha256").update(`${secret}|reliquary-tc/page-cursor`).digest());
 }
 
 export function createPageCursorCodec(

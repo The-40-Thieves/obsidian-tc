@@ -1,4 +1,4 @@
-// `obsidian-tc provenance verify`, driven through the functions cli.ts dispatches to, against a real
+// `reliquary-tc provenance verify`, driven through the functions cli.ts dispatches to, against a real
 // config file, a real cache.db and a real auth registry on disk (an EdDSA key made by `auth
 // rotate-key --alg EdDSA`). Records are appended with the same store the server uses.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

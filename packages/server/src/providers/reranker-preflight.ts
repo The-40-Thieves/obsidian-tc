@@ -5,7 +5,7 @@
 //   * doctor/checks.ts turns it into a pre-boot failing check.
 //
 // Before this existed, only boot knew. A config naming a provider that cannot build hard-failed
-// startup while `obsidian-tc doctor` reported ok and exited 0 — because doctor's providers.registered
+// startup while `reliquary-tc doctor` reported ok and exited 0 — because doctor's providers.registered
 // check validates NAMES only, and both "model-tier" and "gateway" are perfectly valid names. Doctor
 // was silent about the one configuration that would refuse to start.
 //
@@ -54,7 +54,7 @@ export function rerankerBuildBlocker(
     if (url !== undefined && url.length > 0) return null;
     return {
       reason: 'reranker.provider "gateway" cannot be built: no gateway base URL is configured',
-      hint: "set reranker.baseUrl or the OBSIDIAN_TC_GATEWAY_URL environment variable so the gateway reranker has an endpoint to call, or remove the reranker block entirely to fall back to the default precedence.",
+      hint: "set reranker.baseUrl or the RELIQUARY_TC_GATEWAY_URL environment variable so the gateway reranker has an endpoint to call, or remove the reranker block entirely to fall back to the default precedence.",
     };
   }
   return null;
@@ -70,7 +70,7 @@ export function rerankerBuildBlocker(
  *  boot and doctor, and platform support is exactly that kind of fact.
  *
  *  Whether onnxruntime-node (a transitive dependency of the optional
- *  @the-40-thieves/obsidian-tc-reranker-local package, via @huggingface/transformers) ships a
+ *  @the-40-thieves/reliquary-tc-reranker-local package, via @huggingface/transformers) ships a
  *  native prebuilt binary for THIS process's platform/arch/libc — confirmed against onnxruntime-node
  *  4.x's published npm platform packages: linux x64 + arm64 (glibc only), darwin arm64, win32 x64 +
  *  arm64. musl libc (Alpine and similar) ships NONE. darwin x64 (Intel Mac) ships NONE too, but

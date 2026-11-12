@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from obsidian_tc_bge.health import Readiness
+from reliquary_tc_bge.health import Readiness
 
 
 def test_starts_not_ready():

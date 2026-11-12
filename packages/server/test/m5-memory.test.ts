@@ -58,7 +58,7 @@ describe("create_entity", () => {
         expect(d.vault_path).toBe("memory/person/Ada.md");
       }
       const note = v.read("memory/person/Ada.md");
-      expect(note).toContain("obsidian_tc_id:");
+      expect(note).toContain("reliquary_tc_id:");
       expect(note).toContain("entity_type: person");
       expect(note).toContain("# Ada");
       expect(note).toContain("- mathematician");

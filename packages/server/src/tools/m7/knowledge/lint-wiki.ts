@@ -1,7 +1,7 @@
 // lint_wiki: one read-only call that runs the wiki-health checks over a folder and returns
 // PROPOSALS (never edits, never blocks). The engine is wiki-lint.ts, which the opt-in scheduled
 // sweep (runtime/wiki-lint-sweep.ts) shares; this file is the MCP surface.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { NOTE_DUPLICATE_MIN } from "../../../search/dedupe-band";

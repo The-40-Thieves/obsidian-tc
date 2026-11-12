@@ -13,7 +13,7 @@ import {
   VaultId,
   VaultPath,
   WriteOptions,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import {
   CanvasDoc,

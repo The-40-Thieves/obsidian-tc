@@ -1,7 +1,7 @@
 // prune_hub_links works on BODY links only. It used to scan the raw file, frontmatter included, so
 // an unresolved property link was blanked to `""` (an edit of the user's properties) and a property
 // link made a later body link count as a duplicate.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { parseNote } from "../src/vault/frontmatter";

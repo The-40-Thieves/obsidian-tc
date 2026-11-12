@@ -1,6 +1,6 @@
 # Evaluation methodology
 
-obsidian-tc publishes **no headline benchmark score**, and that is a deliberate position rather than
+reliquary-tc publishes **no headline benchmark score**, and that is a deliberate position rather than
 an absence. This document explains what is measured instead, how, and what that does and does not
 let you conclude.
 
@@ -322,7 +322,7 @@ takes the run to **287 principal-query evaluations, still zero leaks**.
 ## Local embedder model selection
 
 The default `embeddings.provider` moved from `ollama` (requires a separately-run Ollama server) to
-`local` (a bundled, fully offline dense embedder — see [Embeddings](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/configuration/embeddings.md)).
+`local` (a bundled, fully offline dense embedder — see [Embeddings](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/src/content/docs/configuration/embeddings.md)).
 Picking which model backs that default was treated as an empirical question, on the same public
 corpus and harness as the rest of this document, not a specs-sheet judgment call.
 
@@ -657,7 +657,7 @@ hypothesis and no authority to move a default, and two predictions: dense nDCG@1
 graph-minus-baseline delta inside the planned MDE of 0.053.
 
 **Smoke result (`quartz-docs`, default stack, bge-m3 1024d, n=120).** The artifact is
-`/data/obsidian-tc-eval/multishape/smoke-quartz-docs/artifact.json`, sha256
+`/data/reliquary-tc-eval/multishape/smoke-quartz-docs/artifact.json`, sha256
 `b9b97f52bd63fbbf81331f524d949c59d87b566b4c0188aa73880f0c60aee1e4`; the corpus pin was verified before the
 run and the contamination guard passed.
 
@@ -682,7 +682,7 @@ wrong way is a ten-query cell and is noted, not interpreted.
 
 Part 1 sourced the shapes. Part 2 runs the dark mechanisms and the shipped defaults on four corpora, one `eval/run.ts` (or
 `eval/search-mode.ts`) process at a time, every run recorded with `eval/history.ts` (80 runs in
-`/data/obsidian-tc-eval/multishape/part2/runs.db`; artifacts `artifacts/<corpus>--<arm>.json`, none deleted). It changes no
+`/data/reliquary-tc-eval/multishape/part2/runs.db`; artifacts `artifacts/<corpus>--<arm>.json`, none deleted). It changes no
 default. Two parts of the planned matrix are **pending**, not run: the reranker re-test (needs a GPU, awaiting the owner's
 approval) and the learned-sparse and ColBERT arms (need a multi-vector encoder). Both are listed again at the end.
 
@@ -696,8 +696,8 @@ result. No preregistered MDE was changed.
 | --- | ---: | --- | ---: | --- |
 | evergreen | 78 | strict (existing set) | 0.0653 | copy of the reranker-study index (bge-m3 1024d) |
 | quartz-docs | 120 | `golden/quartz-docs.json` | 0.0527 | copy of the part-1 smoke index; 575 chunks of 110 of 111 notes |
-| knowledge-garden | 220 | `golden/knowledge-garden.json` | 0.0389 | `obsidian-tc index`; 2422 chunks of 832 of 959 notes (see below) |
-| synthetic-multihop | 120 | `golden/synthetic-multihop.example.yaml` | 0.0527 | `obsidian-tc index`; 878 chunks of 638 notes |
+| knowledge-garden | 220 | `golden/knowledge-garden.json` | 0.0389 | `reliquary-tc index`; 2422 chunks of 832 of 959 notes (see below) |
+| synthetic-multihop | 120 | `golden/synthetic-multihop.example.yaml` | 0.0527 | `reliquary-tc index`; 878 chunks of 638 notes |
 
 Embeddings are `BAAI/bge-m3` 1024d through the gateway alias on every corpus. The contamination guard passed in every call. A control
 re-run on `quartz-docs` was bit-identical to the part-1 smoke (nDCG@10 0.8443 to 0.8952, p 0.0015), so runs are deterministic.
@@ -718,7 +718,7 @@ comparison per corpus, raw p below 0.05. `queries changed` counts queries whose 
 **Tier C arms (addendum 1).** `fanout`: three phrasings per golden query from `openai/gpt-5.4-nano` through the gateway (538 short
 completions in total, public query text only, written once to a file and reused), against `default-pathdedup` (the fan-out dedupes
 by note, so the control must too). `route-weak-text` and `route-hybrid` against `route-text-first` (the shipped route), through
-`eval/search-mode.ts` with the pools stage's query vectors. `cluster-cap`: `obsidian-tc cluster --k round(sqrt(chunks))` on an index
+`eval/search-mode.ts` with the pools stage's query vectors. `cluster-cap`: `reliquary-tc cluster --k round(sqrt(chunks))` on an index
 copy (k = 24, 55, 49, 30 for quartz-docs, evergreen, knowledge-garden, synthetic-multihop), then `--max-per-cluster 2`, against
 `default`. `llm-edges` was **not run** (see the skipped list).
 
@@ -965,7 +965,7 @@ the field's published numbers do not currently mean what they appear to mean.
 
 **The public memory benchmarks are conversational, not documentary.** LoCoMo (1,540 questions over
 multi-session dialogues), LongMemEval (500 questions), BEAM, and DMR all evaluate recall over
-*conversation histories*. obsidian-tc retrieves over a **wiki-linked markdown vault** where graph
+*conversation histories*. reliquary-tc retrieves over a **wiki-linked markdown vault** where graph
 expansion, folder ACLs and multi-vault scoping are load-bearing stages. Flattening a dialogue
 corpus into notes produces no link graph, so several stages contribute nothing — the score would
 measure a deliberately crippled configuration.
@@ -1097,7 +1097,7 @@ limits — beats a borrowed number measured on the wrong shape of data is unchan
 that a right-shaped corpus turned out to exist, so the single number now published is one anybody
 can re-derive.
 
-If you are evaluating obsidian-tc against alternatives, the honest summary is: the retrieval
+If you are evaluating reliquary-tc against alternatives, the honest summary is: the retrieval
 mechanisms here are gated by a pre-registered statistical rule; two of them failed it and ship dark
 with their numbers recorded; one public-corpus comparison is published above with both its
 binarizations and its power limits; and the larger internal corpus behind everything else is

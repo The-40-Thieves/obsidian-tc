@@ -6,7 +6,7 @@
 // registrations at exactly the point the original inline code did rather than grouping "all plane
 // jobs" together for tidiness. Not started here — scheduler.start() is a `ServerRuntime.start()`
 // activation step (server-runtime.ts), not construction.
-import type { ServerConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { AuthRegistry } from "../auth/registry";
 import type { Database } from "../db/types";

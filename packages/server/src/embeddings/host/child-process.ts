@@ -7,7 +7,7 @@
 import { type ChildProcessByStdio, spawn as spawnChild } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import {
   type ChildMessage,
   type EmbedderInitOpts,
@@ -206,7 +206,7 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     if (!isCliEntryMarked()) {
       job.reject(
         err.embeddingProviderError(
-          "the embedder child can only be started by the obsidian-tc CLI entry",
+          "the embedder child can only be started by the reliquary-tc CLI entry",
           {
             hint: 'use embeddings.host "in-process" when the server is embedded in another program',
           },
@@ -226,7 +226,7 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     const [command, ...args] = opts.argv;
     const proc = spawnChild(command as string, args, {
       stdio: ["pipe", "pipe", "inherit"],
-      env: { ...process.env, ...opts.env, OBSIDIAN_TC_EMBEDDER_HOST: "1" },
+      env: { ...process.env, ...opts.env, RELIQUARY_TC_EMBEDDER_HOST: "1" },
     });
     const running: Running = { proc, pid: proc.pid, ready: false, stopping: false, dead: false };
     child = running;

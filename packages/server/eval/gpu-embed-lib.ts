@@ -30,7 +30,7 @@ export interface ExportChunk {
  *  when it is off. The query side is enriched either way, so exporting the wrong one produces
  *  vectors that look fine and retrieve badly. `textOf`, when given, replaces that choice (the
  *  embedder-arms harness exports each arm's own text). Egress-excluded paths never leave the
- *  machine, the same rule `obsidian-tc index` applies before embedding. */
+ *  machine, the same rule `reliquary-tc index` applies before embedding. */
 export function exportChunkTexts(
   db: Database,
   vaultIds: readonly string[],

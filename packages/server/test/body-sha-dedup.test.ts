@@ -13,7 +13,7 @@
 // paths keep an independent vector, so the survivor is not stranded when the owner is deleted.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { EmbeddingProvider } from "../src/embeddings";
 import { makeM2Vault } from "./m2-helpers";

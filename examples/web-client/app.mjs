@@ -18,8 +18,8 @@ import {
   s256Challenge,
 } from "./oauth.mjs";
 
-const PENDING_KEY = "obsidian-tc-web-client:pending";
-const CLIENT_KEY = (origin) => `obsidian-tc-web-client:client:${origin}`;
+const PENDING_KEY = "reliquary-tc-web-client:pending";
+const CLIENT_KEY = (origin) => `reliquary-tc-web-client:client:${origin}`;
 const REFRESH_MARGIN_MS = 30_000;
 
 let session = null; // { mcpUrl, resource, issuer, metadata, clientInformation, tokens, expiresAt }
@@ -82,7 +82,7 @@ async function clientFor(mcpUrl, metadata, redirectUri) {
   const registered = await registerClient(metadata.issuer, {
     metadata,
     clientMetadata: {
-      client_name: "obsidian-tc examples/web-client",
+      client_name: "reliquary-tc examples/web-client",
       redirect_uris: [redirectUri],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -192,7 +192,7 @@ async function connect(mcpUrl) {
       },
     },
   });
-  const next = new Client({ name: "obsidian-tc-examples-web-client", version: "0.1.0" });
+  const next = new Client({ name: "reliquary-tc-examples-web-client", version: "0.1.0" });
   next.setRequestHandler("elicitation/create", (request) => askUser(request.params));
   await next.connect(transport);
   const { tools } = await next.listTools();

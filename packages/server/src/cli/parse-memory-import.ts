@@ -1,4 +1,4 @@
-// THE-1124 — `obsidian-tc memory import` argv parsing, split out of args.ts the same way
+// THE-1124 — `reliquary-tc memory import` argv parsing, split out of args.ts the same way
 // THE-175's parse-import-ambient.ts documents (args.ts sits at biome's noExcessiveLinesPerFile
 // floor). No dependency on args.ts's CliCommand — this defines its own return type, re-exported
 // into the union there, so importing it FROM args.ts creates no cycle.

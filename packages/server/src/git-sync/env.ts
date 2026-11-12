@@ -26,13 +26,13 @@ export interface GitSyncConfig {
   askpassPath: string;
 }
 
-const DEFAULT_AUTHOR = "obsidian-tc <obsidian-tc@localhost>";
+const DEFAULT_AUTHOR = "reliquary-tc <reliquary-tc@localhost>";
 
 function parseNetworkUrl(value: string): URL {
   try {
     return new URL(value);
   } catch {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_URL is not a valid URL");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_URL is not a valid URL");
   }
 }
 
@@ -88,46 +88,46 @@ function validBranch(value: string): boolean {
 }
 
 function urlKind(value: string): GitUrlKind {
-  refuseControls(value, "OBSIDIAN_TC_VAULT_GIT_URL");
+  refuseControls(value, "RELIQUARY_TC_VAULT_GIT_URL");
   if (value.startsWith("-")) {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_URL must not begin with a hyphen");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_URL must not begin with a hyphen");
   }
   if (value.startsWith("file://")) return "file";
   if (/^(?:\/|\.\.?\/|[A-Za-z]:[\\/])/.test(value)) return "local";
   if (/^[^/@\s:]+@[^/\s:]+:.+/.test(value)) {
     const host = value.slice(value.indexOf("@") + 1, value.indexOf(":"));
     if (host.startsWith("-")) {
-      throw new Error("OBSIDIAN_TC_VAULT_GIT_URL contains an invalid SSH host");
+      throw new Error("RELIQUARY_TC_VAULT_GIT_URL contains an invalid SSH host");
     }
     return "ssh";
   }
   if (value.startsWith("ssh://")) {
     const parsed = parseNetworkUrl(value);
     if (parsed.password) {
-      throw new Error("OBSIDIAN_TC_VAULT_GIT_URL must not contain credentials");
+      throw new Error("RELIQUARY_TC_VAULT_GIT_URL must not contain credentials");
     }
     if (parsed.hostname.startsWith("-")) {
-      throw new Error("OBSIDIAN_TC_VAULT_GIT_URL contains an invalid SSH host");
+      throw new Error("RELIQUARY_TC_VAULT_GIT_URL contains an invalid SSH host");
     }
     return "ssh";
   }
   if (value.startsWith("https://")) {
     const parsed = parseNetworkUrl(value);
     if (parsed.username || parsed.password) {
-      throw new Error("OBSIDIAN_TC_VAULT_GIT_URL must not contain credentials");
+      throw new Error("RELIQUARY_TC_VAULT_GIT_URL must not contain credentials");
     }
     return "https";
   }
   if (!value.includes(":") && !/^[A-Za-z][A-Za-z\d+.-]*:\/\//.test(value)) return "local";
   throw new Error(
-    "OBSIDIAN_TC_VAULT_GIT_URL must use SSH, SCP-style SSH, HTTPS, file://, or a local path",
+    "RELIQUARY_TC_VAULT_GIT_URL must use SSH, SCP-style SSH, HTTPS, file://, or a local path",
   );
 }
 
 function parseAuthor(value: string): { name: string; email: string } {
   const match = /^\s*(.+?)\s+<([^<>\s]+@[^<>\s]+)>\s*$/.exec(value);
   if (!match?.[1] || !match[2]) {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_AUTHOR must have the form Name <email>");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_AUTHOR must have the form Name <email>");
   }
   return { name: match[1], email: match[2] };
 }
@@ -137,7 +137,7 @@ function parseInterval(value: string | undefined): number {
   const seconds = Number(raw);
   if (!/^\d+$/.test(raw) || !Number.isSafeInteger(seconds) || seconds < 10) {
     throw new Error(
-      "OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL must be an integer of at least 10 seconds",
+      "RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL must be an integer of at least 10 seconds",
     );
   }
   return seconds * 1_000;
@@ -146,59 +146,59 @@ function parseInterval(value: string | undefined): number {
 function parsePush(value: string | undefined): GitPushMode {
   const push = value ?? "batched";
   if (push !== "batched" && push !== "off") {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_PUSH must be batched or off");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_PUSH must be batched or off");
   }
   return push;
 }
 
 export function loadGitSyncConfig(env: NodeJS.ProcessEnv = process.env): GitSyncConfig {
-  const url = required(env, "OBSIDIAN_TC_VAULT_GIT_URL");
+  const url = required(env, "RELIQUARY_TC_VAULT_GIT_URL");
   const kind = urlKind(url);
   const normalizedUrl = kind === "local" ? resolve(url) : url;
-  const sshKey = env.OBSIDIAN_TC_VAULT_GIT_SSH_KEY;
-  const token = env.OBSIDIAN_TC_VAULT_GIT_TOKEN;
+  const sshKey = env.RELIQUARY_TC_VAULT_GIT_SSH_KEY;
+  const token = env.RELIQUARY_TC_VAULT_GIT_TOKEN;
   if (kind === "ssh" && !sshKey) {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_SSH_KEY is required for an SSH URL");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_SSH_KEY is required for an SSH URL");
   }
   if (kind === "https" && !token) {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_TOKEN is required for an HTTPS URL");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_TOKEN is required for an HTTPS URL");
   }
-  const author = parseAuthor(env.OBSIDIAN_TC_VAULT_GIT_AUTHOR ?? DEFAULT_AUTHOR);
-  const vaultDir = resolve(required(env, "OBSIDIAN_TC_VAULT_PATH"));
-  const cacheDir = resolve(required(env, "OBSIDIAN_TC_CACHE_DIR"));
-  refuseControls(vaultDir, "OBSIDIAN_TC_VAULT_PATH");
-  refuseControls(cacheDir, "OBSIDIAN_TC_CACHE_DIR");
+  const author = parseAuthor(env.RELIQUARY_TC_VAULT_GIT_AUTHOR ?? DEFAULT_AUTHOR);
+  const vaultDir = resolve(required(env, "RELIQUARY_TC_VAULT_PATH"));
+  const cacheDir = resolve(required(env, "RELIQUARY_TC_CACHE_DIR"));
+  refuseControls(vaultDir, "RELIQUARY_TC_VAULT_PATH");
+  refuseControls(cacheDir, "RELIQUARY_TC_CACHE_DIR");
   const stateDir = gitSyncStateDir(cacheDir);
   const physicalVault = physicalPath(vaultDir);
   const physicalState = physicalPath(stateDir);
   if (containsPath(physicalVault, physicalState) || containsPath(physicalState, physicalVault)) {
     throw new Error(
-      "OBSIDIAN_TC_CACHE_DIR and OBSIDIAN_TC_VAULT_PATH must not contain one another",
+      "RELIQUARY_TC_CACHE_DIR and RELIQUARY_TC_VAULT_PATH must not contain one another",
     );
   }
-  if (env.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET) {
-    assertWebhookSecret(env.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET);
+  if (env.RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET) {
+    assertWebhookSecret(env.RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET);
   }
-  const branch = env.OBSIDIAN_TC_VAULT_GIT_BRANCH;
-  if (branch) refuseControls(branch, "OBSIDIAN_TC_VAULT_GIT_BRANCH");
+  const branch = env.RELIQUARY_TC_VAULT_GIT_BRANCH;
+  if (branch) refuseControls(branch, "RELIQUARY_TC_VAULT_GIT_BRANCH");
   if (branch && !validBranch(branch)) {
-    throw new Error("OBSIDIAN_TC_VAULT_GIT_BRANCH is not a valid branch name");
+    throw new Error("RELIQUARY_TC_VAULT_GIT_BRANCH is not a valid branch name");
   }
   return {
     url: normalizedUrl,
     urlKind: kind,
     ...(branch ? { branch } : {}),
     ...(sshKey ? { sshKey } : {}),
-    ...(env.OBSIDIAN_TC_VAULT_GIT_KNOWN_HOSTS
-      ? { knownHosts: env.OBSIDIAN_TC_VAULT_GIT_KNOWN_HOSTS }
+    ...(env.RELIQUARY_TC_VAULT_GIT_KNOWN_HOSTS
+      ? { knownHosts: env.RELIQUARY_TC_VAULT_GIT_KNOWN_HOSTS }
       : {}),
     ...(token ? { token } : {}),
     authorName: author.name,
     authorEmail: author.email,
-    pullIntervalMs: parseInterval(env.OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL),
-    push: parsePush(env.OBSIDIAN_TC_VAULT_GIT_PUSH),
-    ...(env.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET
-      ? { webhookSecret: env.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET }
+    pullIntervalMs: parseInterval(env.RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL),
+    push: parsePush(env.RELIQUARY_TC_VAULT_GIT_PUSH),
+    ...(env.RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET
+      ? { webhookSecret: env.RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET }
       : {}),
     vaultDir,
     cacheDir,

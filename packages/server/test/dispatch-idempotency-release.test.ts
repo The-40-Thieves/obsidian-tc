@@ -71,7 +71,7 @@ async function releaseFailures(m: MetricsRecorder, gate: string): Promise<number
     .split("\n")
     .find(
       (l) =>
-        l.startsWith("obsidian_tc_idempotency_release_failed_total{") && l.includes(`"${gate}"`),
+        l.startsWith("reliquary_tc_idempotency_release_failed_total{") && l.includes(`"${gate}"`),
     );
   return row === undefined ? 0 : Number(row.trim().split(/\s+/).pop());
 }

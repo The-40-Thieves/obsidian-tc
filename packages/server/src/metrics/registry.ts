@@ -156,44 +156,44 @@ export class MetricsRecorder {
     const registers = [registry];
 
     this.toolCalls = new Counter({
-      name: "obsidian_tc_tool_calls_total",
+      name: "reliquary_tc_tool_calls_total",
       help: "Tool calls by vault, tool, and terminal status.",
       labelNames: ["vault", "tool", "status"],
       registers,
     });
     this.aclDenied = new Counter({
-      name: "obsidian_tc_acl_denied_total",
+      name: "reliquary_tc_acl_denied_total",
       help: "ACL/scope denials by vault, scope class, and reason.",
       labelNames: ["vault", "scope_class", "reason"],
       registers,
     });
     this.hitlElicited = new Counter({
-      name: "obsidian_tc_hitl_elicited_total",
+      name: "reliquary_tc_hitl_elicited_total",
       help: "HITL elicit confirmations required, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
     });
     this.auditWriteFailed = new Counter({
-      name: "obsidian_tc_audit_write_failed_total",
+      name: "reliquary_tc_audit_write_failed_total",
       help: "Security-audit event writes that failed, by vault and tool. Audit is fail-open by design (a failed write must never break dispatch), so this counter is the only signal that the audit trail has gone lossy.",
       labelNames: ["vault", "tool"],
       registers,
     });
     this.idempotencyReleaseFailed = new Counter({
-      name: "obsidian_tc_idempotency_release_failed_total",
+      name: "reliquary_tc_idempotency_release_failed_total",
       help: "Idempotency claims left ORPHANED because the final release attempt on a pre-handler failure failed, by vault, tool and the rejection gate that led there (throttle | hitl | other). Release is best-effort so it never masks the error the caller must see, which also makes this counter its only signal. Counted at the LAST attempt, not at the gate: the gates get a retry in the outer catch, so a gate-site failure that retry then cleans up leaves no orphan and is deliberately not counted. When this does fire the claim survives, and a matching retry inside the reclaim window (idempotencyReclaimSeconds, default 60s) returns idempotency_in_flight; at or after that window claimOrReplay reclaims the row. The 24h idempotencyTtlSeconds is the later alternate expiry, not the blocking bound.",
       labelNames: ["vault", "tool", "gate"],
       registers,
     });
     this.ingestSecretsSkipped = new Counter({
-      name: "obsidian_tc_ingest_secrets_skipped_total",
+      name: "reliquary_tc_ingest_secrets_skipped_total",
       help: "Chunks the secret gate refused to index, by vault. Non-zero is expected on a vault containing credentials; a SUDDEN rise means content that used to index no longer does.",
       labelNames: ["vault"],
       registers,
     });
     this.ingestDedupSkipped = new Counter({
-      name: "obsidian_tc_ingest_dedup_skipped_total",
-      help: "Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good ONLY for the chunks it actually resolved — see obsidian_tc_ingest_dedup_unresolved_total for the subset that copied nothing; a fall in this counter means the dedup path stopped matching.",
+      name: "reliquary_tc_ingest_dedup_skipped_total",
+      help: "Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good ONLY for the chunks it actually resolved — see reliquary_tc_ingest_dedup_unresolved_total for the subset that copied nothing; a fall in this counter means the dedup path stopped matching.",
       labelNames: ["vault"],
       registers,
     });
@@ -202,19 +202,19 @@ export class MetricsRecorder {
     // dense/sparse/colbert vector — FTS-only until the owner re-embeds. Unlike its sibling, a rise
     // here is BAD: it is retrieval coverage lost, not work avoided.
     this.ingestDedupUnresolved = new Counter({
-      name: "obsidian_tc_ingest_dedup_unresolved_total",
-      help: "Chunks skipped for embedding by cross-path dedup whose source had no stored vector to copy, by vault. A rise is BAD — these chunks are FTS-only (no dense/sparse/colbert) until the owner note re-embeds successfully; it is the loss side of obsidian_tc_ingest_dedup_skipped_total, not work avoided.",
+      name: "reliquary_tc_ingest_dedup_unresolved_total",
+      help: "Chunks skipped for embedding by cross-path dedup whose source had no stored vector to copy, by vault. A rise is BAD — these chunks are FTS-only (no dense/sparse/colbert) until the owner note re-embeds successfully; it is the loss side of reliquary_tc_ingest_dedup_skipped_total, not work avoided.",
       labelNames: ["vault"],
       registers,
     });
     this.embedBatchRejections = new Counter({
-      name: "obsidian_tc_embed_batch_rejections_total",
+      name: "reliquary_tc_embed_batch_rejections_total",
       help: "Embed requests the provider rejected for exceeding its context (HTTP 400/413), then bisected + retried, by vault. Each is an extra round-trip; a persistent count means embeddings.maxBatchTokens is too high.",
       labelNames: ["vault"],
       registers,
     });
     this.indexWriteFailures = new Counter({
-      name: "obsidian_tc_index_write_failures_total",
+      name: "reliquary_tc_index_write_failures_total",
       help: "Notes skipped in a pass because the embed provider rejected them even at single-text size, by vault. Unlike the batch rejections above these are NOT retried within the pass, so the note is absent from the index until the next reconcile.",
       labelNames: ["vault"],
       registers,
@@ -223,7 +223,7 @@ export class MetricsRecorder {
     // commit had already changed. Non-zero is expected under concurrent write traffic, not a
     // failure — the skipped note is re-planned against current content on the next pass.
     this.indexStaleSkipped = new Counter({
-      name: "obsidian_tc_index_stale_skipped_total",
+      name: "reliquary_tc_index_stale_skipped_total",
       help: "Notes an indexVault batch skipped because a concurrent write_note/watcher commit changed the path's chunks after the plan was computed, by vault. Not a failure — the skipped note is re-planned against current content on the next index_vault pass.",
       labelNames: ["vault"],
       registers,
@@ -232,13 +232,13 @@ export class MetricsRecorder {
     // than aborting the whole indexVault reconcile for every OTHER note. Self-heals once the
     // note's YAML is fixed; a persistent non-zero count names a note nobody has fixed yet.
     this.indexFrontmatterFailed = new Counter({
-      name: "obsidian_tc_index_frontmatter_failures_total",
+      name: "reliquary_tc_index_frontmatter_failures_total",
       help: "Notes skipped in a pass because their frontmatter failed to parse as YAML, by vault. Not swept as stale (the note was still walked) and retried automatically on the next index_vault pass once the note's YAML is fixed — see doctor's index.coverage check for which paths.",
       labelNames: ["vault"],
       registers,
     });
     this.vecFallbacks = new Counter({
-      name: "obsidian_tc_vec_fallback_total",
+      name: "reliquary_tc_vec_fallback_total",
       help: "Searches that abandoned the vec0 KNN index for the exhaustive brute-force scan, by vault and reason. Results stay correct; the cost profile does not. reason=error is usually a dimension mismatch after an embedding-model change (the index no longer matches the query) and a persistent count means a real misconfiguration; reason=underfill means ACL-invisible chunks may be crowding out visible ones, so the over-fetch could not fill k visible hits.",
       labelNames: ["vault", "reason"],
       registers,
@@ -248,7 +248,7 @@ export class MetricsRecorder {
     // label: the event isn't scoped to one vault (same precedent as auth_rejections_total).
     // See docs/design/metrics-registry.md.
     this.vecRebuild = new Counter({
-      name: "obsidian_tc_vec_rebuild_total",
+      name: "reliquary_tc_vec_rebuild_total",
       help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built; table_missing means vec_chunks was absent over active embeddings and was rebuilt from them. Every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
       labelNames: ["reason"],
       registers,
@@ -259,16 +259,16 @@ export class MetricsRecorder {
     // ran. `outcome` is the closed 7-value RerankOutcome union, so the label set is bounded by
     // construction like `stage` above.
     this.rerankOutcome = new Counter({
-      name: "obsidian_tc_rerank_outcome_total",
+      name: "reliquary_tc_rerank_outcome_total",
       help: "rerankWithScores decisions, by vault and outcome. executed is the only outcome where the reported ranking actually came from the reranker; every other value is the synthetic-descending-score fallback for a different reason — not_configured (no reranker injected), skipped_by_policy (gatedRerank's hardness gate did not fire), timed_out, malformed_response (the call returned but produced no usable hit), provider_error (the call rejected for any other reason), fallback_used (no more specific reason — e.g. an empty candidate set).",
       labelNames: ["vault", "outcome"],
       registers,
     });
     // THE-417 Phase 2: makes warn-mode runnable/observable. Labels are bounded exactly like
-    // obsidian_tc_tool_calls_total's — vault id and tool name only, never the payload or the Zod
+    // reliquary_tc_tool_calls_total's — vault id and tool name only, never the payload or the Zod
     // issues, which would put note content into a label. See docs/design/metrics-registry.md.
     this.outputSchemaDrift = new Counter({
-      name: "obsidian_tc_output_schema_drift_total",
+      name: "reliquary_tc_output_schema_drift_total",
       help: "Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case.",
       labelNames: ["vault", "tool"],
       registers,
@@ -277,13 +277,13 @@ export class MetricsRecorder {
     // process-wide-subsystem precedent the scheduler gauges use, since the recompute runs once
     // over the whole experiential store rather than per vault. See docs/design/metrics-registry.md.
     this.activationRecomputeChunks = new Counter({
-      name: "obsidian_tc_activation_recompute_chunks_total",
+      name: "reliquary_tc_activation_recompute_chunks_total",
       help: "Chunks whose cached_activation_score was recomputed by the periodic ACT-R activation job, by job name. Cumulative. A flat line while the scheduler reports the job running means chunk_retrievals has stopped growing, not that the job stalled.",
       labelNames: ["vault"],
       registers,
     });
     this.sqlBusy = new Counter({
-      name: "obsidian_tc_sql_busy_total",
+      name: "reliquary_tc_sql_busy_total",
       help: "Write transactions that failed on a busy database, by vault, transaction, and reason. reason=busy means contention outlived busy_timeout (5s) — the writers genuinely overlap that long. reason=snapshot is a BUG REPORT, not tuning: it can only be produced by a deferred BEGIN that read and then tried to write, a failure busy_timeout cannot retry, so any non-zero count names a write path still using BEGIN where it should use inWriteTransaction.",
       labelNames: ["vault", "txn", "reason"],
       registers,
@@ -292,37 +292,37 @@ export class MetricsRecorder {
     registerEmbedderHostRestarts(registers);
     this.provenance = new ProvenanceCounters(registers);
     this.idempotencyHits = new Counter({
-      name: "obsidian_tc_idempotency_hits_total",
+      name: "reliquary_tc_idempotency_hits_total",
       help: "Idempotency cache hits, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
     });
     this.idempotencyCacheSkipped = new Counter({
-      name: "obsidian_tc_idempotency_cache_skipped_total",
+      name: "reliquary_tc_idempotency_cache_skipped_total",
       help: "Idempotency results skipped over the byte cap, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
     });
     this.rateLimitHits = new Counter({
-      name: "obsidian_tc_rate_limit_hits_total",
+      name: "reliquary_tc_rate_limit_hits_total",
       help: "Rate-limit refusals, by vault and scope class.",
       labelNames: ["vault", "scope_class"],
       registers,
     });
     this.rateLimitBackendOutages = new Counter({
-      name: "obsidian_tc_rate_limit_backend_outages_total",
+      name: "reliquary_tc_rate_limit_backend_outages_total",
       help: "Shared rate-limit backend outages (sqlite or redis unreachable), by backend. Counted once per outage, not per request; the failure policy decides what calls do meanwhile.",
       labelNames: ["backend"],
       registers,
     });
     this.governorTruncations = new Counter({
-      name: "obsidian_tc_governor_truncations_total",
+      name: "reliquary_tc_governor_truncations_total",
       help: "Response-byte governor truncations/refusals, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
     });
     this.authRejections = new Counter({
-      name: "obsidian_tc_auth_rejections_total",
+      name: "reliquary_tc_auth_rejections_total",
       // THE-520: labelled by REASON so an operator can alert on the difference between "tokens are
       // expiring" (rotation working) and "tokens exceed tokenTtlSeconds" (misconfiguration).
       help: "Refused tokens at the HTTP edge, by rejection reason.",
@@ -331,21 +331,21 @@ export class MetricsRecorder {
     });
     this.familyRevocations = new FamilyRevocationCounters(registers);
     this.morgianaDropped = new Counter({
-      name: "obsidian_tc_morgiana_emit_dropped_total",
+      name: "reliquary_tc_morgiana_emit_dropped_total",
       help: "MORGIANA events dropped, by vault and reason.",
       labelNames: ["vault", "reason"],
       registers,
     });
 
     this.toolDuration = new Histogram({
-      name: "obsidian_tc_tool_duration_seconds",
+      name: "reliquary_tc_tool_duration_seconds",
       help: "Tool execution wall time in seconds, by vault and tool.",
       labelNames: ["vault", "tool"],
       registers,
       // G2.4: "Default (Prometheus client library defaults)." — no explicit buckets.
     });
     this.responseBytes = new Histogram({
-      name: "obsidian_tc_response_bytes",
+      name: "reliquary_tc_response_bytes",
       help: "Tool response size in bytes, by vault and tool.",
       labelNames: ["vault", "tool"],
       buckets: RESPONSE_BYTE_BUCKETS,
@@ -359,20 +359,20 @@ export class MetricsRecorder {
     // (WriteTxnLabel, THE-465's StageName), so both label sets are bounded by construction.
     // See docs/design/metrics-registry.md.
     this.retrievalStageDuration = new Histogram({
-      name: "obsidian_tc_retrieval_stage_duration_seconds",
+      name: "reliquary_tc_retrieval_stage_duration_seconds",
       help: "Wall time per named graph-search stage, by vault and stage.",
       labelNames: ["vault", "stage"],
       buckets: RETRIEVAL_STAGE_BUCKETS,
       registers,
     });
     this.retrievalStageCandidatesIn = new Counter({
-      name: "obsidian_tc_retrieval_stage_candidates_in_total",
+      name: "reliquary_tc_retrieval_stage_candidates_in_total",
       help: "Candidates entering each graph-search stage, by vault and stage. Divide the _out_ counter by this for the stage's pass-through ratio: a stage sitting at 1.0 is no longer filtering anything while still costing its latency.",
       labelNames: ["vault", "stage"],
       registers,
     });
     this.retrievalStageCandidatesOut = new Counter({
-      name: "obsidian_tc_retrieval_stage_candidates_out_total",
+      name: "reliquary_tc_retrieval_stage_candidates_out_total",
       help: "Candidates leaving each graph-search stage, by vault and stage. See the _in_ counter.",
       labelNames: ["vault", "stage"],
       registers,
@@ -384,13 +384,13 @@ export class MetricsRecorder {
     // not characters (Buffer.byteLength) — this tracks actual I/O cost, which multi-byte UTF-8
     // content would understate if counted by character.
     this.retrievalContentBytesIn = new Counter({
-      name: "obsidian_tc_retrieval_content_bytes_in_total",
+      name: "reliquary_tc_retrieval_content_bytes_in_total",
       help: "Content bytes materialized entering a stage boundary, by vault and stage. Populated only at candidateAssembly (pre-dedup, across streams) and diversity/gatedRerank (pre-top-K-cut). Compare to the _out_ counter for the same stage: the gap is hydrated content that was never used.",
       labelNames: ["vault", "stage"],
       registers,
     });
     this.retrievalContentBytesOut = new Counter({
-      name: "obsidian_tc_retrieval_content_bytes_out_total",
+      name: "reliquary_tc_retrieval_content_bytes_out_total",
       help: "Content bytes surviving a stage boundary, by vault and stage. See the _in_ counter.",
       labelNames: ["vault", "stage"],
       registers,
@@ -400,19 +400,19 @@ export class MetricsRecorder {
     // one (retrieval-runtime.ts) keeps this at zero for the common single-principal deployment,
     // which doubles as a live check of that argument. See docs/design/metrics-registry.md.
     this.aclWalkPruned = new Counter({
-      name: "obsidian_tc_acl_walk_pruned_total",
+      name: "reliquary_tc_acl_walk_pruned_total",
       help: "Paths the graph-walk ACL filter excluded from a walk that an unfiltered walk over the same seed frontier would have reached, by vault. Zero for an unrestricted caller by construction (nothing to prune); a non-zero, rising count for a restricted one is the filter's recall cost made visible, not an error.",
       labelNames: ["vault"],
       registers,
     });
     this.memoryDefenseHits = new Counter({
-      name: "obsidian_tc_memory_defense_hits_total",
+      name: "reliquary_tc_memory_defense_hits_total",
       help: "memoryDefense (GH #994) redact/block matches, by pattern id only — no vault, tool, or content — so an operator sees the policy firing without reading what was matched.",
       labelNames: ["pattern"],
       registers,
     });
     this.sqlLockWait = new Histogram({
-      name: "obsidian_tc_sql_lock_wait_seconds",
+      name: "reliquary_tc_sql_lock_wait_seconds",
       help: "Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw.",
       labelNames: ["vault", "txn"],
       buckets: SQL_LOCK_WAIT_BUCKETS,
@@ -439,36 +439,36 @@ export class MetricsRecorder {
       });
     };
     gauge(
-      "obsidian_tc_active_sessions",
+      "reliquary_tc_active_sessions",
       "Active workspace sessions, by vault.",
       sources.activeSessions,
     );
     gauge(
-      "obsidian_tc_capture_queue_depth",
+      "reliquary_tc_capture_queue_depth",
       "Pending capture-queue items, by vault.",
       sources.captureQueueDepth,
     );
     gauge(
-      "obsidian_tc_elicit_tokens_pending",
+      "reliquary_tc_elicit_tokens_pending",
       "Unconsumed elicit tokens, by vault.",
       sources.elicitTokensPending,
     );
     gauge(
-      "obsidian_tc_idempotency_cache_bytes",
+      "reliquary_tc_idempotency_cache_bytes",
       "Idempotency cache size in bytes, by vault.",
       sources.idempotencyCacheBytes,
     );
     // THE-585 (#1): the index coordinator's own depth. `queued` is the number of paths with work
     // outstanding on the serialization chain; `active` is what is executing. A rising queue against
     // a flat active count is the signal that write concurrency is the bottleneck — the other half
-    // of the THE-467/468 argument that obsidian_tc_sql_lock_wait_seconds started.
+    // of the THE-467/468 argument that reliquary_tc_sql_lock_wait_seconds started.
     gauge(
-      "obsidian_tc_index_queue_depth",
-      "Paths with index work outstanding on the in-process coordinator chain, by subsystem. NOT the durable capture queue (see obsidian_tc_capture_queue_depth).",
+      "reliquary_tc_index_queue_depth",
+      "Paths with index work outstanding on the in-process coordinator chain, by subsystem. NOT the durable capture queue (see reliquary_tc_capture_queue_depth).",
       sources.indexQueueDepth,
     );
     gauge(
-      "obsidian_tc_index_active",
+      "reliquary_tc_index_active",
       "Index operations currently executing, by vault.",
       sources.indexActive,
     );
@@ -476,40 +476,40 @@ export class MetricsRecorder {
     // bursty editor autosaving one note should drive this up; if it stops moving under that load,
     // coalescing has broken and every keystroke is being embedded.
     gauge(
-      "obsidian_tc_index_coalesced_total",
+      "reliquary_tc_index_coalesced_total",
       "Index writes avoided by per-(vault,path) coalescing — a pending op replaced by a newer one before it ran. Cumulative. A RISE IS GOOD (work not done); a flat line under a bursty writer means coalescing stopped working.",
       sources.indexCoalesced,
     );
     // THE-585 (#9). `vault` carries the bounded job NAME — registered in code at startup, never
     // request-derived. Skips and backoff are the scheduler's own numbers, read rather than pushed.
     gauge(
-      "obsidian_tc_scheduler_skipped_total",
+      "reliquary_tc_scheduler_skipped_total",
       "Due ticks skipped because the job's prior run was still in flight, by job name. Cumulative. Sustained growth means the job's interval is shorter than its runtime.",
       sources.schedulerSkipped,
     );
     gauge(
-      "obsidian_tc_scheduler_consecutive_failures",
+      "reliquary_tc_scheduler_consecutive_failures",
       "Consecutive failures per job name — the exponent behind the scheduler's backoff. Non-zero means the job is currently backing off; it resets to 0 on the next success.",
       sources.schedulerConsecutiveFailures,
     );
     gauge(
-      "obsidian_tc_scheduler_deferred_total",
+      "reliquary_tc_scheduler_deferred_total",
       "Due ticks deferred (not skipped) because the event-loop delay p99 exceeded eventLoopDeferMs, by job name. Cumulative. Stays 0 forever unless budget deferral is configured — a flat 0 does not mean deferral never mattered, it means it is off.",
       sources.schedulerDeferred,
     );
     // THE-585 (#11). Measured once at boot, so a gauge: a histogram over a single sample would
     // imply a distribution that does not exist.
     gauge(
-      "obsidian_tc_http_construct_seconds",
+      "reliquary_tc_http_construct_seconds",
       "Seconds spent constructing the HTTP app/transport at boot, by subsystem. One sample per process.",
       sources.httpConstructSeconds,
     );
     // GH #995 follow-up: 1 while indexing.backgroundEmbed's "idle" mode is actively holding the
     // next embed sub-batch back because a tool call is in flight or finished too recently; 0 the
     // rest of the time (running, "immediate" mode, or no reconcile in progress). Renamed from
-    // obsidian_tc_boot_embed_paused in the #1003 fix round (Codex review, finding 3).
+    // reliquary_tc_boot_embed_paused in the #1003 fix round (Codex review, finding 3).
     gauge(
-      "obsidian_tc_background_embed_paused",
+      "reliquary_tc_background_embed_paused",
       '1 while the boot/promotion/periodic reconcile\'s embed pass is paused waiting for the server to go idle (indexing.backgroundEmbed mode "idle"), 0 otherwise.',
       sources.backgroundEmbedPaused,
     );
@@ -517,7 +517,7 @@ export class MetricsRecorder {
     // Prometheus shape for "what configuration is this process running under". Registered
     // separately from gauge() because its source yields a label, not a value.
     new Gauge({
-      name: "obsidian_tc_vec_fingerprint_active",
+      name: "reliquary_tc_vec_fingerprint_active",
       help: "Always 1; the `fingerprint` label carries the embedding representation the vault's vector index was actually built under (provider/model/dimensions/metric/enrichment/chunker/schema). Lets a retrieval-quality change be correlated with a representation swap instead of guessed at.",
       labelNames: ["vault", "fingerprint"],
       registers,
@@ -533,7 +533,7 @@ export class MetricsRecorder {
     // a `retiring` count that stays above zero past an operator's intended grace window is the
     // alert, and an `active` count other than 1 means minting is broken.
     new Gauge({
-      name: "obsidian_tc_auth_keys",
+      name: "reliquary_tc_auth_keys",
       help: "Auth registry signing keys by lifecycle state (active, retiring, retired). retiring counts only keys whose grace window is still open; an elapsed window counts as retired before the reaper persists it. active should be exactly 1 once the registry is initialised.",
       labelNames: ["state"],
       registers,
@@ -550,22 +550,22 @@ export class MetricsRecorder {
     // eviction count against a flat hit count means retrieval.cache.maxEntries is too small,
     // and expirations rising instead means the TTL is what is bounding reuse.
     gauge(
-      "obsidian_tc_query_cache_hits_total",
+      "reliquary_tc_query_cache_hits_total",
       "Retrieval query-cache hits, by cache name. Cumulative.",
       sources.queryCacheHits,
     );
     gauge(
-      "obsidian_tc_query_cache_misses_total",
+      "reliquary_tc_query_cache_misses_total",
       "Retrieval query-cache misses, by cache name. Cumulative.",
       sources.queryCacheMisses,
     );
     gauge(
-      "obsidian_tc_query_cache_evictions_total",
+      "reliquary_tc_query_cache_evictions_total",
       "Entries dropped from the retrieval query cache because it was full (LRU), by cache name. Rising against a flat hit count means retrieval.cache.maxEntries is too small. Cumulative.",
       sources.queryCacheEvictions,
     );
     gauge(
-      "obsidian_tc_query_cache_expirations_total",
+      "reliquary_tc_query_cache_expirations_total",
       "Entries found but past their TTL, by cache name — a miss that also proves the TTL is doing work, and distinguishes 'too small' from 'too short'. Cumulative.",
       sources.queryCacheExpirations,
     );
@@ -728,7 +728,7 @@ export class MetricsRecorder {
     this.morgianaDropped.inc({ vault, reason });
   }
 
-  /** Point the `obsidian_tc_auth_keys` gauge at the auth registry once it is open. */
+  /** Point the `reliquary_tc_auth_keys` gauge at the auth registry once it is open. */
   bindAuthKeys(source: NonNullable<GaugeSources["authKeys"]>): void {
     this.gaugeSources.authKeys = source;
   }

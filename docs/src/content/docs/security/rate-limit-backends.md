@@ -56,13 +56,13 @@ full bucket.
 {
   "throttle": {
     "backend": "redis",
-    "redis": { "urlEnv": "OBSIDIAN_TC_REDIS_URL", "keyPrefix": "obsidian-tc:rl:" }
+    "redis": { "urlEnv": "RELIQUARY_TC_REDIS_URL", "keyPrefix": "reliquary-tc:rl:" }
   }
 }
 ```
 
 ```bash
-export OBSIDIAN_TC_REDIS_URL='redis://default:<password>@redis.internal:6379'   # rediss:// for TLS
+export RELIQUARY_TC_REDIS_URL='redis://default:<password>@redis.internal:6379'   # rediss:// for TLS
 npm install @redis/client        # npm installs only: optional dependency, loaded only when backend is "redis"
 ```
 
@@ -80,7 +80,7 @@ several deployments share one Redis.
 
   | Install | Redis backend | Notes |
   | --- | --- | --- |
-  | npm (`npm install obsidian-tc`) | supported | optional dependencies install by default; if yours are disabled, `npm install @redis/client` |
+  | npm (`npm install reliquary-tc`) | supported | optional dependencies install by default; if yours are disabled, `npm install @redis/client` |
   | Container image (GHCR) | supported | the image ships the pinned `@redis/client` next to the bundle, nothing to install |
   | `.mcpb` desktop bundle | not supported | single-user, no `node_modules`: `backend: "redis"` refuses at startup with the install hint. Use `memory` or `sqlite` |
 
@@ -111,10 +111,10 @@ to its own local buckets, so the worst case during an outage is N processes time
 limit, the same as `memory` today.
 
 A refusal caused by the outage is not a rate-limit hit: it is not counted in
-`obsidian_tc_rate_limit_hits_total`.
+`reliquary_tc_rate_limit_hits_total`.
 
 **Reporting.** The first failure of an outage logs one line to stderr and increments
-`obsidian_tc_rate_limit_backend_outages_total{backend}` once; recovery logs one line. It is never
+`reliquary_tc_rate_limit_backend_outages_total{backend}` once; recovery logs one line. It is never
 one line per request. While the backend is down it is probed at most once every 5 seconds, so an
 outage costs one failed call per window instead of one per request.
 

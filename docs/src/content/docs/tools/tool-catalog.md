@@ -1,6 +1,6 @@
 ---
 title: Tool Catalog
-description: The complete, generated list of every MCP tool obsidian-tc exposes — name, access, scopes, and description.
+description: The complete, generated list of every MCP tool reliquary-tc exposes — name, access, scopes, and description.
 sidebar:
   order: 3
 ---

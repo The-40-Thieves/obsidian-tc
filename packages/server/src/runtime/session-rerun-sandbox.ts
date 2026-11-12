@@ -5,7 +5,7 @@
 // the cycle (server-runtime.ts -> tool-wiring.ts -> m6/admin-tools.ts -> back to server-runtime.ts)
 // a direct import would create. See server-runtime.ts's own call site for how it wires this in.
 
-import { err, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { openConfiguredDatabase } from "../db/open";
 import type { Database } from "../db/types";
 import type { ToolRegistry } from "../mcp/registry";

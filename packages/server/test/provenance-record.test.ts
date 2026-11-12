@@ -11,7 +11,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -272,7 +272,7 @@ describe("trust tagging", () => {
 });
 
 describe("_meta claims end to end (MCP server)", () => {
-  it("io.obsidian-tc/provenance and clientInfo become self_reported; an injected `principal` is ignored", async () => {
+  it("io.reliquary-tc/provenance and clientInfo become self_reported; an injected `principal` is ignored", async () => {
     const fx = await provenanceFixture();
     const server = createMcpServer({
       name: "x",
@@ -326,7 +326,7 @@ describe("authVerified only after jwt/oidc acceptance (HTTP transport)", () => {
           : { mode: "none" },
     }).auth;
     return startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry: probeRegistry(fx),
       auth,

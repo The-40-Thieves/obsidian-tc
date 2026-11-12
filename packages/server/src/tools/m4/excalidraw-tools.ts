@@ -7,10 +7,10 @@
 import {
   ElicitToken,
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   VaultId,
   VaultPath,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -114,7 +114,8 @@ function embeddedFiles(files: Obj | null): Array<{ id: string; mime_type: string
 
 function isPluginUnavailable(e: unknown): boolean {
   return (
-    e instanceof ObsidianTcError && (e.code === "plugin_missing" || e.code === "plugin_unreachable")
+    e instanceof ReliquaryTcError &&
+    (e.code === "plugin_missing" || e.code === "plugin_unreachable")
   );
 }
 

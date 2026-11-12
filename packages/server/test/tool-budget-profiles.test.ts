@@ -11,7 +11,7 @@
 //   5. the `_meta` key Claude Code reads to keep the triad out of deferred loading.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { FolderAcl } from "../src/acl";
@@ -219,7 +219,7 @@ describe("URL routing on the HTTP transport", () => {
       auth: { mode: "none" },
     }).auth;
     return createHttpApp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       // What transport-wiring passes from the default config: `/mcp` stays the triad.
       facadeMode: "triad",
@@ -362,7 +362,7 @@ describe("config selection", () => {
 describe("instructions bounds", () => {
   const surfaces = ["triad", "triad-core", "flat", "subset", "generic"] as const;
   const render = (surface: (typeof surfaces)[number]) =>
-    buildInstructions("obsidian-tc", "9.9.9", buildFullRegistry(), FULL, true, true, surface);
+    buildInstructions("reliquary-tc", "9.9.9", buildFullRegistry(), FULL, true, true, surface);
   // The routing sentence is what a client must receive intact; it is asserted by content, so a
   // reword that pushes it past the bound fails here rather than silently getting truncated.
   const routing: Record<(typeof surfaces)[number], RegExp> = {
@@ -414,7 +414,7 @@ describe("instructions bounds", () => {
   // reads a known note in one call instead of three.
   it("triad: leads with the one-call resource read, and names search before find_capability", () => {
     const text = buildInstructions(
-      "obsidian-tc",
+      "reliquary-tc",
       "9.9.9",
       buildFullRegistry(),
       FULL,
@@ -422,7 +422,7 @@ describe("instructions bounds", () => {
       true,
       "triad",
     );
-    const resource = text.indexOf("obsidian-tc://<vault>/<path>");
+    const resource = text.indexOf("reliquary-tc://<vault>/<path>");
     const search = text.indexOf("search(query)");
     expect(resource).toBeGreaterThan(0);
     expect(search).toBeGreaterThan(0);
@@ -432,7 +432,7 @@ describe("instructions bounds", () => {
 
   it("triad: names no resource URI when resources are off", () => {
     const text = buildInstructions(
-      "obsidian-tc",
+      "reliquary-tc",
       "9.9.9",
       buildFullRegistry(),
       FULL,
@@ -440,7 +440,7 @@ describe("instructions bounds", () => {
       true,
       "triad",
     );
-    expect(text).not.toContain("obsidian-tc://");
+    expect(text).not.toContain("reliquary-tc://");
     expect(text).toContain("search(query)");
   });
 

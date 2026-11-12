@@ -23,7 +23,7 @@ describe("THE-268 default-deny + strictReadDefault", () => {
     expect(evaluatePathAcl(acl(), "write", ".obsidian/workspaces.json").allowed).toBe(true);
   });
 
-  it("does not deny .obsidian-tc (session traces live there)", () => {
+  it("does not deny .reliquary-tc (session traces live there)", () => {
     expect(evaluatePathAcl(acl(), "write", ".obsidian-tc/traces/s.jsonl").allowed).toBe(true);
   });
 

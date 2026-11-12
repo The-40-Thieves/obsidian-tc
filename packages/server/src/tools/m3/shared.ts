@@ -2,7 +2,7 @@
 // Workspaces). WP7: M3Deps lives in its own leaf module so implementation files can import it
 // without pulling in index.ts's barrel — which imports every implementation file back, and
 // previously made each of those a two-node import cycle through ./index.
-import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { BridgeClient } from "../../bridge";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { VaultRegistry } from "../../vault/registry";

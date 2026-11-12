@@ -2,7 +2,7 @@ import {
   grantsScope,
   type ServerConfig,
   ServerConfigSchema,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthRejection, type AuthRejectionReason, claimAt } from "../src/auth/jwt";

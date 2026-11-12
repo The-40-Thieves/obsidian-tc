@@ -8,7 +8,7 @@
 // With `source` it plans the INGEST of one raw note (wiki-ingest.ts): the same dedupe, link map and
 // skeleton, plus the bookkeeping on the source (what it is, which pages already cite it) and the
 // compression rule, which refuses a page for a short source nothing in the wiki can take in.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { TOPIC_MATCH_MIN } from "../../../search/dedupe-band";

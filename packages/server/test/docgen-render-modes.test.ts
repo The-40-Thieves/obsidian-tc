@@ -160,7 +160,9 @@ describe("render.ts modes against the real doc tree", () => {
     );
     expect(filled.get("docs/wiki/Home.md")).toMatch(/\*\*Version\*\*/);
     expect(filled.get("docs/wiki/Plugin-Bridges.md")).toMatch(/`\d+\.\d+\.\d+`/);
-    expect(filled.get("docs/src/content/docs/observability/prometheus.md")).toMatch(/obsidian_tc_/);
+    expect(filled.get("docs/src/content/docs/observability/prometheus.md")).toMatch(
+      /reliquary_tc_/,
+    );
     expect(filled.get("docs/src/content/docs/tools/error-catalog.md")).toMatch(/`forbidden`/);
     expect(filled.get("docs/src/content/docs/configuration/config-yaml.md")).toMatch(/"cacheDir"/);
     // Prose is untouched: only text between markers moved.

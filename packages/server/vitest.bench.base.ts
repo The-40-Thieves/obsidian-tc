@@ -17,7 +17,7 @@ export function benchConfig(files: { include: string[]; exclude?: string[] }) {
   return defineConfig({
     plugins: [codspeedPlugin()],
     resolve: {
-      alias: { "@the-40-thieves/obsidian-tc-shared": resolve(here, "../shared/src/index.ts") },
+      alias: { "@the-40-thieves/reliquary-tc-shared": resolve(here, "../shared/src/index.ts") },
     },
     test: {
       environment: "node",

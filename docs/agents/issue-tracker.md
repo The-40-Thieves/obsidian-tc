@@ -1,7 +1,7 @@
 # Issue tracker: Linear
 
 Issues for this repo live in **Linear**, on the **The 13th Letter** team (identifier prefix `THE-`).
-Pull requests live on **GitHub** (`The-40-Thieves/obsidian-tc`) and are *not* the issue tracker —
+Pull requests live on **GitHub** (`The-40-Thieves/reliquary-tc`) and are *not* the issue tracker —
 see [Pull requests](#pull-requests) below for how the two relate.
 
 All Linear operations go through the **Linear MCP server**. Tool names below are given unprefixed
@@ -97,7 +97,7 @@ All ten labels exist on the The 13th Letter team as of 2026-07-24. The five wayf
 ### Live maps
 
 - **Capability-manifest shape** — lock the shape and rule what it subsumes
-- **Out-of-the-box scope** — decide what obsidian-tc is out of the box
+- **Out-of-the-box scope** — decide what reliquary-tc is out of the box
 
 Both charted 2026-07-24. Two follow-ups are held off the out-of-the-box decision pending the
 subsumption ruling; do not ticket them on the out-of-the-box decision until it lands.

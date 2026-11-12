@@ -1,11 +1,11 @@
 ---
 title: API Reference
-description: Connect to obsidian-tc over MCP (stdio or HTTP), discover and call tools through the triad facade, and authenticate.
+description: Connect to reliquary-tc over MCP (stdio or HTTP), discover and call tools through the triad facade, and authenticate.
 sidebar:
   order: 2
 ---
 
-obsidian-tc **is an MCP server** — its API is the [Model Context Protocol](https://modelcontextprotocol.io) (JSON-RPC 2.0) spoken over **stdio** or **Streamable HTTP**. Any MCP client (Claude Code / Desktop, Cursor, VS Code, or your own) talks to it the same way: negotiate, list tools, call tools. This is the callable reference; the [Tool Reference](/tools/) is the surface overview (facade + domains), and the [configuration reference](/configuration/config-yaml/) documents every option.
+reliquary-tc **is an MCP server** — its API is the [Model Context Protocol](https://modelcontextprotocol.io) (JSON-RPC 2.0) spoken over **stdio** or **Streamable HTTP**. Any MCP client (Claude Code / Desktop, Cursor, VS Code, or your own) talks to it the same way: negotiate, list tools, call tools. This is the callable reference; the [Tool Reference](/tools/) is the surface overview (facade + domains), and the [configuration reference](/configuration/config-yaml/) documents every option.
 
 ## Connect
 
@@ -16,16 +16,16 @@ The server runs on your machine over stdio — no network, no account, no key. P
 ```json
 {
   "mcpServers": {
-    "obsidian-tc": {
+    "reliquary-tc": {
       "command": "npx",
-      "args": ["-y", "obsidian-tc"],
-      "env": { "OBSIDIAN_TC_CONFIG": "/ABSOLUTE/PATH/TO/obsidian-tc.config.json" }
+      "args": ["-y", "reliquary-tc"],
+      "env": { "RELIQUARY_TC_CONFIG": "/ABSOLUTE/PATH/TO/reliquary-tc.config.json" }
     }
   }
 }
 ```
 
-Cursor (`~/.cursor/mcp.json`) uses `mcpServers`; VS Code (`.vscode/mcp.json`) uses `servers`. Claude Code: `claude mcp add obsidian-tc --env OBSIDIAN_TC_CONFIG=/ABSOLUTE/PATH/TO/obsidian-tc.config.json -- npx -y obsidian-tc`. Or run it directly: `obsidian-tc /path/to/vault`.
+Cursor (`~/.cursor/mcp.json`) uses `mcpServers`; VS Code (`.vscode/mcp.json`) uses `servers`. Claude Code: `claude mcp add reliquary-tc --env RELIQUARY_TC_CONFIG=/ABSOLUTE/PATH/TO/reliquary-tc.config.json -- npx -y reliquary-tc`. Or run it directly: `reliquary-tc /path/to/vault`.
 
 ### Streamable HTTP (remote)
 
@@ -74,7 +74,7 @@ A separate, deployment-level setting, `toolFacade.profile`, can additionally nar
 | `auth.mode` | Use |
 | --- | --- |
 | `none` *(default)* | Loopback only, enforced by the fail-closed interlock above. |
-| `jwt` | HS256 (`jwtSecret` / `OBSIDIAN_TC_JWT_SECRET`) **or** asymmetric RS256/ES256/EdDSA via an inline/file JWKS (`kid`-based rotation). Present the token as a bearer credential. |
+| `jwt` | HS256 (`jwtSecret` / `RELIQUARY_TC_JWT_SECRET`) **or** asymmetric RS256/ES256/EdDSA via an inline/file JWKS (`kid`-based rotation). Present the token as a bearer credential. |
 
 With `auth.resource` + an `authorizationServers` entry set, the HTTP transport advertises an RFC 9728 Protected Resource Metadata document and a `WWW-Authenticate` challenge (the OAuth 2.1 resource-server role).
 
@@ -92,7 +92,7 @@ Tools that act on a vault take a `vault` id. It may be omitted when exactly one 
 
 ## Errors
 
-Failures return a typed error from the `ObsidianTcError` taxonomy (e.g. `plugin_missing`, `embedding_provider_error`, `requires_live_obsidian`, `read_only_mode`) with a `retryable` flag — never an opaque throw. At the MCP boundary a dispatch failure surfaces as a **Tool Execution Error** (`isError: true`, human-readable text plus the structured error as `structuredContent`).
+Failures return a typed error from the `ReliquaryTcError` taxonomy (e.g. `plugin_missing`, `embedding_provider_error`, `requires_live_obsidian`, `read_only_mode`) with a `retryable` flag — never an opaque throw. At the MCP boundary a dispatch failure surfaces as a **Tool Execution Error** (`isError: true`, human-readable text plus the structured error as `structuredContent`).
 
 The error envelope is:
 
@@ -112,4 +112,4 @@ The error envelope is:
 
 - [Tool Reference](/tools/) — the tool surface, facade modes, and the domain map.
 - [Configuration](/configuration/config-yaml/) — transports, auth, ACL, embeddings, retrieval.
-- [Quickstart](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/QUICKSTART.md) — first run and live-bridge setup.
+- [Quickstart](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/QUICKSTART.md) — first run and live-bridge setup.

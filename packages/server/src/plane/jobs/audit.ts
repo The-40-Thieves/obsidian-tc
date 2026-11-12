@@ -1,5 +1,5 @@
 // Audit job — THE-233 W-WORKERS, collapses kb-audit-worker into a local plane job. The KMS
-// worker ran six Supabase RPC health checks; the obsidian-tc-applicable subset is ported as
+// worker ran six Supabase RPC health checks; the reliquary-tc-applicable subset is ported as
 // plain SQLite queries over the chunk store. The vendor-KB-specific checks (kb null embeds,
 // stale MCP domains) are dropped — that data model is not in the converged vault-centric tree.
 import type { Database } from "../../db/types";

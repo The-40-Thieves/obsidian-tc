@@ -24,7 +24,7 @@
 // starts a fetch. A forwarded header is read only from a peer in transports.http.trustedProxies
 // (client-ip.ts).
 import { isIP } from "node:net";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
 import { MemoryBackend } from "../ratelimit/memory-backend";

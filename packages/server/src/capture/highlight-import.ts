@@ -14,7 +14,10 @@
 // `import-dedupe:<hash>` — checked against every existing `source: "import"` row (pending AND
 // committed, via queue.ts's `listCaptureTags`) before enqueueing. `commit_capture`/human review is
 // still the only path to the vault; this only keeps the QUEUE itself from filling with repeats.
-import { ObsidianTcError, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  ReliquaryTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder } from "../metrics/registry";
@@ -161,7 +164,7 @@ export function ingestHighlights(
           ...(item.tags !== undefined ? { tags: scan.fields.tags as string[] } : {}),
         };
       } catch (e) {
-        if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+        if (e instanceof ReliquaryTcError && e.code === "secret_detected") {
           // Item-level fields are shared by every highlight in this item — none of them can be
           // staged safely, so skip the whole item, not just one highlight.
           for (const h of item.highlights) seen.add(highlightDedupeKey(item, h));
@@ -192,7 +195,7 @@ export function ingestHighlights(
             ...(h.note !== undefined ? { note: scan.fields.note as string } : {}),
           };
         } catch (e) {
-          if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+          if (e instanceof ReliquaryTcError && e.code === "secret_detected") {
             skipped_secret++;
             seen.add(key);
             continue;
@@ -250,7 +253,7 @@ export function ingestHighlights(
           content = rescan.fields.content as string;
           redacted += rescan.redactions;
         } catch (e) {
-          if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+          if (e instanceof ReliquaryTcError && e.code === "secret_detected") {
             skipped_secret++;
             seen.add(key);
             continue;

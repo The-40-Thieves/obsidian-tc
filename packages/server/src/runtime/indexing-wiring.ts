@@ -157,10 +157,10 @@ export interface IndexResources {
  * tracker. The vec0 fingerprint covers provider/model/dims + the fixed representation constants +
  * whether chunkContext enrichment is on, so a same-dimension model swap or an enrichment/chunker
  * change rebuilds vec_chunks instead of serving it stale. The FTS5 probe
- * is false on adapters without FTS5 or when OBSIDIAN_TC_DISABLE_FTS=1.
+ * is false on adapters without FTS5 or when RELIQUARY_TC_DISABLE_FTS=1.
  *
  * GH #995: this is the ONE construction choke point every provider/index path goes through —
- * boot (server-runtime.ts's wireRuntimeCore) AND `obsidian-tc index` (cli/commands/index.ts) both
+ * boot (server-runtime.ts's wireRuntimeCore) AND `reliquary-tc index` (cli/commands/index.ts) both
  * call this, and nothing else in this codebase calls `createEmbeddingProviderAsync` or
  * `ensureVecChunks` directly. Applying sticky resolution HERE, before either of those two calls,
  * means a caller of THIS function can no longer forget to resolve sticky first — closed by

@@ -1,4 +1,4 @@
-/** Terminal call status for `obsidian_tc_tool_calls_total` (matches the OTEL status attribute). */
+/** Terminal call status for `reliquary_tc_tool_calls_total` (matches the OTEL status attribute). */
 export type ToolCallStatus = "ok" | "denied" | "error";
 
 /**
@@ -7,7 +7,7 @@ export type ToolCallStatus = "ok" | "denied" | "error";
  * `mcp/registry/dispatch.ts` a second time. `observeToolCall` (`MetricsRecorder`, in
  * metrics/registry.ts) is already the single method every dispatch.ts call site funnels
  * through (success and every error branch); a telemetry
- * observer registered here sees exactly the same calls Prometheus's `obsidian_tc_tool_calls_total`
+ * observer registered here sees exactly the same calls Prometheus's `reliquary_tc_tool_calls_total`
  * does, with nothing new to keep in sync.
  *
  * Deliberately a narrow, telemetry-agnostic interface (not a dependency on

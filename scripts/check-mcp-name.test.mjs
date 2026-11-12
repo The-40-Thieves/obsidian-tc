@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mcpNameProblems } from "./check-mcp-name.mjs";
 
-const NAME = "io.github.The-40-Thieves/obsidian-tc";
+const NAME = "io.github.The-40-Thieves/reliquary-tc";
 const DESC = "Model-agnostic, agent-ready Obsidian MCP server with RBAC, SLSA provenance.";
 
 test("agreeing mcpName and an in-cap description pass with no problems", () => {
@@ -23,7 +23,7 @@ test("a missing mcpName is reported", () => {
 test("a case mismatch is reported — the registry check is case-sensitive", () => {
   const problems = mcpNameProblems({
     serverName: NAME,
-    pkgMcpName: "io.github.the-40-thieves/obsidian-tc",
+    pkgMcpName: "io.github.the-40-thieves/reliquary-tc",
     description: DESC,
   });
   assert.equal(problems.length, 1);
@@ -33,7 +33,7 @@ test("a case mismatch is reported — the registry check is case-sensitive", () 
 test("a differing name is reported", () => {
   const problems = mcpNameProblems({
     serverName: NAME,
-    pkgMcpName: "io.github.The-40-Thieves/obsidian-tc-server",
+    pkgMcpName: "io.github.The-40-Thieves/reliquary-tc-server",
     description: DESC,
   });
   assert.equal(problems.length, 1);

@@ -2,7 +2,7 @@
 // route mounter, a controllable clock, a log sink, and a tiny cookie jar. The module under test is
 // imported lazily so a missing module fails each test for its own reason.
 import { createHash } from "node:crypto";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { Hono } from "hono";
 import type { AsOperatorDeps } from "../src/auth/as-operator";
 import { provisionOauthDb } from "../src/db/provision";
@@ -87,7 +87,7 @@ export async function makeOperator(
   provisionOauthDb(db, { version: "t" });
   const clock = { t: opts.at ?? T0 };
   const logs: string[] = [];
-  const env = { OBSIDIAN_TC_AS_SETUP_TOKEN: SETUP_TOKEN, ...opts.env };
+  const env = { RELIQUARY_TC_AS_SETUP_TOKEN: SETUP_TOKEN, ...opts.env };
   const calls = { hash: 0, verify: 0 };
   const issuer = opts.issuer ?? ISSUER;
   const app = new Hono();

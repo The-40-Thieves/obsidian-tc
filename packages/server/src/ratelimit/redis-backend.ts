@@ -9,7 +9,7 @@
 //
 // The URL carries credentials. It is resolved from an env var or a file (never inline in config),
 // handed to the client, and never written to a log or error: see redactUrlCredentials (backend.ts).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import {
   type BucketSpec,
   fullRefillMs,
@@ -82,7 +82,7 @@ async function loadRedisModule(): Promise<RedisModuleLike> {
     return (await import("@redis/client")) as unknown as RedisModuleLike;
   } catch (cause) {
     throw err.invalidInput('throttle.backend "redis" needs the optional package @redis/client', {
-      hint: 'install it next to obsidian-tc (`npm install @redis/client`), or set throttle.backend to "memory" or "sqlite".',
+      hint: 'install it next to reliquary-tc (`npm install @redis/client`), or set throttle.backend to "memory" or "sqlite".',
       cause: redactUrlCredentials(cause instanceof Error ? cause.message : String(cause)),
     });
   }

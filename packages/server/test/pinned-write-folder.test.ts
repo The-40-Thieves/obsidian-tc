@@ -210,7 +210,7 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
       under(reg, () => writeNoteAtomic(x, "new\n", false));
       expect(text(root, "open/x.md")).toBe("new\n");
 
-      const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native") as Record<
+      const mod = createRequire(import.meta.url)("@the-40-thieves/reliquary-tc-native") as Record<
         string,
         unknown
       >;
@@ -240,7 +240,7 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
     it("a write that creates folders under a pin is refused by an addon without that capability", async () => {
       const root = openAndRawVault();
       const x = join(root, "wiki", "a", "b", "n.md");
-      const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native") as Record<
+      const mod = createRequire(import.meta.url)("@the-40-thieves/reliquary-tc-native") as Record<
         string,
         unknown
       >;

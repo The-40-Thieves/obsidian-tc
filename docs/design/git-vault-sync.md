@@ -9,7 +9,7 @@ with the user's vault repository, which obsidian-git keeps in sync on their devi
 ### A sidecar process, not server code
 
 `docs/SYNC.md` states the contract: the server reads a directory of Markdown and is sync-agnostic.
-Git sync keeps that contract. It is a separate process, `obsidian-tc git-sync`, which ships in the
+Git sync keeps that contract. It is a separate process, `reliquary-tc git-sync`, which ships in the
 same package but never imports the server runtime. It talks to the server only through the
 filesystem: the vault directory, which the vault watcher already treats as external edits, and one
 trigger file (see the webhook section below).
@@ -42,22 +42,22 @@ The two rejected options:
 
 ### Configuration: environment only
 
-A single vault, matching the existing `OBSIDIAN_TC_VAULT_PATH` overlay:
+A single vault, matching the existing `RELIQUARY_TC_VAULT_PATH` overlay:
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `OBSIDIAN_TC_VAULT_GIT_URL` | `git@host:org/repo.git` or `https://host/org/repo.git` | required |
-| `OBSIDIAN_TC_VAULT_GIT_BRANCH` | branch to track | the remote's HEAD |
-| `OBSIDIAN_TC_VAULT_GIT_SSH_KEY` | private key contents (SSH URLs); needs write access for push | none |
-| `OBSIDIAN_TC_VAULT_GIT_KNOWN_HOSTS` | `known_hosts` lines to pin the host key | trust on first use |
-| `OBSIDIAN_TC_VAULT_GIT_TOKEN` | token for HTTPS URLs (fine-grained PAT, deploy token) | none |
-| `OBSIDIAN_TC_VAULT_GIT_AUTHOR` | `Name <email>` for commits made here | `obsidian-tc <obsidian-tc@localhost>` |
-| `OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL` | seconds between pulls, minimum 10 | `30` |
-| `OBSIDIAN_TC_VAULT_GIT_PUSH` | `batched`, or `off` for a read-only mirror | `batched` |
-| `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` | enables the webhook route | none |
+| `RELIQUARY_TC_VAULT_GIT_URL` | `git@host:org/repo.git` or `https://host/org/repo.git` | required |
+| `RELIQUARY_TC_VAULT_GIT_BRANCH` | branch to track | the remote's HEAD |
+| `RELIQUARY_TC_VAULT_GIT_SSH_KEY` | private key contents (SSH URLs); needs write access for push | none |
+| `RELIQUARY_TC_VAULT_GIT_KNOWN_HOSTS` | `known_hosts` lines to pin the host key | trust on first use |
+| `RELIQUARY_TC_VAULT_GIT_TOKEN` | token for HTTPS URLs (fine-grained PAT, deploy token) | none |
+| `RELIQUARY_TC_VAULT_GIT_AUTHOR` | `Name <email>` for commits made here | `reliquary-tc <reliquary-tc@localhost>` |
+| `RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL` | seconds between pulls, minimum 10 | `30` |
+| `RELIQUARY_TC_VAULT_GIT_PUSH` | `batched`, or `off` for a read-only mirror | `batched` |
+| `RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET` | enables the webhook route | none |
 
-The vault directory comes from `OBSIDIAN_TC_VAULT_PATH`, and sync state lives under
-`<OBSIDIAN_TC_CACHE_DIR>/git-sync/`, outside the vault, as SYNC.md requires.
+The vault directory comes from `RELIQUARY_TC_VAULT_PATH`, and sync state lives under
+`<RELIQUARY_TC_CACHE_DIR>/git-sync/`, outside the vault, as SYNC.md requires.
 
 Secrets never appear in argv, in `.git/config`, in the remote URL or in logs:
 - **SSH key:** written with mode 0600 under the state directory and used through `GIT_SSH_COMMAND`
@@ -84,7 +84,7 @@ One loop per vault, with a single operation in flight:
    changes. When the tree is dirty, the sidecar waits for 10 s without further changes, or 60 s
    since it first went dirty, whichever comes first. Then it makes one commit with `git add -A`,
    which respects the repository's own `.gitignore`. The commit message is
-   `obsidian-tc: update N notes` plus the paths (capped).
+   `reliquary-tc: update N notes` plus the paths (capped).
 2. **Pull:** on the interval or a trigger. Before fetching, any dirty tree is committed at once
    (step 1 without the quiet window). Then `git fetch` runs, and local commits are rebased onto the
    upstream branch.
@@ -98,7 +98,7 @@ is reported, not discarded. Pair `PUSH=off` with `acl.readOnly`.
 A rebase conflict, or a push rejected three times in a row after re-fetching and re-rebasing, is
 handled the same way:
 1. Abort the rebase.
-2. Push the local commits to `obsidian-tc/conflict/<UTC timestamp>`.
+2. Push the local commits to `reliquary-tc/conflict/<UTC timestamp>`.
 3. Reset to the upstream branch.
 4. Record the conflict.
 
@@ -122,7 +122,7 @@ does not take.
 
 The webhook triggers a pull, and it needs the one public port, which belongs to the server. So it is
 the one server change:
-- **Route:** `POST /hooks/vault-sync`, mounted only when `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` is
+- **Route:** `POST /hooks/vault-sync`, mounted only when `RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET` is
   set, behind the same Host guard as `/mcp`.
 - **Accepted signatures:**
   - GitHub and Gitea/Forgejo `X-Hub-Signature-256` (`sha256=` HMAC-SHA256 of the raw body);

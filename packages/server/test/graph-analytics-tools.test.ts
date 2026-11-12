@@ -2,7 +2,7 @@
 // graph-analytics.test.ts; this pins the three behaviours only the tool layer can get wrong:
 // ACL scoping, the betweenness refusal, and the honesty warning travelling with the data.
 
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { seedNotes } from "./helpers";
 import { makeTestVault } from "./m1-helpers";

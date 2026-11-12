@@ -38,7 +38,7 @@ function makeVault(files: Record<string, string>) {
   return { root, id: "test", db, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-if (process.env.OBSIDIAN_TC_EMBEDDER_HOST === "1") {
+if (process.env.RELIQUARY_TC_EMBEDDER_HOST === "1") {
   await runEmbedderChild({ input: process.stdin, output: process.stdout });
   process.exit(0);
 }

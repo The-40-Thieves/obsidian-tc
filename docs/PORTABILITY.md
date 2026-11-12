@@ -1,11 +1,11 @@
 # Portability
 
-How `obsidian-tc` builds, installs, and loads its compiled native addon across platforms,
+How `reliquary-tc` builds, installs, and loads its compiled native addon across platforms,
 and how that is verified in CI.
 
-The server (`obsidian-tc`), plugin, and shared schemas are platform-independent TypeScript.
+The server (`reliquary-tc`), plugin, and shared schemas are platform-independent TypeScript.
 The only compiled artifact is the native performance addon
-`@the-40-thieves/obsidian-tc-native` (vector ops, BM25, tokenize), and it always has a
+`@the-40-thieves/reliquary-tc-native` (vector ops, BM25, tokenize), and it always has a
 pure-JS fallback — so the project runs on every platform even where no prebuild exists.
 
 ## Supported platforms / triples
@@ -35,13 +35,13 @@ every runner.
 
 ## Prebuild + fallback flow
 
-`@the-40-thieves/obsidian-tc-native` is an umbrella package. Its hand-written loader
+`@the-40-thieves/reliquary-tc-native` is an umbrella package. Its hand-written loader
 (`packages/native/index.js`) resolves an implementation in this order:
 
-1. **Local build** — `obsidian-tc-native.<triple>.node` next to `index.js` (a source checkout
+1. **Local build** — `reliquary-tc-native.<triple>.node` next to `index.js` (a source checkout
    that ran `bun run build`, i.e. `napi build`).
 2. **Published prebuild** — the platform package
-   `@the-40-thieves/obsidian-tc-native-<triple>`, added to the umbrella's
+   `@the-40-thieves/reliquary-tc-native-<triple>`, added to the umbrella's
    `optionalDependencies` by `napi pre-publish` at release time, so npm/bun installs only the
    matching one.
 3. **Pure-JS fallback** — `packages/native/fallback.js`, numerically identical to the Rust
@@ -61,7 +61,7 @@ adapter, so the node-targeted bundle carries no static `bun:` import and Node lo
 (the earlier "Node cannot resolve `bun:`" limitation was fixed in #58). Run the published CLI:
 
 ```sh
-obsidian-tc <config.json>          # under Node (npm / npx) or Bun; the runtime is auto-detected
+reliquary-tc <config.json>          # under Node (npm / npx) or Bun; the runtime is auto-detected
 ```
 
 or use the per-platform standalone binaries from the GitHub release (built with

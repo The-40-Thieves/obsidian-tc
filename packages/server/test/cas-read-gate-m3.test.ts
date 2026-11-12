@@ -1,7 +1,7 @@
 // Structured-document writes are content-dependent: a caller that may not read the document is
 // refused before anything is read, and a reader still reaches the tool's own checks. Covers the
 // table, Kanban, canvas and base tools (the m3 set); the m1 set lives in cas-read-gate.test.ts.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { type M3Vault, makeM3Vault } from "./m3-helpers";
 

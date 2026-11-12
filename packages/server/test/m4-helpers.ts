@@ -8,7 +8,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import {
   CapabilityCache,

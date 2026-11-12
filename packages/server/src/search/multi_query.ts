@@ -24,7 +24,7 @@
 // wired into graphSearch itself, and not yet exposed on any tool's Zod schema — see THE-448
 // follow-up). Absent/empty/single-element `queries` is an EXACT no-op, delegating straight to
 // graphSearch with no fan-out, no over-fetch, and no fusion pass.
-import { isLoudRefusal } from "@the-40-thieves/obsidian-tc-shared";
+import { isLoudRefusal } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import { runWithConcurrency } from "../util/concurrency";
 import { type GraphSearchOptions, type GraphSearchResult, graphSearch } from "./graph_search";

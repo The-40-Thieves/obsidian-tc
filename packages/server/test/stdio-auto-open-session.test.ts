@@ -63,7 +63,7 @@ async function harness(autoOpen: boolean): Promise<Harness> {
     defaultVaultId: "main",
   });
   const server = createMcpServer({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     context,
@@ -155,7 +155,7 @@ describe("stdio sessions.autoOpen opens a server session on the first vault call
     async () => {
       const h = await harness(true);
       try {
-        await h.request("resources/read", { uri: "obsidian-tc://catalog" });
+        await h.request("resources/read", { uri: "reliquary-tc://catalog" });
         const all = rows(h.db);
         expect(all).toHaveLength(1);
         expect(all[0]).toMatchObject({ caller: null, principal: "stdio", ended_at: null });

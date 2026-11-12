@@ -5,126 +5,126 @@ import { MetricsRecorder } from "../src/metrics/registry";
 // 4 gauges" long after the lists below and the size assertion had moved past it — the comment
 // was never the gate, the size assertion is. Now 21 counters, 4 histograms, 16 gauges.
 const COUNTERS = [
-  "obsidian_tc_tool_calls_total",
-  "obsidian_tc_acl_denied_total",
-  "obsidian_tc_hitl_elicited_total",
-  "obsidian_tc_idempotency_hits_total",
-  "obsidian_tc_idempotency_cache_skipped_total",
-  "obsidian_tc_rate_limit_hits_total",
-  "obsidian_tc_rate_limit_backend_outages_total",
-  "obsidian_tc_governor_truncations_total",
-  "obsidian_tc_morgiana_emit_dropped_total",
-  "obsidian_tc_audit_write_failed_total",
+  "reliquary_tc_tool_calls_total",
+  "reliquary_tc_acl_denied_total",
+  "reliquary_tc_hitl_elicited_total",
+  "reliquary_tc_idempotency_hits_total",
+  "reliquary_tc_idempotency_cache_skipped_total",
+  "reliquary_tc_rate_limit_hits_total",
+  "reliquary_tc_rate_limit_backend_outages_total",
+  "reliquary_tc_governor_truncations_total",
+  "reliquary_tc_morgiana_emit_dropped_total",
+  "reliquary_tc_audit_write_failed_total",
   // THE-667: the idempotency-claim release on a rejected dispatch. Best-effort by necessity (it
   // must not replace the rejection the caller has to see), so this counter is its only signal.
-  "obsidian_tc_idempotency_release_failed_total",
-  "obsidian_tc_auth_rejections_total", // THE-520
+  "reliquary_tc_idempotency_release_failed_total",
+  "reliquary_tc_auth_rejections_total", // THE-520
   // THE-507 (folding in THE-489): ingest work counters. This list plus the size assertion below is
-  // the "no unlisted obsidian_tc_* metric" gate — adding a metric without declaring it here fails.
-  "obsidian_tc_ingest_secrets_skipped_total",
-  "obsidian_tc_ingest_dedup_skipped_total",
+  // the "no unlisted reliquary_tc_* metric" gate — adding a metric without declaring it here fails.
+  "reliquary_tc_ingest_secrets_skipped_total",
+  "reliquary_tc_ingest_dedup_skipped_total",
   // THE-588: the unresolved (loss) side of dedup, split out of the reused counter above.
-  "obsidian_tc_ingest_dedup_unresolved_total",
-  "obsidian_tc_embed_batch_rejections_total",
-  "obsidian_tc_index_write_failures_total",
-  "obsidian_tc_index_stale_skipped_total",
+  "reliquary_tc_ingest_dedup_unresolved_total",
+  "reliquary_tc_embed_batch_rejections_total",
+  "reliquary_tc_index_write_failures_total",
+  "reliquary_tc_index_stale_skipped_total",
   // THE-1073: a note whose frontmatter fails to parse as YAML is skipped for this pass rather
   // than aborting the whole indexVault reconcile for every other note.
-  "obsidian_tc_index_frontmatter_failures_total",
+  "reliquary_tc_index_frontmatter_failures_total",
   // THE-585 (#7, #8): vec0 -> brute-force degradation. Results stay correct; the cost profile
   // does not, and nothing reported it before.
-  "obsidian_tc_vec_fallback_total",
+  "reliquary_tc_vec_fallback_total",
   // THE-585 (#5): busy-class write-transaction failures. reason=snapshot is a bug report — see
   // the counter's help text and src/db/txn.ts.
-  "obsidian_tc_sql_busy_total",
+  "reliquary_tc_sql_busy_total",
   // The periodic memory-orphan sweep's per-class delete count. Only the dangling_* classes move by
   // default; the other four need an operator-set retention window.
-  "obsidian_tc_memory_orphans_swept_total",
+  "reliquary_tc_memory_orphans_swept_total",
   // The morgiana spool retention sweep's deleted-file count, by reason (age | size).
-  "obsidian_tc_morgiana_spool_files_pruned_total",
+  "reliquary_tc_morgiana_spool_files_pruned_total",
   // GH #1433 step 3: the child-process embedder recycled by the burst-end policy, by reason.
-  "obsidian_tc_embedder_host_recycles_total",
+  "reliquary_tc_embedder_host_recycles_total",
   // THE-417 Phase 2: the readable half of warn-mode. Any non-zero value names a tool whose
   // declared contract has drifted from what it returns; there is no benign case.
-  "obsidian_tc_output_schema_drift_total",
+  "reliquary_tc_output_schema_drift_total",
   // Write provenance: an omitted record (fail-open) or a head that failed validation.
-  "obsidian_tc_provenance_faults_total",
+  "reliquary_tc_provenance_faults_total",
   // THE-585 (#6): the retrieval funnel. Their RATIO per stage is the signal — a stage sitting at
   // 1.0 pass-through has stopped filtering while still costing its latency.
-  "obsidian_tc_retrieval_stage_candidates_in_total",
-  "obsidian_tc_retrieval_stage_candidates_out_total",
+  "reliquary_tc_retrieval_stage_candidates_in_total",
+  "reliquary_tc_retrieval_stage_candidates_out_total",
   // THE-585 (#12): content bytes hydrated at the boundaries that waste it — duplicate hydration
   // across streams (candidateAssembly) and the top-K cut (diversity/gatedRerank). Only those
   // stages populate StageMetric.bytesIn/bytesOut, so only they emit a series here.
-  "obsidian_tc_retrieval_content_bytes_in_total",
-  "obsidian_tc_retrieval_content_bytes_out_total",
+  "reliquary_tc_retrieval_content_bytes_in_total",
+  "reliquary_tc_retrieval_content_bytes_out_total",
   // THE-645 item 1: registerActivationRecompute's onRecompute stats were computed every tick and
   // discarded — nothing outside the process could see the periodic activation recompute was
   // running at all. `vault` carries the bounded job name ("activation-recompute"), the same
   // process-wide-subsystem precedent as the scheduler gauges above.
-  "obsidian_tc_activation_recompute_chunks_total",
+  "reliquary_tc_activation_recompute_chunks_total",
   // THE-612: ensureVecChunks DROPs and rebuilds vec_chunks with no prior signal at all — rare and
   // huge blast radius (every vault's dense index goes cold). No `vault` label: the event is not
-  // scoped to one vault, same precedent as obsidian_tc_auth_rejections_total above.
-  "obsidian_tc_vec_rebuild_total",
+  // scoped to one vault, same precedent as reliquary_tc_auth_rejections_total above.
+  "reliquary_tc_vec_rebuild_total",
   // rerankWithScores' fallback returns the same shaped output whether the reranker was
   // never configured, timed out, errored, answered with garbage, or was deliberately skipped by
   // gatedRerank's policy gate — this is the counter that tells those apart. `outcome` is the
   // closed 7-value RerankOutcome union, bounded by construction like `stage` above.
-  "obsidian_tc_rerank_outcome_total",
+  "reliquary_tc_rerank_outcome_total",
   // THE-891 item 3: the graph-walk ACL filter's (THE-695/THE-852) recall cost. Zero for an
   // unrestricted caller by construction — see the counter's own help text.
-  "obsidian_tc_acl_walk_pruned_total",
+  "reliquary_tc_acl_walk_pruned_total",
   // GH #994: memoryDefense redact/block matches, by pattern id only.
-  "obsidian_tc_memory_defense_hits_total",
+  "reliquary_tc_memory_defense_hits_total",
   // GH #1477: an OAuth grant family revoked because a credential was reused — the cheap-DoS and
   // replay-theft signal that previously lived only in the process log. `reason` is the closed
   // union in src/auth/family-revocation-telemetry.ts. No `vault` label: the AS is process-wide.
-  "obsidian_tc_auth_family_revocations_total",
+  "reliquary_tc_auth_family_revocations_total",
 ];
 const HISTOGRAMS = [
-  "obsidian_tc_tool_duration_seconds",
-  "obsidian_tc_response_bytes",
+  "reliquary_tc_tool_duration_seconds",
+  "reliquary_tc_response_bytes",
   // THE-585 (#5): the writer-vs-writer contention signal THE-467/468 turns on.
-  "obsidian_tc_sql_lock_wait_seconds",
+  "reliquary_tc_sql_lock_wait_seconds",
   // THE-585 (#6): `stage` is THE-465's closed 8-value StageName union, bounded by construction.
-  "obsidian_tc_retrieval_stage_duration_seconds",
+  "reliquary_tc_retrieval_stage_duration_seconds",
 ];
 const GAUGES = [
-  "obsidian_tc_active_sessions",
-  "obsidian_tc_capture_queue_depth",
-  "obsidian_tc_elicit_tokens_pending",
-  "obsidian_tc_idempotency_cache_bytes",
+  "reliquary_tc_active_sessions",
+  "reliquary_tc_capture_queue_depth",
+  "reliquary_tc_elicit_tokens_pending",
+  "reliquary_tc_idempotency_cache_bytes",
   // THE-585 (#1): index-coordinator depth. Distinct from capture_queue_depth above — that one is
   // the durable table, these are in-process write work.
-  "obsidian_tc_index_queue_depth",
-  "obsidian_tc_index_active",
+  "reliquary_tc_index_queue_depth",
+  "reliquary_tc_index_active",
   // THE-585 Group A (#2, #9, #11, #13). All five are gauges READ from the subsystem that already
   // owns the number — a Counter would make the subsystem call into the recorder, inverting the
   // composition root's one-way dependency.
-  "obsidian_tc_index_coalesced_total",
-  "obsidian_tc_scheduler_skipped_total",
-  "obsidian_tc_scheduler_consecutive_failures",
+  "reliquary_tc_index_coalesced_total",
+  "reliquary_tc_scheduler_skipped_total",
+  "reliquary_tc_scheduler_consecutive_failures",
   // THE-585 (#9): due ticks deferred by budget deferral, distinct from skipped (in-flight) and
   // consecutiveFailures (threw). Inert (all-zero) unless eventLoopDeferMs is configured.
-  "obsidian_tc_scheduler_deferred_total",
-  "obsidian_tc_http_construct_seconds",
-  "obsidian_tc_vec_fingerprint_active",
+  "reliquary_tc_scheduler_deferred_total",
+  "reliquary_tc_http_construct_seconds",
+  "reliquary_tc_vec_fingerprint_active",
   // THE-507: retrieval-cache effectiveness. Gauges rather than counters because the cache owns
   // the cumulative numbers and the recorder only reads them — a Counter would require the cache
   // to call INTO the recorder, inverting the one-way dependency the composition root maintains.
-  "obsidian_tc_query_cache_hits_total",
-  "obsidian_tc_query_cache_misses_total",
-  "obsidian_tc_query_cache_evictions_total",
-  "obsidian_tc_query_cache_expirations_total",
+  "reliquary_tc_query_cache_hits_total",
+  "reliquary_tc_query_cache_misses_total",
+  "reliquary_tc_query_cache_evictions_total",
+  "reliquary_tc_query_cache_expirations_total",
   // GH #995 follow-up (#1003): 1 while indexing.backgroundEmbed's "idle" mode is actively
-  // holding the next embed sub-batch back. Renamed from obsidian_tc_boot_embed_paused in the
+  // holding the next embed sub-batch back. Renamed from reliquary_tc_boot_embed_paused in the
   // #1003 fix round (Codex review, finding 3) to cover promotion/periodic reconcile too.
-  "obsidian_tc_background_embed_paused",
+  "reliquary_tc_background_embed_paused",
   // Signing keys by lifecycle state, read from the auth registry at scrape time.
-  "obsidian_tc_auth_keys",
+  "reliquary_tc_auth_keys",
   // GH #1433: process-wide memory, by kind, read from process.memoryUsage() at scrape time.
-  "obsidian_tc_process_memory_bytes",
+  "reliquary_tc_process_memory_bytes",
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
@@ -133,17 +133,17 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
-    // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
-    const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
+    // Catalog is complete and exactly the spec'd size (no extra reliquary_tc_* metrics).
+    const declared = [...text.matchAll(/^# TYPE (reliquary_tc_\w+) /gm)].map((m) => m[1]);
     expect(new Set(declared).size).toBe(59);
   });
 
   it("GH #1433: process memory by kind is read at scrape time; rss and heap_used are live", async () => {
     const text = await new MetricsRecorder().metrics();
-    expect(text).toContain("# TYPE obsidian_tc_process_memory_bytes gauge");
+    expect(text).toContain("# TYPE reliquary_tc_process_memory_bytes gauge");
     const sample = (kind: string): number => {
       const m = text.match(
-        new RegExp(`^obsidian_tc_process_memory_bytes\\{kind="${kind}"\\} (\\S+)$`, "m"),
+        new RegExp(`^reliquary_tc_process_memory_bytes\\{kind="${kind}"\\} (\\S+)$`, "m"),
       );
       expect(m, `kind="${kind}" sample`).not.toBeNull();
       return Number(m?.[1]);
@@ -164,7 +164,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     try {
       const rssOf = async (): Promise<number> => {
         const scraped = await new MetricsRecorder().metrics();
-        const m = scraped.match(/^obsidian_tc_process_memory_bytes\{kind="rss"\} (\S+)$/m);
+        const m = scraped.match(/^reliquary_tc_process_memory_bytes\{kind="rss"\} (\S+)$/m);
         return Number(m?.[1]);
       };
       expect(await rssOf()).toBe(111 * MIB);
@@ -189,12 +189,12 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
 
     // The fast sample is the denominator: without it no "fraction of writes that waited" exists.
     const bucket = (le: string, vault: string, txn: string): string =>
-      `obsidian_tc_sql_lock_wait_seconds_bucket{le="${le}",vault="${vault}",txn="${txn}"}`;
+      `reliquary_tc_sql_lock_wait_seconds_bucket{le="${le}",vault="${vault}",txn="${txn}"}`;
     expect(text).toContain(`${bucket("0.001", "main", "index_batch")} 1`);
     expect(text).toContain(`${bucket("0.1", "main", "index_batch")} 1`); // 0.75 is NOT in here
     expect(text).toContain(`${bucket("1", "main", "index_batch")} 2`); // both samples by 1s
     expect(text).toContain(
-      'obsidian_tc_sql_lock_wait_seconds_count{vault="main",txn="index_batch"} 2',
+      'reliquary_tc_sql_lock_wait_seconds_count{vault="main",txn="index_batch"} 2',
     );
     // A timed-out acquisition overshoots busy_timeout, so it must NOT be in the 5s bucket — and
     // must still be inside the histogram (the 10s bucket) rather than only in +Inf, which is what
@@ -205,10 +205,10 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     // Process-wide subsystems report a bounded subsystem name in `vault`, per the documented
     // precedent — the job queue claims across every vault and has no vault id of its own.
     expect(text).toContain(
-      'obsidian_tc_sql_busy_total{vault="scheduler",txn="job_claim",reason="busy"} 1',
+      'reliquary_tc_sql_busy_total{vault="scheduler",txn="job_claim",reason="busy"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_sql_busy_total{vault="main",txn="index_deindex",reason="snapshot"} 1',
+      'reliquary_tc_sql_busy_total{vault="main",txn="index_deindex",reason="snapshot"} 1',
     );
   });
 
@@ -229,25 +229,25 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     });
     const text = await r.metrics();
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_candidates_in_total{vault="main",stage="graphExpansion"} 30',
+      'reliquary_tc_retrieval_stage_candidates_in_total{vault="main",stage="graphExpansion"} 30',
     );
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_candidates_out_total{vault="main",stage="graphExpansion"} 84',
+      'reliquary_tc_retrieval_stage_candidates_out_total{vault="main",stage="graphExpansion"} 84',
     );
     // The funnel must stay per-stage: collapsing these would make "which stage filters" unanswerable.
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_candidates_out_total{vault="main",stage="diversity"} 10',
+      'reliquary_tc_retrieval_stage_candidates_out_total{vault="main",stage="diversity"} 10',
     );
     // Durations are SECONDS in the exposition even though StageMetric carries milliseconds.
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_duration_seconds_sum{vault="main",stage="diversity"} 0.0004',
+      'reliquary_tc_retrieval_stage_duration_seconds_sum{vault="main",stage="diversity"} 0.0004',
     );
     // 12.5ms must not land in a sub-millisecond bucket — the whole reason for custom buckets.
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_duration_seconds_bucket{le="0.002",vault="main",stage="graphExpansion"} 0',
+      'reliquary_tc_retrieval_stage_duration_seconds_bucket{le="0.002",vault="main",stage="graphExpansion"} 0',
     );
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_duration_seconds_bucket{le="0.05",vault="main",stage="graphExpansion"} 1',
+      'reliquary_tc_retrieval_stage_duration_seconds_bucket{le="0.05",vault="main",stage="graphExpansion"} 1',
     );
   });
 
@@ -263,23 +263,23 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
       vecFingerprint: () => [{ vault: "index", fingerprint: "ollama|bge-m3|1024|cosine|0|1|v3" }],
     });
     const text = await r.metrics();
-    expect(text).toContain('obsidian_tc_index_coalesced_total{vault="coordinator"} 17');
+    expect(text).toContain('reliquary_tc_index_coalesced_total{vault="coordinator"} 17');
     // A job at zero must still report a series — "no skips" and "job absent" are different facts.
-    expect(text).toContain('obsidian_tc_scheduler_skipped_total{vault="maintenance"} 0');
-    expect(text).toContain('obsidian_tc_scheduler_skipped_total{vault="reconcile"} 3');
-    expect(text).toContain('obsidian_tc_scheduler_consecutive_failures{vault="reconcile"} 2');
-    expect(text).toContain('obsidian_tc_http_construct_seconds{vault="http"} 0.0142');
+    expect(text).toContain('reliquary_tc_scheduler_skipped_total{vault="maintenance"} 0');
+    expect(text).toContain('reliquary_tc_scheduler_skipped_total{vault="reconcile"} 3');
+    expect(text).toContain('reliquary_tc_scheduler_consecutive_failures{vault="reconcile"} 2');
+    expect(text).toContain('reliquary_tc_http_construct_seconds{vault="http"} 0.0142');
     // An INFO metric: the value is always 1 and carries nothing; the LABEL is the datum.
     expect(text).toContain(
-      'obsidian_tc_vec_fingerprint_active{vault="index",fingerprint="ollama|bge-m3|1024|cosine|0|1|v3"} 1',
+      'reliquary_tc_vec_fingerprint_active{vault="index",fingerprint="ollama|bge-m3|1024|cosine|0|1|v3"} 1',
     );
   });
 
   it("reports no http-construct series on a stdio-only server rather than a fake zero", async () => {
     // Reporting 0 would claim the transport was constructed instantly. It was never constructed.
     const text = await new MetricsRecorder({ httpConstructSeconds: () => [] }).metrics();
-    expect(text).toContain("# TYPE obsidian_tc_http_construct_seconds gauge");
-    expect(text).not.toMatch(/^obsidian_tc_http_construct_seconds\{/m);
+    expect(text).toContain("# TYPE reliquary_tc_http_construct_seconds gauge");
+    expect(text).not.toMatch(/^reliquary_tc_http_construct_seconds\{/m);
   });
 
   it("counts activation-recompute chunks, guarded on n > 0 like the ingest counters (THE-645)", async () => {
@@ -288,7 +288,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incActivationRecomputeChunks("activation-recompute", 0); // a tick with nothing new
     const text = await r.metrics();
     expect(text).toContain(
-      'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 5',
+      'reliquary_tc_activation_recompute_chunks_total{vault="activation-recompute"} 5',
     );
   });
 
@@ -298,7 +298,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incMemoryOrphansSwept("dangling_relations", 2);
     r.incMemoryOrphansSwept("retired_entities", 0); // a sweep that found nothing: no series
     const text = await r.metrics();
-    expect(text).toContain('obsidian_tc_memory_orphans_swept_total{class="dangling_relations"} 5');
+    expect(text).toContain('reliquary_tc_memory_orphans_swept_total{class="dangling_relations"} 5');
     expect(text).not.toContain('class="retired_entities"');
   });
 
@@ -308,7 +308,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incMorgianaSpoolPruned("age", 2);
     r.incMorgianaSpoolPruned("size", 0); // a sweep that found nothing: no series
     const text = await r.metrics();
-    expect(text).toContain('obsidian_tc_morgiana_spool_files_pruned_total{reason="age"} 5');
+    expect(text).toContain('reliquary_tc_morgiana_spool_files_pruned_total{reason="age"} 5');
     expect(text).not.toContain('reason="size"');
   });
 
@@ -318,8 +318,8 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incVecRebuild("fingerprint_changed");
     r.incVecRebuild("legacy_shape");
     const text = await r.metrics();
-    expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="fingerprint_changed"} 2');
-    expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="legacy_shape"} 1');
+    expect(text).toContain('reliquary_tc_vec_rebuild_total{reason="fingerprint_changed"} 2');
+    expect(text).toContain('reliquary_tc_vec_rebuild_total{reason="legacy_shape"} 1');
   });
 
   it("counts rerank outcomes separately by vault and outcome ", async () => {
@@ -336,21 +336,21 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     // Every one of the 7 outcomes is its own series — collapsing any two would make "the reranker
     // has been silently broken for a week" indistinguishable from "policy correctly skipped it".
     expect(text).toContain(
-      'obsidian_tc_rerank_outcome_total{vault="main",outcome="not_configured"} 1',
+      'reliquary_tc_rerank_outcome_total{vault="main",outcome="not_configured"} 1',
     );
-    expect(text).toContain('obsidian_tc_rerank_outcome_total{vault="main",outcome="executed"} 2');
-    expect(text).toContain('obsidian_tc_rerank_outcome_total{vault="main",outcome="timed_out"} 1');
+    expect(text).toContain('reliquary_tc_rerank_outcome_total{vault="main",outcome="executed"} 2');
+    expect(text).toContain('reliquary_tc_rerank_outcome_total{vault="main",outcome="timed_out"} 1');
     expect(text).toContain(
-      'obsidian_tc_rerank_outcome_total{vault="main",outcome="malformed_response"} 1',
-    );
-    expect(text).toContain(
-      'obsidian_tc_rerank_outcome_total{vault="main",outcome="provider_error"} 1',
+      'reliquary_tc_rerank_outcome_total{vault="main",outcome="malformed_response"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_rerank_outcome_total{vault="main",outcome="skipped_by_policy"} 1',
+      'reliquary_tc_rerank_outcome_total{vault="main",outcome="provider_error"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_rerank_outcome_total{vault="main",outcome="fallback_used"} 1',
+      'reliquary_tc_rerank_outcome_total{vault="main",outcome="skipped_by_policy"} 1',
+    );
+    expect(text).toContain(
+      'reliquary_tc_rerank_outcome_total{vault="main",outcome="fallback_used"} 1',
     );
   });
 
@@ -362,8 +362,8 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const text = await r.metrics();
     // Separate series per reason: "vec0 threw" and "ACL crowding" have different causes and
     // different fixes, so collapsing them would report a number nobody can act on.
-    expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="error"} 2');
-    expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="underfill"} 1');
+    expect(text).toContain('reliquary_tc_vec_fallback_total{vault="main",reason="error"} 2');
+    expect(text).toContain('reliquary_tc_vec_fallback_total{vault="main",reason="underfill"} 1');
   });
 
   it("counts graph-walk ACL prunes, by vault, and never creates a zero series (THE-891 item 3)", async () => {
@@ -372,8 +372,8 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incAclWalkPruned("main", 1);
     r.incAclWalkPruned("other", 0); // an unrestricted or bridge-free call — must not move the series
     const text = await r.metrics();
-    expect(text).toContain('obsidian_tc_acl_walk_pruned_total{vault="main"} 3');
-    expect(text).not.toContain('obsidian_tc_acl_walk_pruned_total{vault="other"}');
+    expect(text).toContain('reliquary_tc_acl_walk_pruned_total{vault="main"} 3');
+    expect(text).not.toContain('reliquary_tc_acl_walk_pruned_total{vault="other"}');
   });
 
   it("counts memoryDefense hits, by pattern id only, and never creates a zero series (GH #994)", async () => {
@@ -382,8 +382,8 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incMemoryDefenseHits("openai_key", 1);
     r.incMemoryDefenseHits("ssn", 0); // a clean scan — must not move the series
     const text = await r.metrics();
-    expect(text).toContain('obsidian_tc_memory_defense_hits_total{pattern="openai_key"} 2');
-    expect(text).not.toContain('obsidian_tc_memory_defense_hits_total{pattern="ssn"}');
+    expect(text).toContain('reliquary_tc_memory_defense_hits_total{pattern="openai_key"} 2');
+    expect(text).not.toContain('reliquary_tc_memory_defense_hits_total{pattern="ssn"}');
   });
 
   // THE-507: the gauge must reflect the CACHE's own counters, not a value the recorder invented.
@@ -398,15 +398,15 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
       queryCacheExpirations: () => [{ vault: "results", value: stats.results.expirations }],
     });
     let text = await r.metrics();
-    expect(text).toContain('obsidian_tc_query_cache_hits_total{vault="results"} 7');
-    expect(text).toContain('obsidian_tc_query_cache_misses_total{vault="results"} 3');
-    expect(text).toContain('obsidian_tc_query_cache_evictions_total{vault="results"} 2');
-    expect(text).toContain('obsidian_tc_query_cache_expirations_total{vault="results"} 1');
+    expect(text).toContain('reliquary_tc_query_cache_hits_total{vault="results"} 7');
+    expect(text).toContain('reliquary_tc_query_cache_misses_total{vault="results"} 3');
+    expect(text).toContain('reliquary_tc_query_cache_evictions_total{vault="results"} 2');
+    expect(text).toContain('reliquary_tc_query_cache_expirations_total{vault="results"} 1');
 
     // Re-scraped, it must track the cache rather than latch its first reading.
     stats.results.hits = 11;
     text = await r.metrics();
-    expect(text).toContain('obsidian_tc_query_cache_hits_total{vault="results"} 11');
+    expect(text).toContain('reliquary_tc_query_cache_hits_total{vault="results"} 11');
   });
 
   it("exposes recorded tool-call counters and histograms by label", async () => {
@@ -416,13 +416,13 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.observeToolCall("main", "bulk_create_notes", "denied", 0.001, 60);
     const text = await r.metrics();
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="read_note",status="ok"} 2',
+      'reliquary_tc_tool_calls_total{vault="main",tool="read_note",status="ok"} 2',
     );
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="bulk_create_notes",status="denied"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="bulk_create_notes",status="denied"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_tool_duration_seconds_count{vault="main",tool="read_note"} 2',
+      'reliquary_tc_tool_duration_seconds_count{vault="main",tool="read_note"} 2',
     );
   });
 
@@ -432,7 +432,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const text = await r.metrics();
     const bucketLines = text
       .split("\n")
-      .filter((l) => l.startsWith("obsidian_tc_response_bytes_bucket"));
+      .filter((l) => l.startsWith("reliquary_tc_response_bytes_bucket"));
     const les = bucketLines.map((l) => l.match(/le="([^"]+)"/)?.[1]).filter(Boolean);
     // The small buckets are unambiguous; assert those exactly plus the implicit +Inf, and
     // pin the count (5 spec buckets + +Inf) so the bucket set is exactly the G2.4 catalog.
@@ -451,14 +451,14 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     r.incMorgianaDropped("main", "spool_write_failed");
     const text = await r.metrics();
     expect(text).toContain(
-      'obsidian_tc_acl_denied_total{vault="main",scope_class="write",reason="scope_denied"} 1',
+      'reliquary_tc_acl_denied_total{vault="main",scope_class="write",reason="scope_denied"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_governor_truncations_total{vault="main",tool="search_vault"} 1',
+      'reliquary_tc_governor_truncations_total{vault="main",tool="search_vault"} 1',
     );
-    expect(text).toContain('obsidian_tc_rate_limit_hits_total{vault="main",scope_class="bulk"} 1');
+    expect(text).toContain('reliquary_tc_rate_limit_hits_total{vault="main",scope_class="bulk"} 1');
     expect(text).toContain(
-      'obsidian_tc_morgiana_emit_dropped_total{vault="main",reason="spool_write_failed"} 1',
+      'reliquary_tc_morgiana_emit_dropped_total{vault="main",reason="spool_write_failed"} 1',
     );
   });
 
@@ -467,9 +467,9 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const r = new MetricsRecorder({
       captureQueueDepth: () => [{ vault: "main", value: depth }],
     });
-    expect(await r.metrics()).toContain('obsidian_tc_capture_queue_depth{vault="main"} 3');
+    expect(await r.metrics()).toContain('reliquary_tc_capture_queue_depth{vault="main"} 3');
     depth = 7; // re-read live at the next scrape
-    expect(await r.metrics()).toContain('obsidian_tc_capture_queue_depth{vault="main"} 7');
+    expect(await r.metrics()).toContain('reliquary_tc_capture_queue_depth{vault="main"} 7');
   });
 
   it("exposes the Prometheus text content type", () => {

@@ -1,7 +1,7 @@
 // The generic "any OpenAI-shaped endpoint" embedder. Deliberately NOT an alias of openaiProvider:
 // a named vendor entry may grow vendor-required fields over time (cohere already sends input_type
 // because Cohere v2 mandates it), and this one must be provably unable to.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { type FetchFn, postJson } from "../embeddings/http";
 import { assertVectors, type EmbeddingProvider } from "../embeddings/provider";
 

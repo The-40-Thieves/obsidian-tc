@@ -1,4 +1,4 @@
-// `obsidian-tc auth as set-password`: claim the bundled authorization server from the host's shell,
+// `reliquary-tc auth as set-password`: claim the bundled authorization server from the host's shell,
 // or change the operator's password (design v2 section 4.5). Shell access to the host and write
 // access to `<cacheDir>` are the credential, exactly as for `auth rotate-key` and `token mint`: whoever
 // can write oauth.db can already replace the password hash.

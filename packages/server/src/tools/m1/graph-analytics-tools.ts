@@ -12,7 +12,7 @@
 // ACL: vault_edges stores vault-relative paths, so every edge whose EITHER endpoint is unreadable
 // is dropped before the graph is built. Filtering the RESULT instead would leak structure — a
 // betweenness score computed over notes the caller cannot see still describes them.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";

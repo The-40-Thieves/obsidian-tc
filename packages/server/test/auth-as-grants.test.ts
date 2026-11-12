@@ -4,7 +4,7 @@
 // config file with a real oauth.db and auth.db on disk.
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureAsKey } from "../src/auth/as-boot";
 import { listGrants, revokeGrant } from "../src/auth/as-grants";

@@ -11,7 +11,7 @@ import type {
   ResponseFormat,
   ToolResult,
   VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { type FakeRequestInfo, type FakeRoute, fakeBridgeTransport } from "../src/bridge";
 import { provisionCacheDb } from "../src/db/provision";
@@ -48,7 +48,7 @@ export interface M5VaultOptions {
    *  leave memoryDefense unwired (MEMORY_DEFENSE_OFF, the existing "no behaviour change" case
    *  every pre-#994 test here already exercises). */
   memoryDefense?: VaultMemoryDefenseConfig;
-  /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter — pass a real
+  /** GH #994: memoryDefense's reliquary_tc_memory_defense_hits_total counter — pass a real
    *  MetricsRecorder to assert on it from a test. */
   metrics?: MetricsRecorder;
   /** memory.supersededInNote for this vault. Omit to leave it unwired (the schema default, true). */

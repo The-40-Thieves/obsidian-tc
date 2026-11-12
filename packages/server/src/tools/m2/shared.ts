@@ -2,7 +2,7 @@
 // implementation files can import it without pulling in index.ts's barrel — which imports every
 // implementation file back, and previously made each of those a two-node import cycle through
 // ./index).
-import type { ResponseFormat } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat } from "@the-40-thieves/reliquary-tc-shared";
 import type { BridgeClient } from "../../bridge";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";

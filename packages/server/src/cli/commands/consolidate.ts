@@ -1,4 +1,4 @@
-// THE-934 — `obsidian-tc consolidate --once [--dry-run]`. The CLI-only trigger Gate 1's revision
+// THE-934 — `reliquary-tc consolidate --once [--dry-run]`. The CLI-only trigger Gate 1's revision
 // and Gate 2's design settled on: an operator can evaluate what one ambient consolidation pass
 // would do (`--dry-run`, ZERO gateway calls) or actually run it once (`--once` alone), without
 // arming the recurring `plane.intervalMinutes` schedule just to find out. CLI-only, deliberately —
@@ -38,7 +38,7 @@ export async function run_consolidate(cmd: Cmd<"consolidate">): Promise<void> {
   // `consolidate` with no `--once` is a usage error rather than a silent no-op.
   if (!cmd.once) {
     process.stderr.write(
-      "consolidate: --once is required (see: obsidian-tc consolidate --once [--dry-run])\n",
+      "consolidate: --once is required (see: reliquary-tc consolidate --once [--dry-run])\n",
     );
     process.exit(2);
   }

@@ -13,7 +13,7 @@ import {
   CloudEventSchema,
   type MorgianaEventData,
   type MorgianaEventType,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 
 export interface MorgianaEmitterOptions {
   /** Spool root; events go to <cacheDir>/<vault>/morgiana-events-<date>.jsonl. */
@@ -65,7 +65,7 @@ export class MorgianaEmitter {
     return this.spoolEnabled;
   }
 
-  /** Build a validated CloudEvents 1.0 envelope (source = obsidian-tc/<vault>). */
+  /** Build a validated CloudEvents 1.0 envelope (source = reliquary-tc/<vault>). */
   envelope(
     vaultId: string,
     type: MorgianaEventType,
@@ -74,7 +74,7 @@ export class MorgianaEmitter {
     return CloudEventSchema.parse({
       specversion: "1.0",
       id: this.uuid(),
-      source: `obsidian-tc/${vaultId}`,
+      source: `reliquary-tc/${vaultId}`,
       type,
       time: this.now().toISOString(),
       data: { ...data, vault_id: data.vault_id ?? vaultId },

@@ -2,7 +2,7 @@
 
 Many tools reach Obsidian plugins through the **companion plugin**, which extends the [Local REST API plugin](https://github.com/coddingtonbear/obsidian-local-rest-api) with `/obsidian-tc/v1/*` routes. Direct file ops (`read_note`, `write_note`, search over the cache, …) work without it; **bridge** tools additionally need the companion plugin plus the specific third-party plugin.
 
-Install the companion with `obsidian-tc plugin install --vault /path/to/vault`, then enable it in Obsidian — see **[[Installation]]**.
+Install the companion with `reliquary-tc plugin install --vault /path/to/vault`, then enable it in Obsidian — see **[[Installation]]**.
 
 ## Dependency chain
 
@@ -38,7 +38,7 @@ A tool that fails any link in the chain returns `plugin_missing` with the specif
 
 ## Companion plugin
 
-A standard Obsidian plugin (`@the-40-thieves/obsidian-tc-plugin`) that owns command-palette dispatch, active-file access, and the per-plugin bridge endpoints. It declares `obsidianTcApiVersion: "1"`; the server reads this from the probe and refuses to dispatch on a major mismatch (`plugin_incompatible`). Routes are path-versioned (`/v1/`) so a future `/v2/` can ship alongside.
+A standard Obsidian plugin (`@the-40-thieves/reliquary-tc-plugin`) that owns command-palette dispatch, active-file access, and the per-plugin bridge endpoints. It declares `obsidianTcApiVersion: "1"`; the server reads this from the probe and refuses to dispatch on a major mismatch (`plugin_incompatible`). Routes are path-versioned (`/v1/`) so a future `/v2/` can ship alongside.
 
 ## Discovery probe
 
@@ -79,7 +79,7 @@ A companion **older** than the minimum, or on a different API major, is a **brea
 
 ### Bridge state — `live` / `headless` / `degraded`
 
-`obsidian-tc doctor` reports each vault's bridge state with a reason, so an operator can answer *"which mode am I in, and why?"* — the surface no longer silently shrinks to "headless":
+`reliquary-tc doctor` reports each vault's bridge state with a reason, so an operator can answer *"which mode am I in, and why?"* — the surface no longer silently shrinks to "headless":
 
 | State | Reason | What it means / action |
 |---|---|---|
@@ -98,4 +98,4 @@ The `plugin-not-installed` / `plugin-disabled` / `enabled-but-unreachable` disti
 
 Every unreachable/degraded report carries `causeCode`: the underlying fetch failure's code (e.g. `ECONNREFUSED`, `ENOTFOUND`, a `CERT_`/`ERR_TLS_`-prefixed TLS code, or `ABORT_ERR` for a timeout/abort), surfaced **verbatim** even when the server doesn't classify it into one of the reasons above — one doctor line replaces what used to be a full diagnostic session. It's what drives the `companion-untrusted-cert` classification, but it's reported on every unreachable state, classified or not.
 
-The TLS case exists because of an asymmetry in how `NODE_EXTRA_CA_CERTS` gets set: an MCP client supplies it through the environment it launches the server with, but a hand-run `obsidian-tc doctor` on the CLI usually doesn't inherit it — so the exact same companion, answering in milliseconds, looks "unreachable" from one caller and fine from the other. `causeCode` turns that gap into a one-line diagnosis instead of a session of guessing.
+The TLS case exists because of an asymmetry in how `NODE_EXTRA_CA_CERTS` gets set: an MCP client supplies it through the environment it launches the server with, but a hand-run `reliquary-tc doctor` on the CLI usually doesn't inherit it — so the exact same companion, answering in milliseconds, looks "unreachable" from one caller and fine from the other. `causeCode` turns that gap into a one-line diagnosis instead of a session of guessing.

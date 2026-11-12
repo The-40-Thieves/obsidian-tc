@@ -10,7 +10,7 @@
 // the path) nor any actual rename I/O, so it proved only that isExcludedPath is a pure function of
 // its two arguments, already implied by every other test here. Removed per fix round 3 (H)'s
 // "test the claim it documents or delete it" instruction.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { createEmbeddingProvider } from "../src/embeddings";
 import type { FetchFn } from "../src/embeddings/http";

@@ -1,11 +1,11 @@
 // M5 config (THE-181): the global plur block + per-vault memory/workspace blocks.
 // All three are additive and optional — a config predating M5 parses unchanged
-// (the M4 back-compat invariant) — and the OBSIDIAN_TC_PLUR_* env vars overlay the
+// (the M4 back-compat invariant) — and the RELIQUARY_TC_PLUR_* env vars overlay the
 // endpoint/token the same way the JWT secret does, keeping the bearer off disk.
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/load";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -66,8 +66,8 @@ describe("loadConfig plur env overlay", () => {
   });
   afterEach(() => {
     rmTemp(dir);
-    process.env.OBSIDIAN_TC_PLUR_ENDPOINT = "";
-    process.env.OBSIDIAN_TC_PLUR_TOKEN = "";
+    process.env.RELIQUARY_TC_PLUR_ENDPOINT = "";
+    process.env.RELIQUARY_TC_PLUR_TOKEN = "";
   });
 
   // THE-1122 review round 3: cacheDir is now required whenever the resolved embeddings.provider
@@ -80,15 +80,15 @@ describe("loadConfig plur env overlay", () => {
   }
 
   it("overlays endpoint + token from the environment", () => {
-    process.env.OBSIDIAN_TC_PLUR_ENDPOINT = "http://127.0.0.1:7077";
-    process.env.OBSIDIAN_TC_PLUR_TOKEN = "secret-token";
+    process.env.RELIQUARY_TC_PLUR_ENDPOINT = "http://127.0.0.1:7077";
+    process.env.RELIQUARY_TC_PLUR_TOKEN = "secret-token";
     const cfg = loadConfig(writeConfig({ vaults: [{ id: "v1", path: "/tmp/v1" }] }));
     expect(cfg.plur?.endpoint).toBe("http://127.0.0.1:7077");
     expect(cfg.plur?.apiKey).toBe("secret-token");
   });
 
   it("env endpoint overlays a file-provided plur block without dropping its other keys", () => {
-    process.env.OBSIDIAN_TC_PLUR_ENDPOINT = "http://override:9000";
+    process.env.RELIQUARY_TC_PLUR_ENDPOINT = "http://override:9000";
     const cfg = loadConfig(
       writeConfig({
         plur: { apiPrefix: "/v2", timeoutMs: 2000 },

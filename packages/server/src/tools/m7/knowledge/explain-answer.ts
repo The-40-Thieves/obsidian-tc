@@ -25,7 +25,7 @@
 // Unreadable rows are DROPPED, not relabelled. Reporting them as `deleted` would be a lie about the
 // vault, and reporting a suppressed COUNT would leak how much is hidden. Dropping is the only
 // option that says nothing.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { citationRunsCovering } from "../../../experiential/citation-runs";
 import {

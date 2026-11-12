@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   invalidateVecIndex(db);
   process.stdout.write(
     `loaded ${ids.length} vecs under "${model}" (${written} rows written), vec_chunks invalidated — ` +
-      "run `obsidian-tc index` to rebuild the dense index\n",
+      "run `reliquary-tc index` to rebuild the dense index\n",
   );
   db.close?.();
 }

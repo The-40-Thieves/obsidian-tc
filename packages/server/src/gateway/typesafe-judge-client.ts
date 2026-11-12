@@ -8,7 +8,7 @@ import {
   classifyJudgeBaseUrl,
   isPlainHttpHostListed,
   judgeBaseUrlHost,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { resolveApiKey } from "../embeddings/provider";
 import type { ResolveHost } from "./plain-http";
 import { createTypesafeClient, type TypesafeClient } from "./typesafe";

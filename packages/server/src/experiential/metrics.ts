@@ -1,7 +1,7 @@
 // THE-46 (local re-scope, 2026-07-11 flywheel decision) — the cycle-level knowledge-health
 // scorecard, computed on demand from the derive layer (THE-44's chunk_access_stats view over
 // chunk_retrievals) plus the authored store. No standing infra: the cycle-close session runs
-// `obsidian-tc metrics` and stamps the result into a vault note (09-reference/metrics/); this
+// `reliquary-tc metrics` and stamps the result into a vault note (09-reference/metrics/); this
 // module is the machine-readable half. Retrieval-quality numbers (nDCG/recall) come from the
 // golden-set eval harness, not runtime — the cycle-close session merges them into the note.
 import type { Database } from "../db/types";

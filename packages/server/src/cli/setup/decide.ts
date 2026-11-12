@@ -1,4 +1,4 @@
-// `obsidian-tc setup` (PR A of GH #995's two-part follow-up) — the ONE decision point for what an
+// `reliquary-tc setup` (PR A of GH #995's two-part follow-up) — the ONE decision point for what an
 // install's config should say, mirroring embeddings/sticky-provider.ts's own "one decision point"
 // shape. Pure and synchronous: every input is already resolved by the command layer (cli/commands/
 // setup.ts), which does the actual filesystem/network/DB probing — this module has no I/O of its
@@ -11,7 +11,7 @@
 // index's provider is read via the SAME resolver (probeEmbeddingsProviderSource, called by
 // cli/commands/setup.ts) and always wins here, so `setup` on an upgrade never contradicts what boot
 // would have kept anyway.
-import { LOCAL_CATALOG_DIMENSIONS } from "@the-40-thieves/obsidian-tc-shared";
+import { LOCAL_CATALOG_DIMENSIONS } from "@the-40-thieves/reliquary-tc-shared";
 import { ENV_KEY } from "../../embeddings/provider";
 import {
   formatStickyEmbeddingsNotice,
@@ -68,7 +68,7 @@ export interface SetupInputs {
    *  (`kept-from-index`, `ambiguous-orphaned-index` with an identity) always wins over every branch
    *  below, so `setup` can never choose a provider boot would then silently override. */
   existingIndex?: StickyEmbeddingsResolution;
-  /** Whether `@the-40-thieves/obsidian-tc-embedder-local` resolves AND this platform's onnxruntime-
+  /** Whether `@the-40-thieves/reliquary-tc-embedder-local` resolves AND this platform's onnxruntime-
    *  node has a native prebuild — see providers/local-embedder-registry.ts's
    *  probeLocalEmbedderResolution + providers/reranker-preflight.ts's onnxNativePrebuildStatus
    *  (shared by the reranker ladder; embeddings-buildable.ts already composes the same two checks
@@ -147,7 +147,7 @@ function hostedSuggestions(env: Record<string, string | undefined>): HostedProvi
 }
 
 /**
- * The ONE decision point for `obsidian-tc setup`'s embeddings choice. Precedence, closest match to
+ * The ONE decision point for `reliquary-tc setup`'s embeddings choice. Precedence, closest match to
  * GH #995's own resolution order:
  *   1. an existing index's provider (never overridden — see `existingIndex`'s own doc comment)
  *   2. the bundled local embedder, when it can actually run here (model picked by RAM)
@@ -177,7 +177,7 @@ export function decideSetup(input: SetupInputs): SetupDecision {
 function unmappableRefusal(existing: StickyEmbeddingsResolution): string {
   return (
     `this vault's existing index uses a stored provider id ("${existing.keptFromStoredModel}") ` +
-    "that obsidian-tc cannot map back to a known, reconstructable provider — refusing to guess " +
+    "that reliquary-tc cannot map back to a known, reconstructable provider — refusing to guess " +
     `one. The index is currently stored at dimensions=${existing.dimensions}. Set ` +
     "embeddings.provider (and .model/.dimensions, matching that width) explicitly in your config " +
     "to match the existing index, then re-run setup, or edit the written config by hand."

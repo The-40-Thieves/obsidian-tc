@@ -2,7 +2,7 @@
 // out of mcp/server.ts (biome's 700-line noExcessiveLinesPerFile) rather than left inline — this
 // module has no dependency on the rest of server.ts, so the split adds no circular import.
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
+import type { ErrorJSON } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { mintCommandFromDetails, shellQuote } from "./elicit-command";
 import { sanitizeDisplayText } from "./elicit-form";
@@ -102,7 +102,7 @@ function renderIssues(
  *  capability, or one whose round trip was declined/cancelled/failed) falls through to
  *  `errorToResult`, and per THE-823 that caller drops `structuredContent` on an isError result, so
  *  `args_hash` (already there — #931/THE-1037 made `call_capability` accept a redeemed token) is
- *  otherwise stranded where nothing reads it. This renders the actual `obsidian-tc elicit`
+ *  otherwise stranded where nothing reads it. This renders the actual `reliquary-tc elicit`
  *  invocation (cli/commands/elicit-mint.ts, flags per cli/usage.ts) rather than describing it, so
  *  a caller with no MCP elicitation support can still
  *  clear the gate.
@@ -126,7 +126,7 @@ function renderIssues(
  *  cannot fill in a real path here, so a literal `--config <path to your config>` is not just
  *  unquoted, it is not a rendered command at all — `<...>` is shell redirection syntax to a real
  *  shell. `resolveServeConfigWithProvenance` (cli/resolve-config.ts) falls back to
- *  `OBSIDIAN_TC_CONFIG` when no path is given, so that line states that real fallback instead of a
+ *  `RELIQUARY_TC_CONFIG` when no path is given, so that line states that real fallback instead of a
  *  fabricated "default location".
  *
  *  The `confirm with:` line itself is UNCHANGED byte-for-byte from before THE-1106 — only prefixed
@@ -157,7 +157,7 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
   if (typeof tool !== "string") {
     return (
       "cannot render a confirm command: this error did not carry a tool name, and " +
-      "`obsidian-tc elicit` requires --tool. Confirm from a client with MCP elicitation support " +
+      "`reliquary-tc elicit` requires --tool. Confirm from a client with MCP elicitation support " +
       `instead, or mint manually once you know the tool name, using args_hash ${shellQuote(hash)}.`
     );
   }
@@ -176,7 +176,7 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
     "If they approve, run the command below and retry the same call with elicit_token: <token>. " +
     `${mintCondition}\n` +
     `confirm with: ${mintCommandFromDetails(details)}\n` +
-    "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
+    "(reads RELIQUARY_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
     "positional argument)"
   );
 }

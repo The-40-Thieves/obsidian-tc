@@ -7,7 +7,7 @@ import {
   type ServerConfig,
   ServerConfigSchema,
   type ToolResult,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { mintElicitAudited, planElicitMint } from "../src/cli/commands/elicit-mint";
 import { makeTestVault } from "./m1-helpers";
@@ -29,7 +29,7 @@ const cfgFor = (vaults: Array<{ id: string; path: string }>, elicitTtlSeconds?: 
 // not a coincidental match with the harness's usual fixture.
 const STDIO = "stdio";
 
-describe("THE-826: obsidian-tc elicit mint satisfies the real gate end-to-end", () => {
+describe("THE-826: reliquary-tc elicit mint satisfies the real gate end-to-end", () => {
   it("a minted token satisfies move_note across a folder boundary", async () => {
     const v = makeTestVault({ files: { "note.md": "x" } });
     try {

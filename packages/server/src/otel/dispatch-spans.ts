@@ -17,7 +17,7 @@ import {
   type Tracer,
   trace,
 } from "@opentelemetry/api";
-import { ObsidianTcError, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError, type ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { redactSecrets } from "../util/redact";
 import { SPAN_ATTR } from "./attrs";
 
@@ -29,7 +29,7 @@ export type OtelDetail = ServerConfig["observability"]["otel"]["detail"];
 export const MAX_SPANS_PER_REQUEST = 64;
 const STAGE_RESERVE = 10;
 
-const REQUEST_SPANS = createContextKey("obsidian_tc.dispatch_spans");
+const REQUEST_SPANS = createContextKey("reliquary_tc.dispatch_spans");
 
 // Fast-path guard for the handler-side helpers: false until some registry opts into "verbose", so
 // a default deployment pays one boolean read per db transaction / batch item.
@@ -46,7 +46,7 @@ function markError(span: Span, rawCode: string): void {
   span.setStatus({ code: SpanStatusCode.ERROR, message: code });
 }
 
-const codeOf = (e: unknown): string => (e instanceof ObsidianTcError ? e.code : "internal");
+const codeOf = (e: unknown): string => (e instanceof ReliquaryTcError ? e.code : "internal");
 
 export class DispatchSpans {
   private open: Span | undefined;

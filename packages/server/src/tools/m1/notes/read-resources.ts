@@ -15,7 +15,7 @@
 // tc.acl.denied per denied item, as read_notes gets for a denied path).
 // memoryDefense is a write-side gate (write_note/append_note/patch_note); no read path runs it, so
 // there is nothing to evaluate per item here - the same as read_notes.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
@@ -38,7 +38,7 @@ export function createReadResourcesTool(deps: M1Deps, aclFor: VaultAclResolver):
     wholeNotes: true,
     domain: "notes",
     description:
-      "Batch resources/read: read many obsidian-tc://<vault>/<path> note resource URIs in one call. Returns one result per URI in request order: {ok: true, uri, mimeType, text} (identical to a single resources/read) or {ok: false, uri, error} for a malformed or unsupported URI, a vault the caller may not read (a vault-bound caller may read only its own), a denied or missing note. The response is held under the server's byte budget: when the batch does not fit, the results that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single resource too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns each item as {ok: true, uri, text} with the note body only (no frontmatter block, no mimeType); error items are unchanged.",
+      "Batch resources/read: read many reliquary-tc://<vault>/<path> note resource URIs in one call. Returns one result per URI in request order: {ok: true, uri, mimeType, text} (identical to a single resources/read) or {ok: false, uri, error} for a malformed or unsupported URI, a vault the caller may not read (a vault-bound caller may read only its own), a denied or missing note. The response is held under the server's byte budget: when the batch does not fit, the results that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single resource too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns each item as {ok: true, uri, text} with the note body only (no frontmatter block, no mimeType); error items are unchanged.",
     inputSchema: z
       .object({
         uris: z.array(z.string().min(1).max(4096)).min(1).max(100),
@@ -77,7 +77,7 @@ export function createReadResourcesTool(deps: M1Deps, aclFor: VaultAclResolver):
               format,
             ).contents[0];
             if (!content || !("text" in content))
-              throw new ObsidianTcError("internal", "resource has no text content");
+              throw new ReliquaryTcError("internal", "resource has no text content");
             return format === "concise"
               ? { ok: true, uri: content.uri, text: content.text }
               : {
@@ -87,7 +87,7 @@ export function createReadResourcesTool(deps: M1Deps, aclFor: VaultAclResolver):
                   text: content.text,
                 };
           } catch (e) {
-            if (!(e instanceof ObsidianTcError)) throw e;
+            if (!(e instanceof ReliquaryTcError)) throw e;
             const { size, budget } = e.details ?? {};
             // readResource's own size ceiling is this tool's too_large, same shape as the paginator's.
             if (typeof size === "number" && typeof budget === "number")

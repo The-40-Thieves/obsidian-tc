@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 // `new URL(...).pathname` is NOT a filesystem path on Windows — it keeps a leading slash before
 // the drive letter (`/D:/a/...`), which `path.win32.join`/`resolve` then treats as root-relative
 // to the CURRENT drive rather than as the literal drive path, doubling it
-// (`D:\D:\a\obsidian-tc\...`) the moment it is joined with anything — exactly the
+// (`D:\D:\a\reliquary-tc\...`) the moment it is joined with anything — exactly the
 // `ENOENT: scandir 'D:\D:\...'` this test failed with on windows-latest. `fileURLToPath` is the
 // one correct conversion on every platform.
 const SRC_ROOT = fileURLToPath(new URL("../src/", import.meta.url));

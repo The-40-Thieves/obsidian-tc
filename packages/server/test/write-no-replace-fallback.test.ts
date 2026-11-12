@@ -9,7 +9,7 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 const fsSeam = vi.hoisted(() => {
   // The JS writer is the one that has the fallback; the native one never reaches it.
-  process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+  process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
   return { failRenameTo: undefined as string | undefined };
 });
 vi.mock("node:fs", async (orig) => {

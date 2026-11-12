@@ -10,7 +10,7 @@ import { fstatSync } from "node:fs";
 import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import { hiddenNamesInAllowlist } from "../doctor/tool-facade";
 import {
@@ -141,7 +141,7 @@ export function emitBootNotices(deps: {
       `telemetry: opt-in usage telemetry is ENABLED, sending to ${endpointRedacted} every ` +
         `${config.telemetry.intervalMinutes}m. Aggregate counts only (no paths, note content, ` +
         "queries, vault ids, principals, tokens, hostnames or env) — see " +
-        "docs/configuration/telemetry.md, `obsidian-tc telemetry preview`, or SECURITY.md. " +
+        "docs/configuration/telemetry.md, `reliquary-tc telemetry preview`, or SECURITY.md. " +
         "Disable with telemetry.enabled: false.\n",
     );
   }
@@ -197,7 +197,7 @@ export function emitHeadlessStdioNotice(): void {
     const stat = fstatSync(0);
     if (!stat.isFIFO() && !process.stdin.isTTY) {
       process.stderr.write(
-        "obsidian-tc: transports.stdio and transports.http are both enabled, and stdin is " +
+        "reliquary-tc: transports.stdio and transports.http are both enabled, and stdin is " +
           "neither a TTY nor a pipe (looks like /dev/null) — an immediate stdin EOF is " +
           "expected here; the HTTP transport keeps serving through it. Set " +
           "transports.stdio: false for a headless deploy to silence this.\n",

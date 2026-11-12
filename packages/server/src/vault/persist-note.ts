@@ -2,7 +2,7 @@
 // two cannot drift. A raw writeFileSync bypasses the snapshot (no recovery point on overwrite), the
 // atomic tmp+rename (a reader can catch a torn file), and index-on-write + generation bump (the note
 // is never indexed and stale caches are not invalidated). Route derived-note writes through here.
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import { enforceMemoryDefenseOnNoteWrite } from "../util/memory-defense";

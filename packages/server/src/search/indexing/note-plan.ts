@@ -265,10 +265,10 @@ export function computeNotePlan(
   // shift is change detection's job, not dedup's).
   // THE-499: count dedup reuse and let the caller aggregate it into a single per-pass summary,
   // instead of one synchronous stderr line per duplicate chunk (which could cost more than the dedup
-  // and floods CI logs). Individual paths stay available behind OBSIDIAN_TC_DEBUG_DEDUP.
+  // and floods CI logs). Individual paths stay available behind RELIQUARY_TC_DEBUG_DEDUP.
   let dedupSkipped = 0;
   if (dedupEnabled) {
-    const debug = process.env.OBSIDIAN_TC_DEBUG_DEDUP !== undefined;
+    const debug = process.env.RELIQUARY_TC_DEBUG_DEDUP !== undefined;
     for (const d of desired) {
       if (!dedupRegistry.has(d.contentHash)) dedupRegistry.set(d.contentHash, path);
     }

@@ -1,6 +1,6 @@
 // `auth.mode: "oidc"` — verify access tokens issued by an EXTERNAL OpenID Connect provider.
 //
-// VERIFICATION ONLY. obsidian-tc stays a resource server here; nothing in this file issues, refreshes
+// VERIFICATION ONLY. reliquary-tc stays a resource server here; nothing in this file issues, refreshes
 // or registers anything (the bundled authorization server is a separate design under `auth.as`).
 //
 // Trust chain: the operator configures an https `issuer` and an `audience`. At boot the discovery
@@ -17,7 +17,7 @@
 // The identity then goes through the SAME `identityFrom` jwt mode uses, so age cap, revocation by
 // `jti` (auth.db tombstones included), `auth.requireJti`, scopes, vault binding and personas are one
 // code path with jwt mode, not a parallel one.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { customFetch, decodeProtectedHeader, jwtVerify } from "jose";
 import { redactEndpoint, redactEndpointWithPath } from "../telemetry/redact-endpoint";
 import {

@@ -4,7 +4,7 @@
 // configured-but-down -> plugin_unreachable), the spec error mapping for a missing
 // engram (invalid_input), and the security invariant that the bearer token reaches
 // the transport header but never an error payload.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge";
 import { createPlurClient, openPlur } from "../src/plur/client";
@@ -25,11 +25,11 @@ describe("createPlurClient / openPlur gate", () => {
     // client, so the gate must throw before any transport is ever touched.
     fakeBridgeTransport({ onRequest: () => calls++ });
     const client = createPlurClient(undefined);
-    expect(() => openPlur(client)).toThrow(ObsidianTcError);
+    expect(() => openPlur(client)).toThrow(ReliquaryTcError);
     try {
       openPlur(client);
     } catch (e) {
-      const error = e as ObsidianTcError;
+      const error = e as ReliquaryTcError;
       expect(error.code).toBe("plugin_missing");
       expect(error.details).toEqual({ plugin: "plur" });
     }
@@ -84,7 +84,7 @@ describe("plur request mapping via the fake transport", () => {
         plugin: "plur",
       });
     } catch (e) {
-      surfaced = JSON.stringify((e as ObsidianTcError).toJSON());
+      surfaced = JSON.stringify((e as ReliquaryTcError).toJSON());
     }
     expect(surfaced).not.toContain(TOKEN);
   });

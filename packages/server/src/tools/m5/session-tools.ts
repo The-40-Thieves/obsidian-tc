@@ -4,14 +4,14 @@
 //
 // THE-737: traces are CACHE-resident, not vault-relative. They used to live under the vault
 // ("ACL-checked via enforcePathAcl", honoring THE-181 over G2.3's cache_dir sketch) — but a
-// vault-resident trace is readable through `read_note`: `.obsidian-tc` is not in
+// vault-resident trace is readable through `read_note`: `.reliquary-tc` is not in
 // DEFAULT_DENY_ROOTS, and read_note takes a bare VaultPath with no extension restriction. So
 // G2.3 was right after all, for a reason it did not state. Legacy rows still resolve against
 // the vault and still get the folder-ACL check — see `traceAbsFor`. Reads take read:workspace,
 // mutations take write:workspace (write family — readOnly kill-switch applies, no
 // execute HITL floor; spec hitl:never). The append contract (appendTrace) is what the
 // ambient capture worker (THE-175) targets to add tool-invocation records over time.
-import { err, grantsAll, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll, Pagination, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { inTransaction } from "../../db/txn";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";

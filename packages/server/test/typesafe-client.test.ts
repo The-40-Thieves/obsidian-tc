@@ -231,7 +231,7 @@ describe("typesafe client — wire shape", () => {
     expect(seenHeaders.authorization).toBe("Bearer secret-key");
     expect(seenHeaders["content-type"]).toBe("application/json");
     expect(seenHeaders.accept).toBe("application/json");
-    expect(seenHeaders["user-agent"]).toMatch(/^obsidian-tc\//);
+    expect(seenHeaders["user-agent"]).toMatch(/^reliquary-tc\//);
     // Attempt 1 carries NO retry-count header at all.
     expect(seenHeaders["x-typesafe-retry-count"]).toBeUndefined();
   });

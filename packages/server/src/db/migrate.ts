@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "./types";
 
 export interface Migration {
@@ -24,7 +24,7 @@ export interface MigrateOptions {
 export interface SchemaMigrationRecord {
   version: string;
   checksum: string;
-  obsidianTcVersion: string;
+  reliquaryTcVersion: string;
   appliedAt: () => number;
   durationMs: () => number;
   /** The checksum is a diagnostic note, not an identity: an existing row counts as applied
@@ -69,7 +69,7 @@ export function applySchemaMigration(
     const existing = getRow.get(migration.version) as { checksum: string } | undefined;
     if (!existing) return false;
     if (!migration.advisoryChecksum && existing.checksum !== migration.checksum) {
-      throw new ObsidianTcError("conflict", `migration ${migration.version} checksum mismatch`, {
+      throw new ReliquaryTcError("conflict", `migration ${migration.version} checksum mismatch`, {
         version: migration.version,
         recorded: existing.checksum,
         current: migration.checksum,
@@ -90,7 +90,7 @@ export function applySchemaMigration(
     insert.run(
       migration.version,
       migration.appliedAt(),
-      migration.obsidianTcVersion,
+      migration.reliquaryTcVersion,
       migration.durationMs(),
       migration.checksum,
     );
@@ -125,7 +125,7 @@ export function runMigrations(
         {
           version: m.version,
           checksum: sum,
-          obsidianTcVersion: appVersion,
+          reliquaryTcVersion: appVersion,
           appliedAt: now,
           durationMs: () => Math.max(0, now() - start),
         },
@@ -137,8 +137,8 @@ export function runMigrations(
       );
       if (!didApply) continue;
     } catch (e) {
-      if (e instanceof ObsidianTcError) throw e;
-      throw new ObsidianTcError(
+      if (e instanceof ReliquaryTcError) throw e;
+      throw new ReliquaryTcError(
         "internal",
         `migration ${m.version} failed: ${(e as Error).message}`,
         { version: m.version },

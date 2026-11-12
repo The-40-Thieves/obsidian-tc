@@ -163,7 +163,7 @@ export interface GraphSearchOptions {
   summaries?: { enabled?: boolean; clusters?: { enabled?: boolean } };
   /** THE-73 Phase 2: cap how many chunks per cluster_id reach the final result (KMeans
    *  diversification). Off when unset/0; chunks with a NULL cluster_id (unclustered) are never
-   *  capped. Populate cluster_id offline via `obsidian-tc cluster`. graph_rrf mode only. */
+   *  capped. Populate cluster_id offline via `reliquary-tc cluster`. graph_rrf mode only. */
   maxPerCluster?: number;
   /** THE-393: graph expansion as a CAPPED auxiliary stream. When enabled, expansion walks only
    *  the top `expansionSeeds` seed notes (default 8), keeps at most `perSeedCap` expansion

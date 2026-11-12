@@ -1,6 +1,6 @@
-# Contributing to obsidian-tc
+# Contributing to reliquary-tc
 
-Thank you for your interest in obsidian-tc. This document explains how to set up a development environment, work with the polyglot codebase, follow the contribution conventions, and get changes merged.
+Thank you for your interest in reliquary-tc. This document explains how to set up a development environment, work with the polyglot codebase, follow the contribution conventions, and get changes merged.
 
 If you have not yet read it, start with [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the system map and `docs/G2.1-tools.md` for the tool surface specification.
 
@@ -14,7 +14,7 @@ Do not file security issues as public GitHub Issues. Report them per [`SECURITY.
 
 ## Project Layout
 
-obsidian-tc is a polyglot monorepo. The packages are:
+reliquary-tc is a polyglot monorepo. The packages are:
 
 - `packages/server/` — TypeScript MCP server. Bun runtime.
 - `packages/plugin/` — TypeScript Obsidian companion plugin.
@@ -49,8 +49,8 @@ You need two toolchains for full development: Node/Bun and Rust. You can skip Ru
 ### One-command bootstrap
 
 ```bash
-git clone https://github.com/the-40-thieves/obsidian-tc.git
-cd obsidian-tc
+git clone https://github.com/the-40-thieves/reliquary-tc.git
+cd reliquary-tc
 bun install              # installs all workspace deps (native falls back to pure-JS); also
                           # configures the merge driver and a DCO sign-off git hook (both idempotent)
 bun run build            # builds shared + native + server + plugin (native needs Rust)
@@ -63,7 +63,7 @@ Toolchain mismatch? `just doctor` compares `bun`/`node`/`python3`/`rustc` on you
 No Rust toolchain? Skip the native build and rely on the pure-JS fallback:
 
 ```bash
-bun run --filter='!@the-40-thieves/obsidian-tc-native' build   # shared + server + plugin
+bun run --filter='!@the-40-thieves/reliquary-tc-native' build   # shared + server + plugin
 ```
 
 To build the native module locally (your platform only):
@@ -73,7 +73,7 @@ cd packages/native
 bun run build
 ```
 
-This produces a `.node` file in the package directory. The umbrella `@the-40-thieves/obsidian-tc-native` loader picks it up automatically on the next test run; without it, the pure-JS fallback is used.
+This produces a `.node` file in the package directory. The umbrella `@the-40-thieves/reliquary-tc-native` loader picks it up automatically on the next test run; without it, the pure-JS fallback is used.
 
 ## Working with the Codebase
 
@@ -116,7 +116,7 @@ cargo test               # Rust unit tests
 To exercise the pure-JS fallback path without removing the native module:
 
 ```bash
-OBSIDIAN_TC_FORCE_JS_FALLBACK=1 bun run test
+RELIQUARY_TC_FORCE_JS_FALLBACK=1 bun run test
 ```
 
 CI runs both the native and fallback paths.
@@ -289,7 +289,7 @@ Tools are defined with `defineTool` and registered onto the shared `ToolRegistry
 A tool lives in its milestone domain under `packages/server/src/tools/m<N>/<domain>-tools.ts`:
 
 ```ts
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { defineTool } from "../m1/define"; // a tool that lives in m1/ imports "./define" instead
 
@@ -356,7 +356,7 @@ Before starting work on a non-trivial issue, comment that you are picking it up.
 number in prose is exactly what goes stale:
 
 ```bash
-gh api repos/The-40-Thieves/obsidian-tc/branches/main/protection/required_status_checks \
+gh api repos/The-40-Thieves/reliquary-tc/branches/main/protection/required_status_checks \
   --jq '.contexts[]' | sort
 ```
 
@@ -432,7 +432,7 @@ Steps (repository admin, GitHub web UI; labels move, so match by name):
    subject form is only the fallback for a squash onto `main`); **Build concurrency** 1 to start; **Minimum/maximum group
    size** 1 (no batching until the queue is proven); **Only merge non-failing pull requests** on;
    **Status check timeout** above the slowest required leg (the `build-test` matrix).
-4. Leave the required status checks list as it is (`gh api repos/The-40-Thieves/obsidian-tc/branches/main/protection/required_status_checks --jq '.contexts[]'`).
+4. Leave the required status checks list as it is (`gh api repos/The-40-Thieves/reliquary-tc/branches/main/protection/required_status_checks --jq '.contexts[]'`).
 5. Save, then queue one low-risk PR and watch that every required check reports on the
    `gh-readonly-queue/main/...` ref. Merging then happens from the **Merge when ready** button
    instead of **Merge**.
@@ -460,7 +460,7 @@ The current runbook lives at `docs/RELEASING.md`.
 
 ## License and Sign-off (DCO)
 
-obsidian-tc is licensed under the [Apache License 2.0](./LICENSE); see also [NOTICE](./NOTICE). Releases up to and including 1.34.x were licensed AGPL-3.0-only and keep that licence. Your contribution is licensed to the project and its users under Apache-2.0 (section 5 of the licence).
+reliquary-tc is licensed under the [Apache License 2.0](./LICENSE); see also [NOTICE](./NOTICE). Releases up to and including 1.34.x were licensed AGPL-3.0-only and keep that licence. Your contribution is licensed to the project and its users under Apache-2.0 (section 5 of the licence).
 
 Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/) (DCO), not a CLA. By signing off a commit you certify the DCO: that you wrote the change or otherwise have the right to submit it under the project's license.
 

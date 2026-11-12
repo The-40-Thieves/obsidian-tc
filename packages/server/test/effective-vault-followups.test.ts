@@ -84,7 +84,7 @@ async function boot(mode: Mode) {
     },
   };
   const server = createMcpServer({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     context: () => ctx(),

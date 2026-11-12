@@ -115,7 +115,9 @@ describe("createFacadeModeResolver — resolution log is capped (THE-1123 review
       }
       expect(writeSpy).toHaveBeenCalledTimes(257);
       const lastLine = writeSpy.mock.calls[256]?.[0] as string;
-      expect(lastLine).toBe("obsidian-tc toolFacade: resolution log capped at 256 distinct keys\n");
+      expect(lastLine).toBe(
+        "reliquary-tc toolFacade: resolution log capped at 256 distinct keys\n",
+      );
 
       // The 301st request, a brand-new name: logs nothing (still capped).
       freshCreate(stubServer(), { facadeMode: "auto" }).resolveFacadeMode("client-300");

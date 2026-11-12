@@ -21,7 +21,7 @@ function isScannedPath(path) {
 
 test("clean prose in a scanned file reports no violations", () => {
   const violations = findPublicTextViolations([
-    { path: "README.md", content: "obsidian-tc is a governed MCP server for Obsidian vaults.\n" },
+    { path: "README.md", content: "reliquary-tc is a governed MCP server for Obsidian vaults.\n" },
   ]);
   assert.deepEqual(violations, []);
 });
@@ -46,7 +46,7 @@ test("a lower-cased ticket id (the-998) is caught — the ticket regex is case-i
 
 test("the-40-thieves (the GitHub org name) is NOT a false positive under the case-insensitive ticket regex", () => {
   const violations = findPublicTextViolations([
-    { path: "README.md", content: "https://github.com/The-40-Thieves/obsidian-tc\n" },
+    { path: "README.md", content: "https://github.com/The-40-Thieves/reliquary-tc\n" },
   ]);
   assert.deepEqual(violations, []);
 });
@@ -281,7 +281,7 @@ test("isRatchetCountedPath excludes CHANGELOG.md, changes/, the baseline and thi
 test("trackerIdCount counts each bare ticket id, and only bare ones", () => {
   const count = exported("trackerIdCount");
   assert.equal(count(Buffer.from("fixed in THE-1, see THE-22\n")), 2);
-  assert.equal(count(Buffer.from("https://github.com/The-40-Thieves/obsidian-tc\n")), 0);
+  assert.equal(count(Buffer.from("https://github.com/The-40-Thieves/reliquary-tc\n")), 0);
   assert.equal(count(Buffer.from("NOTTHE-1 and THE-12a\n")), 0);
 });
 

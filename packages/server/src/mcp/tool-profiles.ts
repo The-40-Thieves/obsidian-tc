@@ -14,7 +14,7 @@ import type { FacadeMode } from "./facade-mode";
 // docs/src/content/docs/tools/index.md) — not a side effect of adding the *mechanism*. Under
 // `"core"` a tool is still REGISTERED (registry.list() is always all 163; see
 // registered-tool-count.ts) — only its dispatchability/visibility changes, and it stays
-// discoverable: find_capability and the obsidian-tc://catalog resource surface a core-hidden match
+// discoverable: find_capability and the reliquary-tc://catalog resource surface a core-hidden match
 // with its disclosable reason rather than pretending it does not exist (mcp/server.ts,
 // mcp/resources.ts).
 //

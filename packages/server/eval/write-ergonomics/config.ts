@@ -1,5 +1,5 @@
 // Scratch-config writer shared by the template build and the per-run setup. Everything lives in the
-// scratch dir: the vault copy, the cacheDir and this config. Never ~/.obsidian-tc or /data/llm-stack.
+// scratch dir: the vault copy, the cacheDir and this config. Never ~/.reliquary-tc or /data/llm-stack.
 import { writeFileSync } from "node:fs";
 import { HARDENED_ACL } from "./tasks";
 

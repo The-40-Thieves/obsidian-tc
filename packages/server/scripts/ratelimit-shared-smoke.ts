@@ -6,7 +6,7 @@
 // Two servers share one cacheDir (sqlite) or one Redis (redis) and a read tier of burst 3, refill
 // 1/min. Six governed calls, three through each server, must yield EXACTLY three successes and three
 // `throttled` refusals: with process-local buckets each server would grant its own three (six ok).
-// The redis backend reads its URL from OBSIDIAN_TC_REDIS_URL, so this also proves the built bundle
+// The redis backend reads its URL from RELIQUARY_TC_REDIS_URL, so this also proves the built bundle
 // loads the optional client lazily from node_modules.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,8 +30,8 @@ const cli = image
   : (arg("--cli") ?? fail("--cli <path/to/dist/cli.js> or --image <tag> is required"));
 const backend = arg("--backend");
 if (backend !== "sqlite" && backend !== "redis") fail("--backend must be sqlite or redis");
-const redisUrl = process.env.OBSIDIAN_TC_REDIS_URL;
-if (backend === "redis" && !redisUrl) fail("--backend redis needs OBSIDIAN_TC_REDIS_URL");
+const redisUrl = process.env.RELIQUARY_TC_REDIS_URL;
+if (backend === "redis" && !redisUrl) fail("--backend redis needs RELIQUARY_TC_REDIS_URL");
 
 const root = mkdtempSync(join(tmpdir(), "obtc-rl-smoke-"));
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
@@ -71,7 +71,7 @@ async function connect(name: string): Promise<Client> {
           "--user",
           String(process.getuid?.() ?? 1000),
           "-e",
-          "OBSIDIAN_TC_REDIS_URL",
+          "RELIQUARY_TC_REDIS_URL",
           "-v",
           `${root}:${root}`,
           image,

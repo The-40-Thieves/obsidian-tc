@@ -1,7 +1,7 @@
 // Creates the env-configured vault root when it is missing, so a fresh volume mounted over `/data`
 // (which hides the image's own `/data/vault`) does not stop the first boot.
 //
-// Only a path that came from OBSIDIAN_TC_VAULT_PATH qualifies: the overlay makes that variable win
+// Only a path that came from RELIQUARY_TC_VAULT_PATH qualifies: the overlay makes that variable win
 // over the file, so "the one vault's path equals the variable" is exactly "the path came from the
 // variable". A path written only in the config file still fails loudly when missing. The directory
 // is made with a non-recursive mkdir (its parent must already exist, and a symlink at the final
@@ -27,7 +27,7 @@ export function ensureEnvVaultRoot(
   env: Record<string, string | undefined> = process.env,
   log: (line: string) => void = (line) => void process.stderr.write(line),
 ): EnsureVaultRootOutcome {
-  const envPath = env.OBSIDIAN_TC_VAULT_PATH;
+  const envPath = env.RELIQUARY_TC_VAULT_PATH;
   if (!envPath) return "skipped";
   const onlyPath = vaults.length === 1 ? vaults[0]?.path : undefined;
   if (onlyPath === undefined || resolve(onlyPath) !== resolve(envPath)) return "skipped";
@@ -53,6 +53,6 @@ export function ensureEnvVaultRoot(
       cause: error,
     });
   }
-  log(`obsidian-tc: created the missing vault root ${target} (OBSIDIAN_TC_VAULT_PATH)\n`);
+  log(`reliquary-tc: created the missing vault root ${target} (RELIQUARY_TC_VAULT_PATH)\n`);
   return "created";
 }

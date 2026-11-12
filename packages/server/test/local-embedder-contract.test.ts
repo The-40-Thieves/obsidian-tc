@@ -17,8 +17,8 @@ describe("THE-1122 adversarial release contracts", () => {
       Record<string, string> | undefined
     >;
     const sections = ["dependencies", "optionalDependencies", "peerDependencies"];
-    const embedder = "@the-40-thieves/obsidian-tc-embedder-local";
-    // Owner decision (2026-10): a plain `npm i obsidian-tc` no longer pulls the local embedder.
+    const embedder = "@the-40-thieves/reliquary-tc-embedder-local";
+    // Owner decision (2026-10): a plain `npm i reliquary-tc` no longer pulls the local embedder.
     // The sibling reranker-local was never a dependency; the embedder now follows that precedent.
     expect(sections.find((section) => pkg[section]?.[embedder] !== undefined)).toBeUndefined();
   });

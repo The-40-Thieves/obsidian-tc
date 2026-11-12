@@ -1,7 +1,7 @@
 // find_orphans (Domain 5, links): notes nothing else links to. Split out of links-tools.ts, which
 // sat at the 700-line ceiling; its shared deps come straight from their own modules, so this file
 // and links-tools.ts never import each other.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";

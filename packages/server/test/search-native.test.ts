@@ -93,7 +93,7 @@ describe("active backend (native when built, else JS) matches the JS reference",
   });
 });
 
-describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", () => {
+describe("loadNative selector — RELIQUARY_TC_FORCE_JS_FALLBACK escape hatch", () => {
   // A complete fake native module lets us prove the flag forces the JS path even
   // when a compiled binary IS present — the property the pure-JS fallback CI job
   // (ci-native.yml) relies on. We inject env + require rather than mutating the
@@ -111,12 +111,12 @@ describe("loadNative selector — OBSIDIAN_TC_FORCE_JS_FALLBACK escape hatch", (
   });
 
   it("forces the JS fallback (null) when the flag is '1', even though native is present", () => {
-    expect(loadNative({ OBSIDIAN_TC_FORCE_JS_FALLBACK: "1" }, requireOk)).toBeNull();
+    expect(loadNative({ RELIQUARY_TC_FORCE_JS_FALLBACK: "1" }, requireOk)).toBeNull();
   });
 
   it("treats any value other than '1' as unset (flag not tripped)", () => {
-    expect(loadNative({ OBSIDIAN_TC_FORCE_JS_FALLBACK: "0" }, requireOk)).toBe(fakeNative);
-    expect(loadNative({ OBSIDIAN_TC_FORCE_JS_FALLBACK: "" }, requireOk)).toBe(fakeNative);
+    expect(loadNative({ RELIQUARY_TC_FORCE_JS_FALLBACK: "0" }, requireOk)).toBe(fakeNative);
+    expect(loadNative({ RELIQUARY_TC_FORCE_JS_FALLBACK: "" }, requireOk)).toBe(fakeNative);
   });
 
   it("falls back (null) when the native require throws or an export is missing", () => {
@@ -165,11 +165,11 @@ describe("deriveNativeBindingActive — THE-906 honest-signal derivation", () =>
 // call site. See capability-profile.test.ts and server-runtime.test.ts for the threading pins.
 describe("THE-906: nativeBindingActive is the honest gate for reporting surfaces", () => {
   it("nativeBindingActive matches the package's own nativeLoaded — and is false under a forced JS fallback", () => {
-    // Under OBSIDIAN_TC_FORCE_JS_FALLBACK=1 (the ci-native fallback lane) the module-level
+    // Under RELIQUARY_TC_FORCE_JS_FALLBACK=1 (the ci-native fallback lane) the module-level
     // signal is pinned to the JS path by design, even when a platform prebuild is resolvable —
     // the override wins, so active must read false. Without the override, active must equal
     // the resolved module's own nativeLoaded (real .node on a built host: non-vacuous true).
-    if (process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") {
+    if (process.env.RELIQUARY_TC_FORCE_JS_FALLBACK === "1") {
       expect(nativeBindingActive).toBe(false);
       return;
     }

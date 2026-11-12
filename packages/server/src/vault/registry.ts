@@ -2,7 +2,7 @@
 // vault root. Built once from config.vaults and closed over by tool factories.
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/reliquary-tc-shared";
 import { vaultCaseInfo } from "./case-sensitivity";
 import { FolderPins } from "./folder-links";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";

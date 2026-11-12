@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { selectOrtRuntime } from "./ort-runtime-selection.mjs";
 
 const runtimeDir =
-  globalThis[Symbol.for("obsidian-tc.ort-dir")] ?? dirname(fileURLToPath(import.meta.url));
+  globalThis[Symbol.for("reliquary-tc.ort-dir")] ?? dirname(fileURLToPath(import.meta.url));
 const runtime = selectOrtRuntime({
   runtimeDir,
   loadNative: () => require("obtc-ort-native"),

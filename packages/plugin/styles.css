@@ -1,4 +1,4 @@
-/* obsidian-tc companion plugin styles.
+/* reliquary-tc companion plugin styles.
  *
  * The companion plugin is a headless bridge (command dispatch + plugin-firepower routing over the
  * Local REST API); it renders no custom UI, so this stylesheet is intentionally minimal. It is

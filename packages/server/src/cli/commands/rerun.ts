@@ -1,4 +1,4 @@
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { openConfiguredDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
 import { canonicalizeVaultRoot } from "../../vault/registry";
@@ -137,9 +137,9 @@ async function runRerunInner(cmd: Cmd<"rerun">): Promise<void> {
     ? resolveOrUsageExit(cmd.input)
     : withReadOnlyAcl(resolveOrUsageExit(cmd.input));
   // Mirrors run_serve's (cli.ts) configPath resolution: cfg may already reflect
-  // OBSIDIAN_TC_CONFIG via resolveServeConfig's own fallback, so buildServerRuntime's configDir
+  // RELIQUARY_TC_CONFIG via resolveServeConfig's own fallback, so buildServerRuntime's configDir
   // (relative modulePath trust root) needs the same fallback, not just cmd.input.
-  const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
+  const configPath = cmd.input ?? process.env.RELIQUARY_TC_CONFIG;
 
   // --sandbox: stage a disposable copy BEFORE the runtime exists, and build the runtime AGAINST
   // the staged config — not merely thread staged paths into rerunSession's own options.

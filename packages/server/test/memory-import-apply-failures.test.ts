@@ -4,7 +4,7 @@
 // OTHER call still goes through the real M1/M5 tools) and assert it surfaces as an "error" outcome
 // instead of being silently swallowed.
 import { fileURLToPath } from "node:url";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { Dispatch } from "../src/memory-import/apply";
 import { applyImport } from "../src/memory-import/apply";

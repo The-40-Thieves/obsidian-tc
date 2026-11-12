@@ -9,7 +9,7 @@
 // Assembly mirrors tool-count.test.ts: registration only builds tool definitions (handlers close
 // over deps), so cheap stubs suffice and no live backend is needed.
 
-import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { isMutatingScope } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";

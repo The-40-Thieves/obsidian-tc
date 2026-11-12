@@ -10,7 +10,7 @@
 // strip and pass).
 import { z } from "zod";
 
-export const TELEMETRY_SCHEMA_VERSION = "obsidian-tc.telemetry/1";
+export const TELEMETRY_SCHEMA_VERSION = "reliquary-tc.telemetry/1";
 
 /** Bound how many distinct client names / label counters one document can carry — an unbounded
  *  agent that renames itself per call, or a tool/error-code label with unexpected cardinality,

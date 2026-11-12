@@ -2,13 +2,13 @@
 // `structuredContent` on an isError result) rendered the bare "human confirmation required"
 // sentence and nothing else, so a client with no MCP elicitation support (Claude Code over stdio
 // among them) had `args_hash` in `structuredContent` — which it never sees — and no route to the
-// 2025-era `obsidian-tc elicit` token path #931 (THE-1037) made `call_capability` accept.
+// 2025-era `reliquary-tc elicit` token path #931 (THE-1037) made `call_capability` accept.
 //
 // Fix round 2 (cross-vendor review of the first commit) found the first fix was incomplete on two
 // axes, both covered below:
 //   - dispatch.ts's OWN `elicit_required` throw (the always-gated `destructive: true` path, 11+
 //     tools) carried only `args_hash`, so its rendered line omitted `--tool` — a HARD requirement
-//     of `obsidian-tc elicit` (cli/args.ts throws a CliError without it) — making the "main case
+//     of `reliquary-tc elicit` (cli/args.ts throws a CliError without it) — making the "main case
 //     the issue was filed about" unusable.
 //   - the rendered line was not paste-able: `--config <path to your config>` is shell redirection
 //     syntax to a real shell, and `tool`/`vault` were interpolated with no quoting at all, although
@@ -26,10 +26,10 @@ import { execFileSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
-  ObsidianTcError,
+  ReliquaryTcError,
   type ServerConfig,
   ServerConfigSchema,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -52,7 +52,7 @@ function freshDb(): Database {
 }
 
 describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
-  it("full details (hash + tool + vault): the exact obsidian-tc elicit invocation, no --config", () => {
+  it("full details (hash + tool + vault): the exact reliquary-tc elicit invocation, no --config", () => {
     const detail = formatErrorDetail({
       code: "elicit_required",
       message: "human confirmation required",
@@ -63,8 +63,8 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
       "This call needs the user's approval. Ask the user now whether to allow write_note. " +
         "If they approve, run the command below and retry the same call with elicit_token: " +
         "<token>. Do not mint the token without their explicit yes.\n" +
-        "confirm with: obsidian-tc elicit --hash abc123 --tool write_note --vault v1\n" +
-        "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
+        "confirm with: reliquary-tc elicit --hash abc123 --tool write_note --vault v1\n" +
+        "(reads RELIQUARY_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
         "positional argument)",
     );
     // THE-1106: the directive paragraph now leads, so the "confirm with:" line is found by its
@@ -88,8 +88,8 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
       "This call needs the user's approval. Ask the user now whether to allow write_note. " +
         "If they approve, run the command below and retry the same call with elicit_token: " +
         "<token>. Do not mint the token without their explicit yes.\n" +
-        "confirm with: obsidian-tc elicit --hash abc123 --tool write_note\n" +
-        "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
+        "confirm with: reliquary-tc elicit --hash abc123 --tool write_note\n" +
+        "(reads RELIQUARY_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
         "positional argument)",
     );
   });
@@ -107,7 +107,7 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
   });
 
   it("hash only, no tool: a 'cannot render' explanation, never an unusable command", () => {
-    // --tool is a HARD requirement of `obsidian-tc elicit` (cli/args.ts throws a CliError without
+    // --tool is a HARD requirement of `reliquary-tc elicit` (cli/args.ts throws a CliError without
     // it) — a rendered command missing it would paste, then fail with a confusing usage error.
     const detail = formatErrorDetail({
       code: "elicit_required",
@@ -116,7 +116,7 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
       details: { args_hash: "abc123" },
     });
     expect(detail).toBeDefined();
-    expect(detail).not.toContain("obsidian-tc elicit --hash");
+    expect(detail).not.toContain("reliquary-tc elicit --hash");
     expect(detail).toContain("cannot render a confirm command");
     expect(detail).toContain("--tool");
     expect(detail).toContain("abc123");
@@ -214,7 +214,7 @@ describe("formatErrorDetail: non-elicit codes stay byte-identical (THE-1042, GH 
     const [firstIssue] = result.error.issues;
     if (!firstIssue) throw new Error("expected at least one issue");
     expect(detail).toBe(z.prettifyError(new z.ZodError([firstIssue])));
-    expect(detail).not.toContain("obsidian-tc elicit");
+    expect(detail).not.toContain("reliquary-tc elicit");
   });
 
   it("vault_not_found (no issues, a vault hint): unaffected by the elicit branch", () => {
@@ -235,15 +235,15 @@ describe("THE-1133: `@modelcontextprotocol/server` 2.1.0's Error.cause forwardin
   // (server-only; no `/client` or `/core` client-probe dependency) — but the wire boundary is the
   // one that matters, not which SDK class raised the error: an internal filesystem `Error` here
   // commonly carries a `.cause` naming a real host path (Node's `fs` errors do this natively), and
-  // `dispatch.ts`'s catch-all already redacts a non-`ObsidianTcError` throw to a bare
-  // `internal error` — this pins that `ObsidianTcError.toJSON()` (packages/shared/src/errors.ts)
+  // `dispatch.ts`'s catch-all already redacts a non-`ReliquaryTcError` throw to a bare
+  // `internal error` — this pins that `ReliquaryTcError.toJSON()` (packages/shared/src/errors.ts)
   // and `formatErrorDetail` (this module) both stay a FIELD WHITELIST that never reads `.cause`,
   // so neither a future call site nor an SDK upgrade can start forwarding it by accident.
-  it("ObsidianTcError.toJSON() never surfaces a `.cause` set on construction or on the instance", () => {
+  it("ReliquaryTcError.toJSON() never surfaces a `.cause` set on construction or on the instance", () => {
     const withPathyCause = new Error("ENOENT: no such file or directory", {
       cause: new Error("open '/home/ubuntu/.ssh/id_ed25519' failed"),
     });
-    const err = new ObsidianTcError("internal", "internal error");
+    const err = new ReliquaryTcError("internal", "internal error");
     // toJSON() only ever reads code/message/details/retryable/recovery (see errors.ts) — setting
     // `.cause` on the instance directly proves it is not a magically-forwarded standard property.
     (err as unknown as { cause: unknown }).cause = withPathyCause;
@@ -284,7 +284,7 @@ describe("hitl.ts: proposed can never override the trusted fields (fix round 2)"
       });
       throw new Error("should have thrown");
     } catch (e) {
-      if (!(e instanceof ObsidianTcError)) throw e;
+      if (!(e instanceof ReliquaryTcError)) throw e;
       expect(e.details?.tool).toBe("write_note");
       expect(e.details?.vault).toBe("v1");
       expect(e.details?.args_hash).not.toBe("spoofed_hash");
@@ -380,7 +380,7 @@ describe("errorToResult (mcp/server.ts): both throw sites render a complete CLI 
       expect(text).toContain(`--hash ${argsHash}`);
       expect(text).toContain("--tool conditional_write");
       expect(text).toContain("--vault v1");
-      expect(text).toContain("obsidian-tc elicit");
+      expect(text).toContain("reliquary-tc elicit");
       expect(text).toContain("retry the same call with elicit_token:");
     } finally {
       await client.close();
@@ -433,10 +433,10 @@ describe.skipIf(process.platform === "win32")(
       return out.length === 0 ? [] : out.slice(0, -1).split("\0");
     }
 
-    const CONFIRM_PREFIX = "confirm with: obsidian-tc ";
+    const CONFIRM_PREFIX = "confirm with: reliquary-tc ";
 
     /** Extract the "confirm with:" line from rendered text, real-shell-split its argv (everything
-     *  after the fixed `obsidian-tc` program name), and parse it with the REAL CLI parser. */
+     *  after the fixed `reliquary-tc` program name), and parse it with the REAL CLI parser. */
     function paste(text: string): CliCommand {
       const line = text.split("\n").find((l) => l.startsWith(CONFIRM_PREFIX));
       if (!line) throw new Error(`no "confirm with:" line in:\n${text}`);
@@ -475,7 +475,7 @@ describe.skipIf(process.platform === "win32")(
         requireConfirmation(ctx, "write_note", { path: "a.md" }, true);
         throw new Error("should have thrown");
       } catch (e) {
-        if (!(e instanceof ObsidianTcError)) throw e;
+        if (!(e instanceof ReliquaryTcError)) throw e;
         const text = formatErrorDetail(e.toJSON());
         if (!text) throw new Error("expected rendered text");
         assertMintable(paste(text), "write_note", "v1");
@@ -528,7 +528,7 @@ describe.skipIf(process.platform === "win32")(
           requireConfirmation(ctx, "write_note", { path: "a.md" }, true);
           throw new Error("should have thrown");
         } catch (e) {
-          if (!(e instanceof ObsidianTcError)) throw e;
+          if (!(e instanceof ReliquaryTcError)) throw e;
           const text = formatErrorDetail(e.toJSON());
           if (!text) throw new Error("expected rendered text");
           // The real assertion: the vault id survives shell round-tripping BYTE FOR BYTE. If
@@ -556,7 +556,7 @@ describe("the modern SEP-2260 inputRequired path is unaffected (regression guard
       auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
     }).auth;
     return startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry,
       auth,
@@ -623,7 +623,7 @@ describe("the modern SEP-2260 inputRequired path is unaffected (regression guard
       expect(typeof body.result?.requestState).toBe("string");
       // Never the errorToResult text shape this PR added — the inputRequired branch in
       // dispatchToResult returns before errorToResult is ever called.
-      expect(JSON.stringify(body.result)).not.toContain("obsidian-tc elicit");
+      expect(JSON.stringify(body.result)).not.toContain("reliquary-tc elicit");
     } finally {
       await h.close();
     }

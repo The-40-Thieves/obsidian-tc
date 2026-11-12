@@ -3,7 +3,7 @@
 // it: everything under the wiki folder is a wiki page that lint_wiki checks and commit_wiki_page may
 // create, and a source is neither. The two must never overlap, in either direction, so a page can
 // never be written into the immutable folder and the immutable rule can never cover a wiki page.
-import { windowsNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { windowsNameProblem } from "@the-40-thieves/reliquary-tc-shared";
 import { escapeGlob } from "../acl";
 import { normalizeVaultPath } from "./paths";
 

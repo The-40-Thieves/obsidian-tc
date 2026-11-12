@@ -5,7 +5,7 @@
 // 200ms before the vault is marked bridges-unavailable; a 404 / explicit
 // plugin_missing means the companion is not installed. The probe never throws —
 // failure degrades the vault's bridge tools, it does not crash startup.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import {
   applyOverrides,
   type CapabilitySnapshot,
@@ -66,7 +66,7 @@ function snapshotFrom(r: ProbeResponseResult): CapabilitySnapshot {
 // A 404 (no route) or an explicit plugin_missing means the companion is absent;
 // anything else (timeout, network, 5xx) is a transient unreachability.
 function isMissing(e: unknown): boolean {
-  if (!(e instanceof ObsidianTcError)) return false;
+  if (!(e instanceof ReliquaryTcError)) return false;
   if (e.code === "plugin_missing") return true;
   return e.details?.http_status === 404;
 }
@@ -84,7 +84,7 @@ export async function probeCompanion(
         method: "GET",
         path: "/probe",
         timeoutMs: t,
-        plugin: "obsidian-tc-companion",
+        plugin: "reliquary-tc-companion",
       }),
     );
 
@@ -97,7 +97,7 @@ export async function probeCompanion(
     } catch (e2) {
       if (isMissing(e2)) return { companion: "missing", plugins: {} };
       const unreachableCause =
-        e2 instanceof ObsidianTcError ? (e2.details?.cause_code as string | undefined) : undefined;
+        e2 instanceof ReliquaryTcError ? (e2.details?.cause_code as string | undefined) : undefined;
       return {
         companion: "unreachable",
         plugins: {},

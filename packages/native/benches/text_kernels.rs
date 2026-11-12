@@ -11,7 +11,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
-use obsidian_tc_native::{bm25_score, rouge_l_lcs_core, tokenize};
+use reliquary_tc_native::{bm25_score, rouge_l_lcs_core, tokenize};
 
 struct XorShift(u64);
 

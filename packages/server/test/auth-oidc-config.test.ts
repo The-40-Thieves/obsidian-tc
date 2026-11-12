@@ -1,5 +1,5 @@
 // `auth.mode: "oidc"` config surface: what the schema accepts and, more to the point, refuses.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   buildProtectedResourceMetadata,

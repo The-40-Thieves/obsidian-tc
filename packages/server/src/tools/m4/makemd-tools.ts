@@ -2,7 +2,7 @@
 // "spaces" model and run queries against them. Read scope only (read:makemd, no
 // HITL). The community plugin id is "make-md" (note the hyphen), distinct from the
 // makemd_ tool-name prefix.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
@@ -72,7 +72,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           filter: z.record(z.string(), z.unknown()).optional(),
           sort: z.record(z.string(), z.unknown()).optional(),
           // THE-516: default the page size to this tool's own cap rather than leaving it absent.
-          // Forwarding no limit let the REMOTE plugin decide how much to return, which obsidian-tc
+          // Forwarding no limit let the REMOTE plugin decide how much to return, which reliquary-tc
           // cannot bound — the byte governor then rejects an oversized response as `overflow`
           // instead of returning a usable first page. The default is a page that fits a client's ~20 KB
           // inline limit (mcp/result-size.ts); `.max()` stays the ceiling for a caller that asks.

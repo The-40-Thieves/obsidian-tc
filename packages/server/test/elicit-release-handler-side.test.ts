@@ -2,7 +2,7 @@
 // dispatch applies to a dispatch-side one (elicit-release-on-refusal.test.ts): a call its own write gate
 // refused before any write hands the token back, with the bound state kept. Every other failure keeps it spent.
 import { join } from "node:path";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { issueElicitToken } from "../src/elicit";
@@ -49,10 +49,10 @@ function registerRcWrite(reg: ToolRegistry, probe: Probe, root: () => string): v
       if (input.delay) await new Promise((r) => setTimeout(r, input.delay));
       if (input.mode === "commit") {
         ctx.markEffectCommitted?.();
-        throw new ObsidianTcError("internal", "failed after the effect");
+        throw new ReliquaryTcError("internal", "failed after the effect");
       }
       if (input.mode === "acl")
-        throw new ObsidianTcError("validation_error", "refused after confirm");
+        throw new ReliquaryTcError("validation_error", "refused after confirm");
       // The effect is signalled before the write gate refuses, so the refusal happens after an effect.
       if (input.mode === "commit-then-write") ctx.markEffectCommitted?.();
       gateNoteWrite(join(root(), "meetings/t.md"), input.text);

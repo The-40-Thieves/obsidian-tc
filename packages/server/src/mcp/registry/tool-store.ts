@@ -1,4 +1,4 @@
-import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolVisibilityConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { effectiveToolTags } from "../tool-tags";
 import { isListed, type VisibilityCaller } from "../visibility";
 import {

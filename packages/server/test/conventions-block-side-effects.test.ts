@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it, vi } from "vitest";
 import { replaceDestination } from "../src/vault/notes-io";
 import { contentHash } from "../src/vault/paths";

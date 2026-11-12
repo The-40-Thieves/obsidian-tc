@@ -119,8 +119,8 @@ jobs:
           ISSUER=https://token.actions.githubusercontent.com
           work=$(mktemp -d)
           for arch in x64 arm64; do
-            pkg="@the-40-thieves/obsidian-tc-native-linux-${arch}-gnu"
-            file="obsidian-tc-native.linux-${arch}-gnu.node"
+            pkg="@the-40-thieves/reliquary-tc-native-linux-${arch}-gnu"
+            file="reliquary-tc-native.linux-${arch}-gnu.node"
             (cd "$work" && tgz=$(npm pack "${pkg}@${VERSION}" --silent) \
               && tar -xzf "$tgz" --strip-components=1 "package/${file}" && rm -f "$tgz")
             gh release download "v${VERSION}" --pattern "${file}.sigstore.json" --dir "$work"
@@ -152,14 +152,14 @@ jobs:
           file: src/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ inputs.version }}
+          tags: ghcr.io/the-40-thieves/reliquary-tc:smoke-${{ inputs.version }}
           labels: |
-            org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
+            org.opencontainers.image.source=https://github.com/the-40-thieves/reliquary-tc
             org.opencontainers.image.version=${{ inputs.version }}
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
-            org.opencontainers.image.title=obsidian-tc
+            org.opencontainers.image.title=reliquary-tc
       # The -git variant (git-sync --supervise): the same staged build, target git, under its own staging
       # tag. It is smoked (git mode) and promoted by its own smoke-and-promote call below.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -170,28 +170,28 @@ jobs:
           target: git
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ inputs.version }}-git
+          tags: ghcr.io/the-40-thieves/reliquary-tc:smoke-${{ inputs.version }}-git
           labels: |
-            org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
+            org.opencontainers.image.source=https://github.com/the-40-thieves/reliquary-tc
             org.opencontainers.image.version=${{ inputs.version }}
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
-            org.opencontainers.image.title=obsidian-tc
+            org.opencontainers.image.title=reliquary-tc
       - name: boot-smoke both platforms, then promote the smoked digest to the public tags
         uses: ./trusted/.github/actions/smoke-and-promote-image
         with:
-          image: ghcr.io/the-40-thieves/obsidian-tc
+          image: ghcr.io/the-40-thieves/reliquary-tc
           digest: ${{ steps.push.outputs.digest }}
           tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ inputs.version }}
-            ${{ inputs.latest && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
+            ghcr.io/the-40-thieves/reliquary-tc:${{ inputs.version }}
+            ${{ inputs.latest && 'ghcr.io/the-40-thieves/reliquary-tc:latest' || '' }}
       - name: boot-smoke (git sync), then promote the -git digest
         uses: ./trusted/.github/actions/smoke-and-promote-image
         with:
-          image: ghcr.io/the-40-thieves/obsidian-tc
+          image: ghcr.io/the-40-thieves/reliquary-tc
           digest: ${{ steps.push-git.outputs.digest }}
           smoke-mode: git
           tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ inputs.version }}-git
-            ${{ inputs.latest && 'ghcr.io/the-40-thieves/obsidian-tc:latest-git' || '' }}
+            ghcr.io/the-40-thieves/reliquary-tc:${{ inputs.version }}-git
+            ${{ inputs.latest && 'ghcr.io/the-40-thieves/reliquary-tc:latest-git' || '' }}

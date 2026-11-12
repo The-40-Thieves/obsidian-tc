@@ -1,4 +1,4 @@
-// THE-943: obsidian-tc -> TC Bridge rename. Obsidian's community-directory rule (verified via
+// THE-943: reliquary-tc -> TC Bridge rename. Obsidian's community-directory rule (verified via
 // context7 against obsidianmd/obsidian-developer-docs, Reference/Manifest.md and Submit your
 // plugin.md, 2026-09-03): a submitted plugin's `id` "must not contain 'obsidian'"; the
 // `id`/folder-name pairing is required for local development to load correctly. This suite pins

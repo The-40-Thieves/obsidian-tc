@@ -1,16 +1,16 @@
 // THE-602 wave 2 — additional real-behavior tests for src/tools/m6/bulk-tools.ts branches that
 // test/m6-bulk.test.ts and test/bulk-executor.test.ts don't reach: the newTargetFor/rewriteForMoves
 // link-rewrite edge cases, bulk_create_notes' folder/overwrite-mode guards, bulk_move_notes'
-// in-batch chained/claimed-destination hazard detection, its non-ObsidianTcError error-wrapping,
+// in-batch chained/claimed-destination hazard detection, its non-ReliquaryTcError error-wrapping,
 // and the update_backlinks:false toggle on both dry_run and real moves. Every assertion is on
 // caller-visible behavior (a returned error code/message, a file that was or wasn't written, a
 // backlink count) — never a bare "did not throw".
 //
 // noteExists/readNote are wrapped (not replaced) so every OTHER call in this file still runs the
 // real implementation; only a test that sets the matching *ThrowFor variable forces a raw,
-// non-ObsidianTcError throw, proving the row-validation and phase-2 catch blocks in
-// bulk_move_notes wrap ANY thrown error into an internal_error, not just ObsidianTcError.
-import { ObsidianTcError, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+// non-ReliquaryTcError throw, proving the row-validation and phase-2 catch blocks in
+// bulk_move_notes wrap ANY thrown error into an internal_error, not just ReliquaryTcError.
+import { ReliquaryTcError, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";
 import { type M6Vault, makeM6Vault } from "./m6-helpers";
@@ -35,14 +35,14 @@ vi.mock("../src/vault/notes-io", async (importOriginal) => {
       }
       return actual.readNote(abs);
     },
-    // The real destructive step only ever throws raw fs errors, never an ObsidianTcError — this
+    // The real destructive step only ever throws raw fs errors, never a ReliquaryTcError — this
     // stand-in simulates a domain error surfacing mid-move (e.g. a lower layer that DOES throw one)
-    // to prove the real-move catch passes an already-ObsidianTcError through unchanged instead of
+    // to prove the real-move catch passes an already-ReliquaryTcError through unchanged instead of
     // re-wrapping it as internal_error. (Fires on the overwrite's trash step, before anything is
     // written.)
     trashNote: (root: string, rel: string) => {
       if (trashNoteThrowFor && rel.includes(trashNoteThrowFor)) {
-        throw new ObsidianTcError(
+        throw new ReliquaryTcError(
           "vault_not_found",
           `simulated vault loss on ${trashNoteThrowFor}`,
         );
@@ -330,7 +330,7 @@ describe("bulk_move_notes — in-batch hazard detection", () => {
   });
 });
 
-describe("bulk_move_notes — non-ObsidianTcError wrapping", () => {
+describe("bulk_move_notes — non-ReliquaryTcError wrapping", () => {
   it("wraps a raw throw during row validation as internal_error", async () => {
     v = makeM6Vault({ files: { "A.md": "AA" }, register });
     noteExistsThrowFor = "A.md";
@@ -378,7 +378,7 @@ describe("bulk_move_notes — non-ObsidianTcError wrapping", () => {
     expect(v.exists("D2.md")).toBe(true);
   });
 
-  it("passes an already-ObsidianTcError thrown mid-move through unchanged (not re-wrapped)", async () => {
+  it("passes an already-ReliquaryTcError thrown mid-move through unchanged (not re-wrapped)", async () => {
     v = makeM6Vault({ files: { "A.md": "AA", "C.md": "old-C" }, register });
     trashNoteThrowFor = "C.md"; // fires inside the destExists+overwrite replace step
     const out = data<{ results: { from: string; ok: boolean; error?: { code: string } }[] }>(

@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Database } from "../src/db/types";
@@ -37,10 +37,10 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     await reg.dispatch("read_note", {}, ctx());
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="read_note",status="ok"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="read_note",status="ok"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_tool_duration_seconds_count{vault="main",tool="read_note"} 1',
+      'reliquary_tc_tool_duration_seconds_count{vault="main",tool="read_note"} 1',
     );
   });
 
@@ -51,10 +51,10 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     await reg.dispatch("update_frontmatter", {}, ctx({ grantedScopes: new Set(["read:notes"]) }));
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="update_frontmatter",status="denied"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="update_frontmatter",status="denied"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_acl_denied_total{vault="main",scope_class="write",reason="forbidden"} 1',
+      'reliquary_tc_acl_denied_total{vault="main",scope_class="write",reason="forbidden"} 1',
     );
   });
 
@@ -63,16 +63,16 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     const reg = new ToolRegistry({ rootResolver: () => undefined, metrics });
     reg.register(
       tool("acl_thrower", ["read:notes"], () => {
-        throw new ObsidianTcError("acl_denied", "path denied by folder ACL");
+        throw new ReliquaryTcError("acl_denied", "path denied by folder ACL");
       }),
     );
     await reg.dispatch("acl_thrower", {}, ctx());
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="acl_thrower",status="denied"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="acl_thrower",status="denied"} 1',
     );
     expect(text).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="main",scope_class="[a-z_]+",reason="acl_denied"\} 1/,
+      /reliquary_tc_acl_denied_total\{vault="main",scope_class="[a-z_]+",reason="acl_denied"\} 1/,
     );
   });
 
@@ -87,10 +87,10 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     await reg.dispatch("bulk_delete_notes", {}, ctx({ elicitToken: null }));
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_hitl_elicited_total{vault="main",tool="bulk_delete_notes"} 1',
+      'reliquary_tc_hitl_elicited_total{vault="main",tool="bulk_delete_notes"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="bulk_delete_notes",status="denied"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="bulk_delete_notes",status="denied"} 1',
     );
   });
 
@@ -101,10 +101,10 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
     await reg.dispatch("big_read", {}, ctx());
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_governor_truncations_total{vault="main",tool="big_read"} 1',
+      'reliquary_tc_governor_truncations_total{vault="main",tool="big_read"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="big_read",status="error"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="big_read",status="error"} 1',
     );
   });
 

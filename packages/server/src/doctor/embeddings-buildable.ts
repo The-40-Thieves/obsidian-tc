@@ -3,7 +3,7 @@
 // auto-select fallback behind other precedence, so there is no "no block declared, would we have
 // picked it" branch to report — `denseProvider === "local"` is either declared explicitly or IS
 // the resolved default, and either way this check probes the SAME thing: can the optional
-// @the-40-thieves/obsidian-tc-embedder-local package actually resolve on this deployment.
+// @the-40-thieves/reliquary-tc-embedder-local package actually resolve on this deployment.
 import type { EmbedderInstallSite } from "../providers/embedder-install-plan";
 import {
   embedderVersionSkew,
@@ -21,7 +21,7 @@ export interface LocalEmbedderProbeResult {
    *  local-embedder-registry.ts's LocalEmbedderResolution.inSourceCheckout doc comment. Governs
    *  WARN vs FAIL below on an unsuccessful resolution. */
   inSourceCheckout: boolean;
-  /** The resolved embedder's own version, when it resolved. Compared with obsidian-tc's version. */
+  /** The resolved embedder's own version, when it resolved. Compared with reliquary-tc's version. */
   embedderVersion?: string;
 }
 
@@ -38,7 +38,7 @@ export interface EmbeddingsBuildableView {
    *  probing "local" by default — "no known build blocker" would otherwise be a lie for the
    *  provider this whole ticket makes the default). */
   probeLocalEmbedder?: () => Promise<LocalEmbedderProbeResult>;
-  /** Where this obsidian-tc is installed, for the skew remediation's install command. Default: the
+  /** Where this reliquary-tc is installed, for the skew remediation's install command. Default: the
    *  running process's own layout (currentInstallSite). */
   installSite?: EmbedderInstallSite;
   /** #1231: true under `doctor --probe`, which runs the dense execution probe (retrieval.heads).
@@ -76,7 +76,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
         // default run stays offline), so on a supported platform a resolved "local" is not a pass
         // until `doctor --probe` has run the dense probe.
         const notProbed = platform.supported && view.probeRequested !== true;
-        // A stale pair loads, but it is not the build that was tested alongside this obsidian-tc.
+        // A stale pair loads, but it is not the build that was tested alongside this reliquary-tc.
         const skew = embedderVersionSkew(probe.embedderVersion, view.installSite);
         return {
           status: (skew === undefined && platform.supported && !notProbed
@@ -102,12 +102,12 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
           },
           ...(skew !== undefined
             ? {
-                remediation: `Install the embedder that matches this obsidian-tc: ${localEmbedderInstallHint(view.installSite)}`,
+                remediation: `Install the embedder that matches this reliquary-tc: ${localEmbedderInstallHint(view.installSite)}`,
               }
             : notProbed
               ? {
                   remediation:
-                    'Run "obsidian-tc doctor --probe" to embed one probe string through the configured dense provider. Until then a resolved "local" embedder is unverified.',
+                    'Run "reliquary-tc doctor --probe" to embed one probe string through the configured dense provider. Until then a resolved "local" embedder is unverified.',
                 }
               : {}),
         };
@@ -137,7 +137,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
           ? `embeddings: "local" could not resolve, and this platform cannot run it anyway — ${platform.note}`
           : sourceCheckoutNotBuilt
             ? 'embeddings: "local" is not yet built in this source checkout — run "bun run build" in packages/embedder-local'
-            : 'embeddings: "local" could not resolve the optional @the-40-thieves/obsidian-tc-embedder-local package — indexing and semantic search will fail while this holds',
+            : 'embeddings: "local" could not resolve the optional @the-40-thieves/reliquary-tc-embedder-local package — indexing and semantic search will fail while this holds',
         details: {
           provider: "local",
           attempts: probe.attempts,

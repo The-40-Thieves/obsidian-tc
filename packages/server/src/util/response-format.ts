@@ -4,7 +4,7 @@
 //
 // Both fields are optional with NO schema default: a default would make every call look like it
 // named a format, which would defeat the config default below it in the precedence chain.
-import type { ResponseFormat } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 
 export type { ResponseFormat };

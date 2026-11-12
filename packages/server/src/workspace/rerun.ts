@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { grantsScope, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { grantsScope, type ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { FolderAcl } from "../acl";
 import { tableExists } from "../db/introspect";
 import { openDatabase } from "../db/open";
@@ -606,7 +606,7 @@ export function withoutBridgeTransport(
  * rather than papering over its symptoms: neither caller ever dispatches against any vault but
  * this one (`rerunSession`'s own `vaultBound: true` already refuses a record naming a different
  * one), so no sibling vault needs to be reachable from the sandbox runtime at all. A single-vault
- * config is an already-supported shape — it's the default `npx obsidian-tc /path/to/vault` mode —
+ * config is an already-supported shape — it's the default `npx reliquary-tc /path/to/vault` mode —
  * not a novel one this introduces.
  *
  * Shared by `cli/commands/rerun.ts`'s `--sandbox` path and `session_rerun`'s

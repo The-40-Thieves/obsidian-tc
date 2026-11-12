@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from obsidian_tc_bge.contracts import EncodeRequest, RerankRequest
+from reliquary_tc_bge.contracts import EncodeRequest, RerankRequest
 
 
 def test_encode_defaults_outputs():

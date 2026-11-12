@@ -15,7 +15,7 @@
 // (CI covers all three OSes).
 import { mkdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";
 import { makeTestVault, type TestVault } from "./m1-helpers";

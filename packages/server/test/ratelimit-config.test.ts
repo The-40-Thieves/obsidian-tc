@@ -1,7 +1,7 @@
 // Config surface and zero-config guarantees for the rate-limit backends.
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { redactConfig } from "../src/cli/redact-config";
 import {
@@ -20,8 +20,8 @@ describe("throttle config", () => {
     expect(c.throttle.backend).toBe("memory");
     expect(c.throttle.failurePolicy).toBe("fail-open");
     expect(c.throttle.redis).toEqual({
-      urlEnv: "OBSIDIAN_TC_REDIS_URL",
-      keyPrefix: "obsidian-tc:rl:",
+      urlEnv: "RELIQUARY_TC_REDIS_URL",
+      keyPrefix: "reliquary-tc:rl:",
     });
     expect(DEFAULT_REDIS_REF).toEqual(c.throttle.redis);
   });

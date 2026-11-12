@@ -215,7 +215,7 @@ describe("summarizeNotes (index-time pass)", () => {
 
   // THE-934 fix round 4 (2): "never written" was only half the requirement. Skipping an excluded
   // note leaves an EXISTING row in place for ever -- and this pass can run with no reconcile
-  // before it (the `obsidian-tc index` summarize phase, a cluster build), so it cannot delegate
+  // before it (the `reliquary-tc index` summarize phase, a cluster build), so it cannot delegate
   // the cleanup to index-vault.ts. A row is model-generated text derived from the note; while it
   // exists it is searchable through searchNoteSummaries and feeds buildClusterSummaries.
   it("egress.excludePaths: a summarize pass DELETES an excluded note's existing summary row, with no reconcile in front of it (THE-934 fix round 4, 2)", async () => {

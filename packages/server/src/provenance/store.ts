@@ -31,8 +31,8 @@ export interface HeadRow {
   sig: string | null;
 }
 
-const RECORD_DOMAIN = "obsidian-tc:provenance:v1:";
-const HEAD_DOMAIN = "obsidian-tc:provenance-head:v1:";
+const RECORD_DOMAIN = "reliquary-tc:provenance:v1:";
+const HEAD_DOMAIN = "reliquary-tc:provenance-head:v1:";
 
 export const sha256Hex = (text: string): string =>
   createHash("sha256").update(text, "utf8").digest("hex");

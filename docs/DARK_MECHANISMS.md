@@ -178,7 +178,7 @@ ranking changed). The synthetic cells are templated-query artifacts and carry no
 ### 13. Cluster-diversity cap
 
 - **Key:** none. `maxPerCluster` on the search options, eval flag `--max-per-cluster`. Needs the offline
-  `obsidian-tc cluster` pass, which fills `chunks.cluster_id`; on an unclustered index the harness refuses.
+  `reliquary-tc cluster` pass, which fills `chunks.cluster_id`; on an unclustered index the harness refuses.
 - **A/B on record:** EVALUATION.md says "measured negative at every k tested" and gives no table.
 - **Multi-shape (2026-10-04):** TIE on evergreen (-0.028, sig, sub-MDE), quartz-docs (-0.013) and knowledge-garden (-0.022, BH-significant, below the MDE); WIN on synthetic-multihop (+0.162), a templated-query artifact. `--max-per-cluster 2`, k = round(sqrt(chunks)). Shapes tested: 4.
 

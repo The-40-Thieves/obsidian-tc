@@ -4,7 +4,7 @@
 // one (register -> authorize -> consent -> token -> refresh -> revoke), the flooding row (per-source
 // rate limit, row cap, GC, no unbounded growth), the never-approved consent warning, and that a
 // registration can never speak for a static client or a metadata-document client.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClientResolver } from "../src/auth/as-cimd";
 import { gcOauthDb } from "../src/auth/oauth-db";

@@ -10,7 +10,7 @@
 // patchByPreamble and their shared PatchResult/removedSpan/escapeRegExp) used to be
 // private to this file — nothing else in the notes domain called them. read_note's section read
 // needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";

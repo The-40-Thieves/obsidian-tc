@@ -3,7 +3,7 @@
 // memoryDefense-guarded WRITE half) purely to stay under biome's 700-line file ceiling — both
 // files share memory-projection.ts's materialization helpers so neither imports the other, and
 // this file's two tools never scan/enforce memoryDefense: they read, never persist.
-import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, Pagination, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import {

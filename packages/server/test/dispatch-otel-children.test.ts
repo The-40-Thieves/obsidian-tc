@@ -10,7 +10,7 @@ import {
   SimpleSpanProcessor,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { inSavepoint, inTransaction } from "../src/db/txn";
@@ -93,19 +93,19 @@ describe("detail = root (the default): current behaviour exactly", () => {
       const reg = registry(d);
       reg.register(tool("read_note", () => ({ ok: 1 })));
       await reg.dispatch("read_note", { q: "x" }, ctx());
-      expect(names()).toEqual(["obsidian_tc.read_note"]);
+      expect(names()).toEqual(["reliquary_tc.read_note"]);
       const s = root();
       // The exact attribute key set of the pre-existing root span: a new attribute here is a
       // behaviour change for every default-off-child operator.
       expect(Object.keys(s.attributes).sort()).toEqual(
         [
-          "obsidian_tc.caller_hash",
-          "obsidian_tc.duration_ms",
-          "obsidian_tc.elicit_used",
-          "obsidian_tc.scopes_required",
-          "obsidian_tc.status",
-          "obsidian_tc.tool",
-          "obsidian_tc.vault_id",
+          "reliquary_tc.caller_hash",
+          "reliquary_tc.duration_ms",
+          "reliquary_tc.elicit_used",
+          "reliquary_tc.scopes_required",
+          "reliquary_tc.status",
+          "reliquary_tc.tool",
+          "reliquary_tc.vault_id",
           "rate_limit.hit",
         ].sort(),
       );
@@ -121,7 +121,7 @@ describe("detail = root (the default): current behaviour exactly", () => {
       }),
     );
     await reg.dispatch("t", {}, ctx());
-    expect(names()).toEqual(["obsidian_tc.t"]);
+    expect(names()).toEqual(["reliquary_tc.t"]);
   });
 });
 
@@ -131,7 +131,7 @@ describe("detail = children", () => {
     reg.register(tool("read_note", () => ({ ok: 1 })));
     await reg.dispatch("read_note", {}, ctx());
     // Finish order == pipeline order for sequential siblings; the root ends last.
-    expect(names()).toEqual([...STAGES, "obsidian_tc.read_note"]);
+    expect(names()).toEqual([...STAGES, "reliquary_tc.read_note"]);
     const r = root();
     for (const stage of STAGES) {
       const [s] = byName(stage);
@@ -163,7 +163,7 @@ describe("detail = children", () => {
       }),
     );
     await reg.dispatch("t", {}, ctx());
-    expect(names()).toEqual([...STAGES, "obsidian_tc.t"]);
+    expect(names()).toEqual([...STAGES, "reliquary_tc.t"]);
   });
 
   it("child spans carry no attributes on the success path", async () => {
@@ -178,7 +178,7 @@ describe("detail = children", () => {
     reg.register(tool("read_note", () => ({ ok: 1 })));
     const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
     await reg.dispatch("read_note", {}, ctx({ traceCarrier: { traceparent } }));
-    const r = exporter.getFinishedSpans().find((s) => s.name === "obsidian_tc.read_note");
+    const r = exporter.getFinishedSpans().find((s) => s.name === "reliquary_tc.read_note");
     expect(r?.parentSpanContext?.spanId).toBe("00f067aa0ba902b7");
     for (const stage of STAGES)
       expect(byName(stage)[0]?.parentSpanContext?.spanId).toBe(r?.spanContext().spanId);
@@ -225,7 +225,7 @@ describe("detail = verbose", () => {
     await reg.dispatch("read_notes", {}, ctx());
     const impl = byName("tool_impl")[0] as ReadableSpan;
     const items = byName("batch_item");
-    expect(items.map((s) => s.attributes["obsidian_tc.item_index"])).toEqual([0, 1, 2]);
+    expect(items.map((s) => s.attributes["reliquary_tc.item_index"])).toEqual([0, 1, 2]);
     for (const s of items) expect(parentOf(s)).toBe(impl.spanContext().spanId);
   });
 
@@ -246,7 +246,7 @@ describe("detail = verbose", () => {
     // ...that cannot starve the pipeline stages of their own span.
     for (const stage of STAGES) expect(names()).toContain(stage);
     expect(byName("batch_item").length).toBeGreaterThan(0);
-    const dropped = root().attributes["obsidian_tc.spans_dropped"];
+    const dropped = root().attributes["reliquary_tc.spans_dropped"];
     expect(dropped).toBe(MAX_SPANS_PER_REQUEST * 3 - byName("batch_item").length);
   });
 
@@ -274,13 +274,13 @@ describe("error path: the right span, status and structured code", () => {
     const reg = registry("children");
     reg.register(tool("write_x", () => ({}), ["write:notes"]));
     await reg.dispatch("write_x", {}, ctx({ grantedScopes: new Set(["read:notes"]) }));
-    expect(names()).toEqual(["input_parse", "auth_check", "obsidian_tc.write_x"]);
+    expect(names()).toEqual(["input_parse", "auth_check", "reliquary_tc.write_x"]);
     const a = byName("auth_check")[0];
     expect(errored(a)).toBe(true);
     expect(a?.status.message).toBe("forbidden");
-    expect(a?.attributes["obsidian_tc.error_code"]).toBe("forbidden");
+    expect(a?.attributes["reliquary_tc.error_code"]).toBe("forbidden");
     expect(errored(byName("input_parse")[0])).toBe(false);
-    expect(root().attributes["obsidian_tc.error_code"]).toBe("forbidden");
+    expect(root().attributes["reliquary_tc.error_code"]).toBe("forbidden");
   });
 
   it("an invalid input marks input_parse", async () => {
@@ -289,7 +289,7 @@ describe("error path: the right span, status and structured code", () => {
     await reg.dispatch("t", { nope: 1 }, ctx());
     const p = byName("input_parse")[0];
     expect(errored(p)).toBe(true);
-    expect(p?.attributes["obsidian_tc.error_code"]).toBe("validation_error");
+    expect(p?.attributes["reliquary_tc.error_code"]).toBe("validation_error");
     expect(names()).not.toContain("auth_check");
   });
 
@@ -297,13 +297,13 @@ describe("error path: the right span, status and structured code", () => {
     const reg = registry("verbose");
     reg.register(
       tool("t", () => {
-        throw new ObsidianTcError("not_found", `no such note ${DENIED_PATH}`);
+        throw new ReliquaryTcError("not_found", `no such note ${DENIED_PATH}`);
       }),
     );
     await reg.dispatch("t", {}, ctx());
     const impl = byName("tool_impl")[0];
     expect(errored(impl)).toBe(true);
-    expect(impl?.attributes["obsidian_tc.error_code"]).toBe("not_found");
+    expect(impl?.attributes["reliquary_tc.error_code"]).toBe("not_found");
     expect(impl?.status.message).toBe("not_found");
     expect(impl?.events).toEqual([]);
     expect(names()).not.toContain("output_serialize");
@@ -318,7 +318,7 @@ describe("error path: the right span, status and structured code", () => {
     );
     await reg.dispatch("t", {}, ctx());
     const impl = byName("tool_impl")[0];
-    expect(impl?.attributes["obsidian_tc.error_code"]).toBe("internal");
+    expect(impl?.attributes["reliquary_tc.error_code"]).toBe("internal");
     expect(JSON.stringify(exporter.getFinishedSpans().map(dump))).not.toContain(SECRET);
   });
 
@@ -328,7 +328,7 @@ describe("error path: the right span, status and structured code", () => {
     await reg.dispatch("t", {}, ctx());
     const o = byName("output_serialize")[0];
     expect(errored(o)).toBe(true);
-    expect(o?.attributes["obsidian_tc.error_code"]).toBe("overflow");
+    expect(o?.attributes["reliquary_tc.error_code"]).toBe("overflow");
     expect(errored(byName("tool_impl")[0])).toBe(false);
   });
 
@@ -384,7 +384,7 @@ describe("no content, path, token or secret ever reaches a span", () => {
       // Also a denial: ACL-denied path must not surface in any span.
       reg.register({
         ...tool("denied", () => {
-          throw new ObsidianTcError("acl_denied", `denied ${DENIED_PATH}`, { path: DENIED_PATH });
+          throw new ReliquaryTcError("acl_denied", `denied ${DENIED_PATH}`, { path: DENIED_PATH });
         }),
       });
       const c = ctx({ elicitToken: SECRET, caller: `caller-${SECRET}` });
@@ -414,7 +414,7 @@ describe("concurrent requests never cross-parent", () => {
     await Promise.all(
       ["a", "b", "c", "d"].map((q) => reg.dispatch("slow", { q }, ctx({ caller: `caller-${q}` }))),
     );
-    const roots = exporter.getFinishedSpans().filter((s) => s.name === "obsidian_tc.slow");
+    const roots = exporter.getFinishedSpans().filter((s) => s.name === "reliquary_tc.slow");
     expect(roots).toHaveLength(4);
     const rootIds = new Set(roots.map((r) => r.spanContext().spanId));
     expect(rootIds.size).toBe(4);

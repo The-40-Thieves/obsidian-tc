@@ -122,7 +122,7 @@ jobs:
           echo "ok: booted under node via the node:sqlite fallback (no better-sqlite3)"
       # 6) The published bin must start with a node shebang. bun build emits none, and without it
       #    npm's launcher shim hands the .js to the Windows file association (Script Host) instead of
-      #    node, so `obsidian-tc` silently no-ops (exit 0, no output). Guard the root cause directly
+      #    node, so `reliquary-tc` silently no-ops (exit 0, no output). Guard the root cause directly
       #    (a full global-install shim test needs the published tarball's rewritten workspace deps).
       - name: built CLI bin carries a node shebang (npm shim correctness)
         run: |
@@ -145,7 +145,7 @@ jobs:
           # find, not ls: `ls` output is unparseable for non-alphanumeric names (SC2012), and on this
           # project's own boxes `ls` is aliased to eza, whose -t takes a VALUE and silently lists the
           # wrong directory with exit 0. -print -quit stops at the first match.
-          tgz=$(find .tarball-check -maxdepth 1 -name 'obsidian-tc-*.tgz' -print -quit)
+          tgz=$(find .tarball-check -maxdepth 1 -name 'reliquary-tc-*.tgz' -print -quit)
           [ -n "$tgz" ] || { echo "::error::npm pack produced no tarball"; exit 1; }
           tar -xzf "$tgz" -C .tarball-check
           test -f .tarball-check/package/SKILLS.md || { echo "::error::tarball is missing SKILLS.md (the agent onboarding guide never reaches npm)"; exit 1; }

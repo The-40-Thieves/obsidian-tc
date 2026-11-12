@@ -1,7 +1,7 @@
 // WP8: notes-tools.ts split. delete_note — extracted verbatim out of buildNotesTools. The only
 // unconditionally destructive:true tool in this domain (gated in dispatch, not handler-side HITL
 // like write_note/move_note/copy_note's conditional confirmation).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { callerMayReadNote, checkCas } from "../../../vault/cas";

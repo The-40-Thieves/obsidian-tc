@@ -7,9 +7,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "obsidian-tc-bge-m3-service"
+name = "reliquary-tc-bge-m3-service"
 version = "0.1.0"
-description = "BGE-M3 multi-vector (dense/sparse/ColBERT) model service behind the obsidian-tc ModelClient seam"
+description = "BGE-M3 multi-vector (dense/sparse/ColBERT) model service behind the reliquary-tc ModelClient seam"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139",
@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["obsidian_tc_bge"]
+packages = ["reliquary_tc_bge"]
 
 [tool.ruff]
 line-length = 100

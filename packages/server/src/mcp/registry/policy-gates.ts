@@ -2,10 +2,10 @@ import {
   err,
   grantsAll,
   isMutatingScope,
-  ObsidianTcError,
+  ReliquaryTcError,
   scopeClassOf,
   scopeRequiresHitl,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { fingerprintTargets, type StateProbe } from "../../elicit-drift";
 import { hitlSatisfiedByState } from "../../elicit-request-state";
 import { argsHash } from "../../hash";
@@ -20,14 +20,14 @@ import { vaultArgOf } from "./input-binding";
 import type { CallerContext, RegistryOptions, ToolDefinition, VerifyElicit } from "./types";
 
 // WP4.3: authorization gates pulled out of registry.ts's runDispatch, unchanged in behavior. Each
-// function throws the identical ObsidianTcError the inline block it replaces did; the audit/meter/
+// function throws the identical ReliquaryTcError the inline block it replaces did; the audit/meter/
 // episode reaction to a thrown error stays in dispatch.ts's single catch-all.
 
 /** Authentication gate: an unauthenticated context (only the HTTP anonymous caller; stdio, mode
  *  `none` and the internal runners are all authenticated) dispatches NO tool, scope-free ones included. */
 export function requireAuthenticated(ctx: Pick<CallerContext, "authenticated">): void {
   if (!ctx.authenticated)
-    throw new ObsidianTcError("unauthorized", "authentication required for this tool");
+    throw new ReliquaryTcError("unauthorized", "authentication required for this tool");
 }
 
 /**
@@ -112,7 +112,7 @@ export function resolveOperationPolicy(
   const declared = new Set(def.requiredScopes);
   const undeclared = resolved.requiredScopes.filter((scope) => !declared.has(scope));
   if (undeclared.length > 0) {
-    throw new ObsidianTcError(
+    throw new ReliquaryTcError(
       "internal",
       "resolved policy requires scopes the tool does not declare",
       { undeclared, declared: [...def.requiredScopes] },
@@ -161,7 +161,7 @@ export function enforceReadOnlyGate(
   toolVisibility: Pick<EffectiveToolVisibilityConfig, "allowReadOnlyDerivedTelemetry">,
 ): void {
   if (mutating && ctx.acl?.readOnly && !isReadOnlyDerivedTelemetryExempt(name, toolVisibility))
-    throw new ObsidianTcError("forbidden", READ_ONLY_DENIAL_MESSAGE);
+    throw new ReliquaryTcError("forbidden", READ_ONLY_DENIAL_MESSAGE);
 }
 
 /**
@@ -227,7 +227,7 @@ export async function throttleRefusal(
   vaultId: string,
   nowMs: number,
   onHit: () => void,
-): Promise<ObsidianTcError | undefined> {
+): Promise<ReliquaryTcError | undefined> {
   const d = await checkThrottle(rateLimiter, caller, scopeClass, vaultId, nowMs);
   if (!d || d.ok) return undefined;
   if (!d.reason) onHit();
@@ -286,7 +286,7 @@ export function checkHitl(
 }
 
 /** No resolvable root: refuse with the same vault_not_found the handler gives an unknown vault. */
-function rootUnavailable(vault: string): ObsidianTcError {
+function rootUnavailable(vault: string): ReliquaryTcError {
   return err.vaultNotFound(`vault not found: ${vault}`, { vault });
 }
 
@@ -322,7 +322,7 @@ export function confirmationStateProbe(
       }
       return parts.length > 1 ? argsHash("state", parts) : (parts[0] ?? null);
     } catch (e) {
-      if (e instanceof ObsidianTcError) throw e;
+      if (e instanceof ReliquaryTcError) throw e;
       throw err.internalError(
         "could not read the state this confirmation would bind; refusing to issue an unbound approval",
       );

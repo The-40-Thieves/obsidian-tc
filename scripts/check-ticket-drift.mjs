@@ -30,7 +30,7 @@
 //   * `experiential.captureContent` and `sessions.traceContent` were both default-off "until the
 //     THE-238 poisoning defense red-team". THE-238 closed 2026-07-11 and never contained a
 //     red-team — the comment named an event no ticket has ever owned. Two config defaults, and
-//     `obsidian-tc rerun` inert in production, waiting on it.
+//     `reliquary-tc rerun` inert in production, waiting on it.
 //   * `agent_episodes.summary` is documented "filled at consolidation (THE-222)". THE-222 closed
 //     2026-07-12 having shipped `reflect` and never touched that column.
 //

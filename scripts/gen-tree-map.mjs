@@ -285,7 +285,7 @@ const SUBSYSTEM_NOTES = {
   // indistinguishable from `morgiana/` at 101.
   metrics: "Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats",
   transports: "stdio, HTTP and the shared serve loop",
-  doctor: "`obsidian-tc doctor` — checks, report rendering, runner",
+  doctor: "`reliquary-tc doctor` — checks, report rendering, runner",
   memory: "entity extraction and materialization for the memory folder",
   auth: "JWT verification, JWKS, RFC 9728 protected-resource metadata",
   graph: "graph analytics (centrality, components) behind the health tools",

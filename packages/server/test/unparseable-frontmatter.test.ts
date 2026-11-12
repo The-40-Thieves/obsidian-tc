@@ -3,7 +3,7 @@
 // Claude Code and Codex): read_note, patch_note and update_frontmatter all refused with
 // invalid_input, so only an approval-gated write_note overwrite worked. And one such note made
 // get_backlinks / find_orphans fail for the WHOLE vault.
-import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
+import type { ErrorJSON } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { formatErrorDetail } from "../src/mcp/error-rendering";
 import { parseNote } from "../src/vault/frontmatter";

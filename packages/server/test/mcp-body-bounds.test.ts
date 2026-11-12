@@ -3,7 +3,7 @@
 // body, so an oversized authenticated POST used to be parsed in full and accepted. The anonymous
 // discovery candidate (auth.anonymousDiscovery "list", no credentials) is read under a tighter bound
 // and deadline, because it is the one path a caller can reach without proving who they are.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -89,7 +89,7 @@ describe("POST /mcp body bounds", () => {
             : jwt,
     }).auth;
     const handle = createHttpApp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "t",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth,

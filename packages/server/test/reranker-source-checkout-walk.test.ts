@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { resolveSourceCheckoutLocalRerankerPath } from "../src/providers/registry";
 import { makeTempDir, rmTemp } from "./tmp";
 
-const REAL_NAME = "@the-40-thieves/obsidian-tc-reranker-local";
+const REAL_NAME = "@the-40-thieves/reliquary-tc-reranker-local";
 
 let dir: string;
 

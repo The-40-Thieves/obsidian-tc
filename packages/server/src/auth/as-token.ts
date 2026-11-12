@@ -11,7 +11,7 @@
 // `typ: "at+jwt"` and claims iss, sub, aud, client_id, scope, iat, exp, jti, or this verifier
 // refuses it. jose compares `typ` case-insensitively and accepts the `application/` media-type form
 // (RFC 8725 section 3.11), which test/auth-key-purpose.test.ts pins.
-import { isQualifiedScope } from "@the-40-thieves/obsidian-tc-shared";
+import { isQualifiedScope } from "@the-40-thieves/reliquary-tc-shared";
 import { jwtVerify } from "jose";
 import {
   AuthRejection,

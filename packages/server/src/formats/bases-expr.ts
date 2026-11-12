@@ -11,7 +11,7 @@
 // startsWith/endsWith/isEmpty/lower/upper/trim/length; list methods contains/length/isEmpty/
 // join; globals if/date/now/today/min/max/list/number; Date +/- duration strings ('30m','1d',
 // '2w'...). Filter combinators: bare string, or {and|or|not: [...]} recursively over strings.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 
 export interface BasesNoteCtx {
   path: string;
@@ -536,7 +536,7 @@ export type FilterClass = "absent" | "dsl" | "jsonlogic" | "mixed";
 
 /**
  * Classify a filter tree. Pure strings / combinators-of-strings are the Bases DSL; objects with
- * no string leaves under and/or/not are obsidian-tc's JSONLogic; MIXED trees are refused by the
+ * no string leaves under and/or/not are reliquary-tc's JSONLogic; MIXED trees are refused by the
  * caller (evaluating half a tree in each engine risks silent mis-evaluation — THE-284 honesty).
  */
 export function classifyBaseFilter(x: unknown): FilterClass {

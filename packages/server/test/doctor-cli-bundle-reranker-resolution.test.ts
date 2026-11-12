@@ -22,7 +22,7 @@
 // (bypassing `bun run build` — replicated here without the copy-assets.mjs step, which only vendors
 // migrations/plugin assets this test never needs: migrations are compiled into the bundle via
 // db/migrations-embedded.ts, not read from `dist/migrations` at runtime). packages/shared has no
-// such escape hatch — bun's bundler resolves `@the-40-thieves/obsidian-tc-shared` via ITS OWN
+// such escape hatch — bun's bundler resolves `@the-40-thieves/reliquary-tc-shared` via ITS OWN
 // package.json `main` (`./dist/index.js`), a path fixed relative to that package's real directory,
 // so its dist MUST exist there for packages/server to bundle at all.
 //
@@ -35,7 +35,7 @@
 //
 // Round 3 review fixes (three more bugs):
 //   1. `spawnSync` below now passes an explicit, SANITIZED `env` — the bare `process.env` this test
-//      used to inherit lets a host-set `OBSIDIAN_TC_GATEWAY_URL` make `autoSelectLocalRerankerConfig
+//      used to inherit lets a host-set `RELIQUARY_TC_GATEWAY_URL` make `autoSelectLocalRerankerConfig
 //      Allows` return false (reranker-preflight.ts: any non-empty gateway URL means "gateway wins"),
 //      silently skipping the very auto-select path this test exists to exercise.
 //   2. no longer installs/builds the REAL reranker-local package at all (an isolated `bun install`
@@ -86,7 +86,7 @@ const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const SHARED_DIR = join(REPO_ROOT, "packages", "shared");
 const SHARED_DIST = join(SHARED_DIR, "dist");
 const SHARED_TSC = join(REPO_ROOT, "node_modules", ".bin", "tsc");
-const REAL_RERANKER_LOCAL_NAME = "@the-40-thieves/obsidian-tc-reranker-local";
+const REAL_RERANKER_LOCAL_NAME = "@the-40-thieves/reliquary-tc-reranker-local";
 const SHARED_DIST_BACKUP_PREFIX = "dist.obtc-bundle-test-backup-";
 const SHARED_DIST_TEMP_PREFIX = ".dist-tmp-obtc-bundle-test-";
 
@@ -211,7 +211,7 @@ function buildSharedDistAtomically(): void {
   }
 }
 
-/** A minimal stand-in for the REAL @the-40-thieves/obsidian-tc-reranker-local package (round 3 fix
+/** A minimal stand-in for the REAL @the-40-thieves/reliquary-tc-reranker-local package (round 3 fix
  *  2): doctor's probe (`probeLocalRerankerResolution`) only ever IMPORTS this module to prove
  *  resolution succeeded — it never calls `createReranker`, so the stub need not do anything real.
  *  The actual package's shape/behavior is pinned by reranker-local-resolution.test.ts; this file's
@@ -336,14 +336,14 @@ describe.skipIf(!bunAvailable)(
 
     it("reranker.buildable resolves the auto-selected local reranker via source-checkout, from the BUILT dist/cli.js", () => {
       // Round 3 review fix 1: an explicit, SANITIZED env — inheriting the bare host environment let
-      // a set OBSIDIAN_TC_GATEWAY_URL make autoSelectLocalRerankerConfigAllows return false
+      // a set RELIQUARY_TC_GATEWAY_URL make autoSelectLocalRerankerConfigAllows return false
       // (reranker-preflight.ts), silently skipping auto-select and failing the assertions below on
       // any host that happens to have the var set. HOME/TMPDIR are pinned to `stage` so capability
       // detection (resolveCapabilityProfile) probes a throwaway tree instead of this host's real
       // Obsidian config.
       const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: stage, TMPDIR: stage };
-      delete childEnv.OBSIDIAN_TC_GATEWAY_URL;
-      delete childEnv.OBSIDIAN_TC_GATEWAY_TOKEN;
+      delete childEnv.RELIQUARY_TC_GATEWAY_URL;
+      delete childEnv.RELIQUARY_TC_GATEWAY_TOKEN;
 
       const r = spawnSync("bun", ["--no-install", fakeCliJs, "doctor", configPath, "--json"], {
         encoding: "utf8",

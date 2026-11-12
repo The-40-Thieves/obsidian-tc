@@ -2,7 +2,7 @@
 // must hold `admin:metrics` (the scope the `get_metrics` tool already requires), and a token bound
 // to a vault (or a persona, which always resolves to one) is refused because every gauge and
 // counter here is process-wide. Incident shape reproduced by review: a verified JWT with `scopes: []`
-// bound to `public-vault` got 200 including `obsidian_tc_capture_queue_depth{vault="secret-vault"} 7`.
+// bound to `public-vault` got 200 including `reliquary_tc_capture_queue_depth{vault="secret-vault"} 7`.
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { buildJwtVerifier } from "../src/auth/jwt-boot";
@@ -51,7 +51,7 @@ describe("remote /metrics requires admin:metrics", () => {
     expect(res.status).toBe(403);
     expect(res.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
     expect(res.headers.get("www-authenticate")).toContain('scope="admin:metrics"');
-    expect(await res.text()).not.toContain("obsidian_tc_");
+    expect(await res.text()).not.toContain("reliquary_tc_");
   });
 
   it("403 for scopes that are not admin:metrics (read wildcard, another admin scope)", async () => {
@@ -64,7 +64,7 @@ describe("remote /metrics requires admin:metrics", () => {
     for (const scopes of [["admin:metrics"], ["*"], ["admin:*"], ["admin"]]) {
       const res = await get(remote(), await sign({ scopes }));
       expect(res.status, scopes.join()).toBe(200);
-      expect(await res.text()).toContain("# TYPE obsidian_tc_capture_queue_depth gauge");
+      expect(await res.text()).toContain("# TYPE reliquary_tc_capture_queue_depth gauge");
     }
   });
 

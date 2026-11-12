@@ -4,7 +4,7 @@
 // ceiling the structural-refactor program set, and biome's noExcessiveLinesPerFile rejects the
 // append. The tools stay in the m8 domain and are composed back in by buildExperientialTools.
 import { randomUUID } from "node:crypto";
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { closeGoal, listGoals, setGoal } from "../../experiential/goals";
 import type { ToolDefinition } from "../../mcp/registry";

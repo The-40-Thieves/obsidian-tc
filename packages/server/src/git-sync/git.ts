@@ -62,7 +62,7 @@ function fixedEnvironment(config: GitSyncConfig): NodeJS.ProcessEnv {
   if (config.urlKind === "https") {
     env.GIT_ASKPASS = config.askpassPath;
     env.GIT_ASKPASS_REQUIRE = "force";
-    env.OBSIDIAN_TC_GIT_TOKEN = config.token;
+    env.RELIQUARY_TC_GIT_TOKEN = config.token;
   }
   return env;
 }
@@ -79,7 +79,7 @@ async function prepareCredentialFiles(config: GitSyncConfig): Promise<void> {
   if (config.urlKind === "https") {
     const script =
       '#!/bin/sh\ncase "$1" in\n  *Username*) printf "%s\\n" x-access-token ;;\n' +
-      '  *) printf "%s\\n" "$OBSIDIAN_TC_GIT_TOKEN" ;;\nesac\n';
+      '  *) printf "%s\\n" "$RELIQUARY_TC_GIT_TOKEN" ;;\nesac\n';
     await atomicWrite(config.askpassPath, script, 0o700);
   }
 }

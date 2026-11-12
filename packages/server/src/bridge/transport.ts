@@ -11,8 +11,8 @@ import {
   type ErrorCode,
   err,
   extractCauseCode,
-  ObsidianTcError,
-} from "@the-40-thieves/obsidian-tc-shared";
+  ReliquaryTcError,
+} from "@the-40-thieves/reliquary-tc-shared";
 import { PlainHttpRefusedError } from "../gateway/plain-http";
 import { providerFetch } from "../gateway/provider-fetch";
 import { readBodyText } from "../gateway/read-body";
@@ -72,14 +72,14 @@ const PASSTHROUGH_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   "acl_denied",
 ]);
 
-function mapBridgeError(env: BridgeEnvelopeErr, plugin?: string): ObsidianTcError {
+function mapBridgeError(env: BridgeEnvelopeErr, plugin?: string): ReliquaryTcError {
   const message = env.message ?? "bridge returned an error";
   const details: Record<string, unknown> = {
     ...(plugin ? { plugin } : {}),
     ...(env.details ?? {}),
   };
   if (env.code && PASSTHROUGH_CODES.has(env.code))
-    return new ObsidianTcError(env.code as ErrorCode, message, details);
+    return new ReliquaryTcError(env.code as ErrorCode, message, details);
   return err.pluginUnreachable(message, { ...details, bridge_code: env.code });
 }
 

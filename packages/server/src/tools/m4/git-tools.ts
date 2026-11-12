@@ -5,7 +5,7 @@
 // commit ALWAYS requires a human elicit token: it is irreversible-in-effect from the agent's
 // perspective. Repo-wide surfaces (status/log) reveal paths a read whitelist may hide, so they
 // fail closed under one (THE-270 contract, matching list_templates/search_dql).
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { applyTrailers } from "../../provenance/stamp";
@@ -91,7 +91,7 @@ async function stagedPaths(deps: M4Deps, vaultId: string): Promise<string[]> {
     });
     if (!("paths_relative_to_vault" in result)) {
       process.stderr.write(
-        "[obsidian-tc] cannot stamp git provenance trailers: companion plugin predates vault-relative git paths; update the companion plugin inside Obsidian\n",
+        "[reliquary-tc] cannot stamp git provenance trailers: companion plugin predates vault-relative git paths; update the companion plugin inside Obsidian\n",
       );
       return [];
     }
@@ -266,7 +266,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "git");
         // provenance.stamp.gitTrailers (off by default): trailers for the recorded writes whose
-        // current bytes are staged. The caller's own message is kept, minus any Obsidian-TC-*
+        // current bytes are staged. The caller's own message is kept, minus any Reliquary-TC-*
         // trailer it wrote, so a trailer under that prefix is always the server's.
         const stamp = deps.provenanceStamp;
         const trailers = stamp?.gitTrailers

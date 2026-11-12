@@ -38,7 +38,7 @@ export function telemetryCheck(view: TelemetryView): Check {
           summary: `telemetry: enabled, sending to ${view.endpoint ?? "?"}, but the last send failed: ${view.lastError}`,
           details,
           remediation:
-            "Check the endpoint is reachable and accepts the telemetry document schema (obsidian-tc telemetry preview shows what is sent). Counters are never lost on a failed send — they accumulate into the next attempt.",
+            "Check the endpoint is reachable and accepts the telemetry document schema (reliquary-tc telemetry preview shows what is sent). Counters are never lost on a failed send — they accumulate into the next attempt.",
         };
       }
       return {

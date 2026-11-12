@@ -2,7 +2,7 @@
 // and Domain 5's rewrite_link. Fenced code blocks are skipped so code samples are
 // never mutated; the dominant line ending is preserved. Inline-code spans on an
 // otherwise-prose line are not excluded (a documented M1 limitation).
-import { err, wikiLinkNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { err, wikiLinkNameProblem } from "@the-40-thieves/reliquary-tc-shared";
 import { frontmatterYamlSpan, splitFrontmatterBody } from "./frontmatter";
 import { applyScanReplacements, scanMdLinks, scanWikilinks } from "./link-scan";
 import {

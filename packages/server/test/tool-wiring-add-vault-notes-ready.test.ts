@@ -4,7 +4,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it, vi } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { readPersistedReconcileState } from "../src/runtime/reconcile-state";

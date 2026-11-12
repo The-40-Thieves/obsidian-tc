@@ -19,7 +19,7 @@
 // the THE-230 feedback writer: stamps `feedback` onto the most recent retrieval event(s)
 // for a chunk, feeding the ACT-R recompute. It no longer accepts an `outcome` — THE-718
 // retired that axis as a task-level question asked of a response-level row.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { appendForgetLog } from "../../experiential/forget";
 import {
@@ -342,14 +342,14 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     // THE-537: the read surface the quality signals never had. READ-ONLY and NOT the ranker —
     // quality_score is reported, never fed into fusion (that would be a ranking change needing its
-    // own eval gate). The rollup is written by the offline `obsidian-tc note-quality` pass; this
+    // own eval gate). The rollup is written by the offline `reliquary-tc note-quality` pass; this
     // tool only reads what that pass computed, so a stale `computed_at` is visible to the caller
     // rather than hidden behind a silent recompute.
     defineTool({
       name: "note_quality_report",
       domain: "knowledge",
       description:
-        "Read-only note-health report from the note_quality rollup: which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking. response_format=concise returns {path, quality_score, flags} per note (plus activation_conflict when true), without the raw components.",
+        "Read-only note-health report from the note_quality rollup: which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `reliquary-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking. response_format=concise returns {path, quality_score, flags} per note (plus activation_conflict when true), without the raw components.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -475,13 +475,13 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
     // note_quality_report above (THE-548's audit precedent: the CLI recomputes, the MCP sibling
     // only reads). detectGaps embeds + runs a full graphSearch per query — expensive, and a
     // derived-state write, not something a dispatch call should trigger. THE-644 item 1 made the
-    // read half possible by persisting the offline `obsidian-tc gaps` pass's report; this tool
+    // read half possible by persisting the offline `reliquary-tc gaps` pass's report; this tool
     // reads the latest one back and NEVER calls detectGaps itself.
     defineTool({
       name: "gap_report",
       domain: "knowledge",
       description:
-        "Read-only view of the latest gap-detector pass: which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL before being returned. response_format=concise returns {id, query, top_score, gap} per item, without results and nearest, and omits threshold, min_results and returned; computed_at, total, gaps and gap_rate are kept.",
+        "Read-only view of the latest gap-detector pass: which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `reliquary-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL before being returned. response_format=concise returns {id, query, top_score, gap} per item, without results and nearest, and omits threshold, min_results and returned; computed_at, total, gaps and gap_rate are kept.",
       inputSchema: z
         .object({
           vault: VaultId,

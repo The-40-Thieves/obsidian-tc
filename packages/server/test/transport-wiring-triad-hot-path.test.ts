@@ -1,7 +1,7 @@
 // toolFacade.triadHotPath reaches the HTTP transport from config: wireTransports hands it to
 // startHttp, which passes it on to createHttpApp's per-request createMcpServer (http.ts).
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { wireTransports } from "../src/runtime/transport-wiring";
 import { openMemoryDb } from "./helpers";

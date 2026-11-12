@@ -118,11 +118,11 @@ describe("one verifier: a JWKS-signed token the MCP edge accepts is accepted her
     const jwks = {
       keys: [{ ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256", use: "sig" }],
     };
-    const auth: Auth = { mode: "jwt", jwks, audience: "https://obsidian-tc.example", ...base };
+    const auth: Auth = { mode: "jwt", jwks, audience: "https://reliquary-tc.example", ...base };
     const token = await new SignJWT({
       sub: "scraper",
       scopes: ["admin:metrics"],
-      aud: "https://obsidian-tc.example",
+      aud: "https://reliquary-tc.example",
       iat: now(),
       exp: now() + 600,
     })

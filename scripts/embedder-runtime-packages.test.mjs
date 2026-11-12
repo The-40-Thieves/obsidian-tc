@@ -58,7 +58,7 @@ test("the runtime package matrix has the six supported npm platform keys", () =>
 test("runtime package names and manifests carry exact npm platform filters", () => {
   for (const key of KEYS) {
     const [platform, arch] = key.split("-");
-    assert.equal(runtimePackageName(key), `@the-40-thieves/obsidian-tc-embedder-local-${key}`);
+    assert.equal(runtimePackageName(key), `@the-40-thieves/reliquary-tc-embedder-local-${key}`);
     const manifest = runtimePackageManifest(key, VERSION);
     assert.equal(manifest.name, runtimePackageName(key));
     assert.equal(manifest.version, VERSION);

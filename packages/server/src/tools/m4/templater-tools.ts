@@ -4,7 +4,7 @@
 // hardcoded HITL floor (scopes.ts) — meaning dispatch ALWAYS requires a human
 // elicit token before the handler runs. Template expansion is never silently
 // executable. Uses the longer templater timeout (expansion can be slow).
-import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
@@ -68,7 +68,7 @@ function stampCreatedNote(
     deps.reindex?.(vaultId, rel, stamped);
     return { contentHash: contentHash(stamped) };
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.code === "concurrent_modification")
+    if (e instanceof ReliquaryTcError && e.code === "concurrent_modification")
       return { skipped: "concurrent_modification" };
     return undefined;
   }
@@ -209,8 +209,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
               { tool: "execute_template" },
             );
           } catch (e) {
-            if (e instanceof ObsidianTcError)
-              throw new ObsidianTcError(e.code, e.message, {
+            if (e instanceof ReliquaryTcError)
+              throw new ReliquaryTcError(e.code, e.message, {
                 ...e.details,
                 effect_committed: true,
               });

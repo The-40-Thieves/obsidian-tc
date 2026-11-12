@@ -69,7 +69,7 @@ async function makeFixtureRepo() {
   await mkdir(join(root, ".git"), { recursive: true });
   await writeFile(join(root, ".git", "HEAD"), "ref: refs/heads/main\n");
   await mkdir(join(root, "dist"), { recursive: true });
-  await writeFile(join(root, "dist", "obsidian-tc.mcpb"), "stale-artifact");
+  await writeFile(join(root, "dist", "reliquary-tc.mcpb"), "stale-artifact");
   await mkdir(join(root, "node_modules", "some-dep"), { recursive: true });
   await writeFile(join(root, "node_modules", "some-dep", "index.js"), "module.exports = {};\n");
   return root;
@@ -109,7 +109,7 @@ test("stageBundleInputs places the MCPB manifest as manifest.json, and stages bu
 
 test("packFromStaging: a throwing pack leaves the live tree untouched and removes the staging dir", async () => {
   const repoRoot = await makeFixtureRepo();
-  const outFile = join(repoRoot, "dist", "obsidian-tc.mcpb");
+  const outFile = join(repoRoot, "dist", "reliquary-tc.mcpb");
   const before = {
     manifest: await readFile(join(repoRoot, "manifest.json"), "utf8"),
     repoEntries: (await readdir(repoRoot)).sort(),
@@ -140,7 +140,7 @@ test("packFromStaging: a throwing pack leaves the live tree untouched and remove
 
 test("packFromStaging: a successful pack still removes the staging dir", async () => {
   const repoRoot = await makeFixtureRepo();
-  const outFile = join(repoRoot, "dist", "obsidian-tc.mcpb");
+  const outFile = join(repoRoot, "dist", "reliquary-tc.mcpb");
   let capturedStagingDir;
 
   await packFromStaging(repoRoot, outFile, {
@@ -223,10 +223,10 @@ test("stageRuntimeModules lays out sqlite-vec, every vec0 platform package and t
     assert.equal(await readFile(join(nm, "sqlite-vec-linux-x64", "vec0.so"), "utf8"), "so");
     assert.equal(await readFile(join(nm, "sqlite-vec-windows-x64", "vec0.dll"), "utf8"), "dll");
 
-    const emb = join(nm, "@the-40-thieves", "obsidian-tc-embedder-local");
+    const emb = join(nm, "@the-40-thieves", "reliquary-tc-embedder-local");
     assert.equal(await readFile(join(emb, "index.mjs"), "utf8"), "// bundled embedder");
     const pkg = JSON.parse(await readFile(join(emb, "package.json"), "utf8"));
-    assert.equal(pkg.name, "@the-40-thieves/obsidian-tc-embedder-local");
+    assert.equal(pkg.name, "@the-40-thieves/reliquary-tc-embedder-local");
     assert.equal(pkg.version, "9.9.9");
     assert.equal(pkg.main, "./index.mjs");
     assert.equal(pkg.type, "module");
@@ -246,7 +246,7 @@ test("stageRuntimeModules lays out sqlite-vec, every vec0 platform package and t
 test("packFromStaging runs populate() on the staging dir before pack()", async () => {
   const repoRoot = await makeFixtureRepo();
   const order = [];
-  await packFromStaging(repoRoot, join(repoRoot, "dist", "obsidian-tc.mcpb"), {
+  await packFromStaging(repoRoot, join(repoRoot, "dist", "reliquary-tc.mcpb"), {
     populate: async (stagingDir) => {
       order.push("populate");
       await mkdir(join(stagingDir, "node_modules"), { recursive: true });

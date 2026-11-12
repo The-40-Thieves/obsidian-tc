@@ -1,4 +1,4 @@
-import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { isMutatingScope } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";

@@ -8,7 +8,7 @@
 //   * the Tasks stream refuses a null caller exactly like the advisory stream does;
 //   * an unauthenticated context cannot dispatch ANY tool, scope-free ones included.
 // Real HTTP app (createHttpApp), real JWT verification, a real job queue.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -23,7 +23,7 @@ const MODERN = "2026-07-28";
 const RESOURCE = "https://vault.example.com/mcp";
 const SECRET = "s".repeat(40);
 const TASKS_KEY = "io.modelcontextprotocol/tasks";
-const ADVISORY_KEY = "io.the40thieves.obsidian-tc/advisory";
+const ADVISORY_KEY = "io.the40thieves.reliquary-tc/advisory";
 const ADMITTED = [
   "initialize",
   "notifications/initialized",
@@ -57,7 +57,7 @@ function boot(authOver: Record<string, unknown>) {
     handler: probe,
   } as never);
   const { app } = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry,
     auth: parsed.auth,

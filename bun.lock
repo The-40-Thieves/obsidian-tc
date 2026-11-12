@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "obsidian-tc-monorepo",
+      "name": "reliquary-tc-monorepo",
       "devDependencies": {
         "@ast-grep/cli": "0.51.0",
         "@ast-grep/napi": "0.51.0",
@@ -18,7 +18,7 @@
       },
     },
     "packages/native": {
-      "name": "@the-40-thieves/obsidian-tc-native",
+      "name": "@the-40-thieves/reliquary-tc-native",
       "version": "1.34.0",
       "devDependencies": {
         "@napi-rs/cli": "^3.10.9",
@@ -27,7 +27,7 @@
       },
     },
     "packages/plugin": {
-      "name": "@the-40-thieves/obsidian-tc-plugin",
+      "name": "@the-40-thieves/reliquary-tc-plugin",
       "version": "1.34.0",
       "devDependencies": {
         "@types/node": "^26.6.4",
@@ -38,9 +38,10 @@
       },
     },
     "packages/server": {
-      "name": "obsidian-tc",
+      "name": "reliquary-tc",
       "version": "1.34.0",
       "bin": {
+        "reliquary-tc": "./dist/cli.js",
         "obsidian-tc": "./dist/cli.js",
       },
       "dependencies": {
@@ -55,8 +56,8 @@
         "@opentelemetry/semantic-conventions": "^1.43.0",
         "@prometheus-io/client": "^0.16.1",
         "@simplewebauthn/server": "14.0.3",
-        "@the-40-thieves/obsidian-tc-native": "workspace:*",
-        "@the-40-thieves/obsidian-tc-shared": "workspace:*",
+        "@the-40-thieves/reliquary-tc-native": "workspace:*",
+        "@the-40-thieves/reliquary-tc-shared": "workspace:*",
         "better-sqlite3": "^13.0.3",
         "hono": "^4.13.13",
         "jose": "^6.2.12",
@@ -80,7 +81,7 @@
       },
     },
     "packages/shared": {
-      "name": "@the-40-thieves/obsidian-tc-shared",
+      "name": "@the-40-thieves/reliquary-tc-shared",
       "version": "1.34.0",
       "dependencies": {
         "zod": "^4.6.7",
@@ -697,11 +698,11 @@
 
     "@stryker-mutator/util": ["@stryker-mutator/util@10.0.0", "", {}, "sha512-LzOpHiJaCp2ABQgnPMlrQQcsK43bd5Vo/2FGL78aN62yDoeRQ+4j3tzeuXxK5OAHdC3fUz6TDoy4IsoAuLAd3w=="],
 
-    "@the-40-thieves/obsidian-tc-native": ["@the-40-thieves/obsidian-tc-native@workspace:packages/native"],
+    "@the-40-thieves/reliquary-tc-native": ["@the-40-thieves/reliquary-tc-native@workspace:packages/native"],
 
-    "@the-40-thieves/obsidian-tc-plugin": ["@the-40-thieves/obsidian-tc-plugin@workspace:packages/plugin"],
+    "@the-40-thieves/reliquary-tc-plugin": ["@the-40-thieves/reliquary-tc-plugin@workspace:packages/plugin"],
 
-    "@the-40-thieves/obsidian-tc-shared": ["@the-40-thieves/obsidian-tc-shared@workspace:packages/shared"],
+    "@the-40-thieves/reliquary-tc-shared": ["@the-40-thieves/reliquary-tc-shared@workspace:packages/shared"],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg=="],
 
@@ -1131,8 +1132,6 @@
 
     "obsidian": ["obsidian@1.14.4", "", { "dependencies": { "@types/codemirror": "5.60.8", "moment": "2.31.0" }, "peerDependencies": { "@codemirror/state": "6.7.6", "@codemirror/view": "6.43.13" } }, "sha512-Kyo+5t0wFW2On5irLOPrgtwWDnaJsvE9n/P1OVvdPytx+NqeHJXvxVqADNOqLp9bU1+I64B6i+dHb0fxR/ss3w=="],
 
-    "obsidian-tc": ["obsidian-tc@workspace:packages/server"],
-
     "obug": ["obug@3.0.0", "", {}, "sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw=="],
 
     "on-finished": ["on-finished@2.4.1", "", { "dependencies": { "ee-first": "1.1.1" } }, "sha512-oVlzkg3ENAhCk2zdv7IJwd/QUD4z2RxRwpkcGY8psCVcCYZNq4wYnVWALHM+brtuJjePWiYF/ClmuDr8Ch5+kg=="],
@@ -1202,6 +1201,8 @@
     "reflect-metadata": ["reflect-metadata@0.2.2", "", {}, "sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q=="],
 
     "regexp-tree": ["regexp-tree@0.1.27", "", { "bin": { "regexp-tree": "bin/regexp-tree" } }, "sha512-iETxpjK6YoRWJG5o6hXLwvjYAoW+FEZn9os0PD/b6AP6xQwsa/Y7lCVgIixBbUPMfhu+i2LtdeAqVTgGlQarfA=="],
+
+    "reliquary-tc": ["reliquary-tc@workspace:packages/server"],
 
     "require-from-string": ["require-from-string@2.0.2", "", {}, "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw=="],
 

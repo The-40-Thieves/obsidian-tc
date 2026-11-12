@@ -23,7 +23,7 @@ test("both generated embedded-embedder modules export exactly the source module'
   assert.ok(want.length >= 2, `expected at least 2 exports in the source, got ${want}`);
   const generated = generateEmbeddedEmbedderModule(
     [{ name: "runtime", gz: "/runtime.gz", sha256: "abc" }],
-    "@the-40-thieves/obsidian-tc-embedder-local",
+    "@the-40-thieves/reliquary-tc-embedder-local",
   );
   // The absent target's module remains the `contents:` string literal in build-binary.ts.
   const absent = build.match(/contents:\s*"([^"]*)"/);
@@ -62,7 +62,7 @@ test("the darwin-x64 generated module embeds both WASM files for verified extrac
 
     const generated = generateEmbeddedEmbedderModule(
       files,
-      "@the-40-thieves/obsidian-tc-embedder-local",
+      "@the-40-thieves/reliquary-tc-embedder-local",
     );
     assert.deepEqual(exportsOf(generated), ["embeddedEmbedder", "localEmbedderAbsentFromBinary"]);
     for (const file of files) {

@@ -1,7 +1,7 @@
 # Headless VaultBackend ADR — lean v1
 
 **Status:** Accepted (design locked at G2, trimmed at G3). Normal PR — G1 is closed.
-**Branch:** `mislam2/obsidian-tc-headless-vaultbackend-full-vault-state`
+**Branch:** `mislam2/reliquary-tc-headless-vaultbackend-full-vault-state`
 
 > **2026-07-30 update (WP0.2):** the `VaultBackend` interface and `FilesystemBackend` class
 > described below have been **deleted** — see
@@ -16,8 +16,8 @@
 
 ## Context
 
-turbovault runs filesystem-native and headless; cyanheads and obsidian-tc both require
-Obsidian running. Headless is the one axis turbovault leads. Closing it brings obsidian-tc
+turbovault runs filesystem-native and headless; cyanheads and reliquary-tc both require
+Obsidian running. Headless is the one axis turbovault leads. Closing it brings reliquary-tc
 to parity while keeping the live-app edge turbovault structurally cannot have, and erases
 cyanheads' plugin setup-friction. Scope is **A + Tasks-query**: full vault-*state* headless;
 action-firing tools degrade.

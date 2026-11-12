@@ -116,7 +116,7 @@ function scanForConflictCopies(
   return { matches, truncated };
 }
 
-const SERVER_PACKAGE_NAME = "obsidian-tc";
+const SERVER_PACKAGE_NAME = "reliquary-tc";
 /** Bounds the upward package.json search — generous for any realistic checkout or install depth,
  *  tight enough that a frozen build-machine path from `bun --compile` (see below) cannot walk all
  *  the way to the filesystem root on an unrelated machine. */
@@ -124,7 +124,7 @@ const PACKAGE_ROOT_SEARCH_BOUND = 6;
 
 /**
  * Resolve the install directory — "the package root the running server was loaded from" — by
- * walking up from this module's own `import.meta.url` until a `package.json` named "obsidian-tc"
+ * walking up from this module's own `import.meta.url` until a `package.json` named "reliquary-tc"
  * is found.
  *
  * This works unchanged for both a source checkout (src/doctor -> src -> server, 2 hops) and a

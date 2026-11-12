@@ -1,8 +1,8 @@
-// PR B of GH #995's two-part follow-up (PR A: #1001, `obsidian-tc setup`). `serve` used to just
+// PR B of GH #995's two-part follow-up (PR A: #1001, `reliquary-tc setup`). `serve` used to just
 // error — "no vault or config given" — the moment it was launched with nothing to boot from: no
-// `--config`/positional, no OBSIDIAN_TC_CONFIG, and no default config on disk yet. That is exactly
+// `--config`/positional, no RELIQUARY_TC_CONFIG, and no default config on disk yet. That is exactly
 // the shape most first-time operators hit: an MCP client (Claude Desktop, Cursor, Claude Code)
-// launches `obsidian-tc` with NO arguments at all, because its own config only names the command.
+// launches `reliquary-tc` with NO arguments at all, because its own config only names the command.
 //
 // This module runs PR A's own detection/decision pass (`detect`/`decideSetup`/`buildSetupConfig`/
 // `writeSetupConfig` — cli/commands/setup.ts, cli/setup/{decide,write}.ts) exactly once, non-
@@ -13,7 +13,7 @@
 // once, write the decision explicitly, never guess" principle PR A's own header states, applied to
 // the one case where there is no operator watching a prompt to confirm it.
 //
-// Race safety: several MCP clients can launch `obsidian-tc serve` with no config at the exact same
+// Race safety: several MCP clients can launch `reliquary-tc serve` with no config at the exact same
 // moment (Claude Desktop + Claude Code + Cursor all pointed at the same fresh install). PR A's own
 // no-`--force` write path is already end-to-end exclusive (cli/setup/write.ts's
 // finalizeExclusiveCreate: a hard link from an already-fsynced temp file, EEXIST if the target now
@@ -21,7 +21,7 @@
 // through the real loader and boots with that, so two concurrent first-runs converge on ONE file
 // and both processes still boot.
 import { existsSync } from "node:fs";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { finalizeConfig, readConfigFile } from "../../config/load";
 import { CliError } from "../cli-error";
 import { detect } from "../commands/setup";
@@ -77,21 +77,21 @@ async function readRacedConfigFile(path: string): Promise<Record<string, unknown
     : new CliError(`could not read a valid config from ${path} after racing another process`);
 }
 
-/** PR B's own opt-out (this repo's established `OBSIDIAN_TC_*` env-var pattern, e.g.
- *  OBSIDIAN_TC_CONFIG/OBSIDIAN_TC_GATEWAY_URL) — an operator (or a script that means to see the
+/** PR B's own opt-out (this repo's established `RELIQUARY_TC_*` env-var pattern, e.g.
+ *  RELIQUARY_TC_CONFIG/RELIQUARY_TC_GATEWAY_URL) — an operator (or a script that means to see the
  *  bare "no vault or config given" error, e.g. to catch it) sets this to skip the fallback
  *  entirely and get PR A's pre-existing behavior back unchanged. */
-export const NO_AUTO_SETUP_ENV_VAR = "OBSIDIAN_TC_NO_AUTO_SETUP";
+export const NO_AUTO_SETUP_ENV_VAR = "RELIQUARY_TC_NO_AUTO_SETUP";
 
 /**
  * Whether `serve` should even attempt the fallback — pure, checked BEFORE any of PR A's own I/O
  * (registry probe, Ollama probe, hardware probe, ...) runs at all. Every condition below must
  * hold:
  *  - no `--config`/positional path was given to `serve` at all (`input === undefined`)
- *  - OBSIDIAN_TC_CONFIG is not set (the same env var `resolveServeConfigWithProvenance` itself
+ *  - RELIQUARY_TC_CONFIG is not set (the same env var `resolveServeConfigWithProvenance` itself
  *    falls back to first — this function is checked strictly BEFORE that resolution, so it must
  *    apply the identical rule or the fallback and the real resolver could disagree)
- *  - OBSIDIAN_TC_NO_AUTO_SETUP is not set (see its own doc comment above)
+ *  - RELIQUARY_TC_NO_AUTO_SETUP is not set (see its own doc comment above)
  *  - the conventional target (`defaultSetupConfigPath()`) does not already exist — an existing
  *    config, however it got there, is `serve`'s to load, never this fallback's to touch
  */
@@ -106,7 +106,7 @@ export function shouldAttemptFirstRunFallback(deps: {
   // read either shape as "input WAS given" and never even attempted the fallback for the exact
   // first-run shape (a Claude Desktop MCPB launch with a blank field) this feature is for.
   if (deps.input !== undefined && !isUnusableInput(deps.input)) return false;
-  if ((deps.env.OBSIDIAN_TC_CONFIG?.length ?? 0) > 0) return false;
+  if ((deps.env.RELIQUARY_TC_CONFIG?.length ?? 0) > 0) return false;
   if (deps.env[NO_AUTO_SETUP_ENV_VAR] === "1") return false;
   return !existsSync(defaultSetupConfigPath());
 }
@@ -208,11 +208,11 @@ export function formatFirstRunSetupNotice(
   const verb =
     result.outcome === "written"
       ? "wrote"
-      : "found (written by another obsidian-tc process starting at the same time)";
+      : "found (written by another reliquary-tc process starting at the same time)";
   return (
-    `obsidian-tc: no config found — auto-${verb} one at ${result.path} ` +
+    `reliquary-tc: no config found — auto-${verb} one at ${result.path} ` +
     `(vault: ${result.config.vaults.map((v) => `${v.id}: ${v.path}`).join(", ")}). ` +
-    "Run `obsidian-tc setup` to review or change it.\n"
+    "Run `reliquary-tc setup` to review or change it.\n"
   );
 }
 
@@ -220,5 +220,5 @@ export function formatFirstRunSetupNotice(
  *  write (0/>=2 vaults, or a refusal) — so the operator is told WHY nothing was auto-configured,
  *  not just that it wasn't. */
 export function formatFirstRunFallbackDeclinedHint(reason: string): string {
-  return `obsidian-tc: auto-setup did not run: ${reason}. Run \`obsidian-tc setup\` to configure one explicitly, or pass a vault path.\n`;
+  return `reliquary-tc: auto-setup did not run: ${reason}. Run \`reliquary-tc setup\` to configure one explicitly, or pass a vault path.\n`;
 }

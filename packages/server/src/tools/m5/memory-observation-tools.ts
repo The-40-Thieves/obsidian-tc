@@ -9,7 +9,7 @@
 // blob, hidden from default reads, still reachable with get_entity's `as_of` and rendered under
 // the note's Superseded section. There is NO hard delete. A correction also opens a fresh
 // interval carrying the old one's key, so key supersession keeps working across an edit.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
 import type { ToolDefinition } from "../../mcp/registry";

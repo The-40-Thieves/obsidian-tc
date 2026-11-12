@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "reliquary-tc",
+  "displayName": "Reliquary-TC",
+  "version": "1.34.0",
+  "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations. Launches the published reliquary-tc npm package over stdio.",
+  "author": {
+    "name": "The 40 Thieves"
+  },
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [],
+    "commands": [],
+    "hooks": [],
+    "reminders": [],
+    "mcpServers": [
+      {
+        "id": "reliquary-tc",
+        "transport": "stdio",
+        "command": ["npx", "-y", "reliquary-tc@1.34.0"]
+      }
+    ]
+  }
+}

@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { runMigrations } from "../src/db/migrate";
@@ -921,7 +921,7 @@ describe("memoryDefense fail closed — a scanner exception on an in-scope write
       observations: [`a fact carrying ${THROW_SENTINEL}`],
     });
     const text = await metrics.metrics();
-    expect(text).toContain('obsidian_tc_memory_defense_hits_total{pattern="scanner_error"} 1');
+    expect(text).toContain('reliquary_tc_memory_defense_hits_total{pattern="scanner_error"} 1');
   });
 });
 
@@ -972,8 +972,8 @@ describe("memoryDefense LEAK — the raw secret never surfaces anywhere observab
     const metricsText = await metrics.metrics();
     expect(metricsText).not.toContain(secret);
     expect(metricsText).not.toContain(ssn);
-    expect(metricsText).toContain('obsidian_tc_memory_defense_hits_total{pattern="openai_key"} 1');
-    expect(metricsText).toContain('obsidian_tc_memory_defense_hits_total{pattern="ssn"} 1');
+    expect(metricsText).toContain('reliquary_tc_memory_defense_hits_total{pattern="openai_key"} 1');
+    expect(metricsText).toContain('reliquary_tc_memory_defense_hits_total{pattern="ssn"} 1');
   });
 
   it("redact mode: the materialized note and every tool response are clean of the raw value", async () => {
@@ -1514,9 +1514,9 @@ describe("review finding 6 — labeled_secret confidence tiers (block mode never
     });
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_memory_defense_hits_total{pattern="labeled_secret_low_confidence"} 1',
+      'reliquary_tc_memory_defense_hits_total{pattern="labeled_secret_low_confidence"} 1',
     );
-    expect(text).not.toContain('obsidian_tc_memory_defense_hits_total{pattern="labeled_secret"}');
+    expect(text).not.toContain('reliquary_tc_memory_defense_hits_total{pattern="labeled_secret"}');
   });
 
   it("block mode: a realistic mixed-class labeled secret (api_key = 32 random chars) IS refused", async () => {

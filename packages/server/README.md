@@ -1,8 +1,8 @@
-# obsidian-tc (server)
+# reliquary-tc (server)
 
 MCP server for Obsidian. Comprehensive tool surface for humans and autonomous agents.
 
-This is the main package — published to npm as `obsidian-tc`.
+This is the main package — published to npm as `reliquary-tc`.
 
 See the [repo root README](../../README.md) for project overview and the
 [ARCHITECTURE](../../ARCHITECTURE.md) record for the dispatch pipeline and topology.
@@ -14,9 +14,9 @@ M0–M7) is implemented and released. Built on Bun + Hono with Zod 4 schemas; ru
 Node `>=24` (the test suite runs vitest under Node for `node:sqlite`).
 
 ```bash
-npm install -g obsidian-tc
-obsidian-tc /path/to/vault            # zero-config: single vault "main", all defaults
-obsidian-tc serve ./config.json       # or a config file (multi-vault, auth, ACLs, embeddings)
+npm install -g reliquary-tc
+reliquary-tc /path/to/vault            # zero-config: single vault "main", all defaults
+reliquary-tc serve ./config.json       # or a config file (multi-vault, auth, ACLs, embeddings)
 ```
 
 ## CLI commands

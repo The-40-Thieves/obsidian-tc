@@ -1,4 +1,4 @@
-// THE-650 — `obsidian-tc import-highlights`. Pulls highlights from a configured read-later
+// THE-650 — `reliquary-tc import-highlights`. Pulls highlights from a configured read-later
 // source (Readwise first: capture/readwise.ts) and stages them in capture_queue via
 // `ingestHighlights` (capture/highlight-import.ts), source: "import" — the same staged-content,
 // human-review-before-vault-write path every capture_queue producer uses (THE-855's poison scan

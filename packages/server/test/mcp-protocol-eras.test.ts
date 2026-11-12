@@ -18,7 +18,7 @@
 // traffic and the v2 client only speaks to what it negotiates, so neither can assert BOTH eras.
 // The wire is the contract here.
 
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -49,7 +49,7 @@ async function boot() {
     auth: { mode: "none" },
   }).auth;
   return startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,
@@ -172,7 +172,7 @@ describe("protocol eras — one server serves 2025-11-25 and 2026-07-28 (THE-583
         // Capabilities must mirror what the server actually serves, or discovery misleads.
         expect(d.json.result.capabilities).toHaveProperty("tools");
         expect(d.json.result._meta?.["io.modelcontextprotocol/serverInfo"]?.name).toBe(
-          "obsidian-tc",
+          "reliquary-tc",
         );
       } finally {
         await h.close();

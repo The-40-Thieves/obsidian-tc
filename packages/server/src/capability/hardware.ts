@@ -1,6 +1,6 @@
 // THE-522 — hardware envelope.
 //
-// Descriptive only. obsidian-tc is CPU-only by design; this exists so agents and CI can READ the
+// Descriptive only. reliquary-tc is CPU-only by design; this exists so agents and CI can READ the
 // machine instead of guessing it, not to gate any GPU path. The node:os baseline is always present;
 // systeminformation enrichment is best-effort and degrades to the baseline if it throws (it shells
 // out, and a sandboxed/locked-down box can refuse it).

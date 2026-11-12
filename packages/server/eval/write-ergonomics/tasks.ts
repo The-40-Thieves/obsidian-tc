@@ -33,10 +33,10 @@ export interface Task {
   /** main = trusted-local defaults; hardened = readPaths/writePaths ACL + requireCas. */
   arm: "main" | "hardened";
   prompt: string;
-  /** approved: the prompt grants approval and the client may run `obsidian-tc elicit`. */
+  /** approved: the prompt grants approval and the client may run `reliquary-tc elicit`. */
   hitl?: "approved";
   hook?: HookSpec;
-  /** Fewest real obsidian-tc operations (excluding find/describe) a competent agent needs. */
+  /** Fewest real reliquary-tc operations (excluding find/describe) a competent agent needs. */
   refCalls: number;
   check(c: CheckCtx): CheckResult;
   /** Apply the correct outcome directly to the vault (harness self-test only). */

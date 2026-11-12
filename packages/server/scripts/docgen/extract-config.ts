@@ -6,7 +6,7 @@
 // `.shape`; ZodArray carries `.def.element`; ZodEnum carries `.def.entries`. We unwrap wrappers to the
 // leaf (collecting the default + optionality on the way), recurse into objects and array-of-object
 // elements, and record a ConfigDoc for each scalar/enum/array leaf.
-import { ServerConfigObject } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigObject } from "@the-40-thieves/reliquary-tc-shared";
 import type { ConfigDoc } from "./model";
 
 // The Zod-internal surface we read. Kept local + loose so a Zod point-release can't break the build;

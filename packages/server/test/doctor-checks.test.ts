@@ -412,7 +412,7 @@ describe("THE-696 search.notes_fts check", () => {
   });
 
   it("reports FTS as off rather than unsound when FTS5 is unavailable", async () => {
-    // OBSIDIAN_TC_DISABLE_FTS=1 or an adapter built without FTS5 is a supported configuration —
+    // RELIQUARY_TC_DISABLE_FTS=1 or an adapter built without FTS5 is a supported configuration —
     // the query layer falls back to disk scans. Calling that "malformed" would be a false alarm.
     const r = await notesFtsIntegrityCheck({ ftsEnabled: false }).run(ctx);
     expect(r.status).toBe("ok");

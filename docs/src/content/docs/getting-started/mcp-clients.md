@@ -1,6 +1,6 @@
 ---
 title: MCP client compatibility
-description: Which MCP clients connect to obsidian-tc, over which transports, and what each one actually sees. Measured rows only — untested cells say so.
+description: Which MCP clients connect to reliquary-tc, over which transports, and what each one actually sees. Measured rows only — untested cells say so.
 ---
 
 **This table is incomplete on purpose.** Every filled cell was observed against a running server;
@@ -9,14 +9,14 @@ inferred is worth less than no matrix, because a reader cannot tell which cells 
 
 Contributions welcome — the [reproduction steps](#reproducing-a-row) below are the whole method.
 
-See also [`MCP-CLIENT-COMPAT-MATRIX.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/MCP-CLIENT-COMPAT-MATRIX.md)
+See also [`MCP-CLIENT-COMPAT-MATRIX.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/MCP-CLIENT-COMPAT-MATRIX.md)
 for known MCP client versions' protocol-revision ceilings sourced from outside this repo
-(not measured against a running obsidian-tc), alongside this server's own per-revision behavior for
+(not measured against a running reliquary-tc), alongside this server's own per-revision behavior for
 client identity and the deprecated Logging/Roots/Sampling features.
 
 ## The matrix
 
-Measured against **obsidian-tc 1.19.0** on **Ubuntu 24.04 aarch64** (Ampere), which is also the
+Measured against **reliquary-tc 1.19.0** on **Ubuntu 24.04 aarch64** (Ampere), which is also the
 platform of a required CI leg and of the maintainer's production deployment.
 
 **Re-verified on 1.20.0 (2026-08-07)** by re-running the stdio probe from
@@ -54,7 +54,7 @@ been exercised.
     the shipped default).
 
 **Why daily production use does not fill them.** It is reasonable to assume a server in constant use
-must know which clients connect to it — obsidian-tc even captures `client_name` / `client_version`
+must know which clients connect to it — reliquary-tc even captures `client_name` / `client_version`
 from MCP `_meta`. In the maintainer's deployment those columns are `NULL` on every session, because
 every request arrives through a gateway that presents its own principal; the end-user client sits
 behind that hop and is structurally invisible to the server. So this matrix cannot be back-filled
@@ -83,7 +83,7 @@ stays `triad`.
 - **Pre-registered.** The task set, metrics and decision rule were frozen before the first measured
   run (`PREREGISTRATION.md`, sha256
   `aecd3a921eb4c5c272ef777a49ff9659104752b0623aa39a6cfbc9abbb339588`, recorded 2026-10-02T04:28:53Z).
-  The harness is [`eval/write-ergonomics`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/packages/server/eval/write-ergonomics)
+  The harness is [`eval/write-ergonomics`](https://github.com/The-40-Thieves/reliquary-tc/tree/main/packages/server/eval/write-ergonomics)
   (`--facade triad|domain|flat --task-set facade`).
 - **Tasks.** 16, all arm `main`: six write tasks that begin with a find step (tag a note found by title,
   bulk-tag five notes, update a memory observation, rename with backlinks, set a frontmatter field,
@@ -93,13 +93,13 @@ stays `triad`.
   answer.
 - **Metrics.** Task success; calls-to-success (server `tools/call` plus the client's own tool-search
   calls, passing trials only); tool-not-found errors (the server's unknown-tool answers plus the
-  client's own "no such tool" for an obsidian-tc tool).
+  client's own "no such tool" for a reliquary-tc tool).
 - **Rule.** Modes within 2 trials of the best success are tied; among tied modes, fewer calls, then fewer
   not-found, then fewer tokens. The default is kept unless another mode beats it on success by more than
   the tie band, or ties it on success and is better on both calls and not-found. Detectable difference
   at 32 trials per cell is roughly 20–35 points of success rate; smaller gaps are "not distinguished".
 - **Scope.** Claude Code 2.1.285 (`claude-sonnet-5-5`), Codex CLI 0.159.2 (default model `gpt-6.1-sol`,
-  Pro plan; see [Codex CLI](#codex-cli) for its own pre-registration), obsidian-tc 1.31.8, stdio,
+  Pro plan; see [Codex CLI](#codex-cli) for its own pre-registration), reliquary-tc 1.31.8, stdio,
   local embedder (semantic search degraded, identical on every trial), a 1,357-note vault plus seeded
   notes. The note with unparseable frontmatter used by the write-ergonomics tasks was left out because it
   makes backlink, tag and base queries fail vault-wide, which would swamp this comparison.
@@ -126,7 +126,7 @@ previous trial; read them as a ratio between rows, not as a price.
 
 - **Success is at the ceiling (96 of 96 with tool search on), so it cannot separate the modes.** The
   deferred-tool path works: the model reads the advertised names, loads the one it wants with
-  `ToolSearch`, and calls it, in every mode. No trial hit a "no such tool" for an obsidian-tc tool.
+  `ToolSearch`, and calls it, in every mode. No trial hit a "no such tool" for a reliquary-tc tool.
 - **`domain` makes the model guess arguments.** Every one of its 32 trials had at least one validation
   error, usually the missing `vault`: a domain tool's schema is `{ action, args }`, so the per-action
   schema is not visible until the call fails. `triad` shows it through `describe_capability`, `flat`
@@ -151,13 +151,13 @@ find-then-call facade: `tool_search` can miss a deferred tool even when the quer
 The Codex cells were measured in a follow-up once the usage limit that cut the first matrix short had
 lifted: a separate pre-registration (sha256
 `e7402a1cff9681203275ee97af08c9b73b002474d744c937896bf57131675289`, recorded 2026-10-02T21:33:31Z, four
-addenda) with the same 16 tasks, corpus, checkers, server build (obsidian-tc 1.31.8 at `eb637ce3`) and rule.
+addenda) with the same 16 tasks, corpus, checkers, server build (reliquary-tc 1.31.8 at `eb637ce3`) and rule.
 All three modes were re-run together, sequentially, one headless Codex process at a time, under Codex CLI
 0.159.2 and one default model (`gpt-6.1-sol`, probed before and after every cell), because the earlier
 `triad` cell did not record its model and its one miss was the since-fixed checker. 64 trials per mode
 (4 reps, because the rule's "close cell" test asked for reps 3 and 4), every trial confirmed complete (a
 `turn.completed` event, exit 0, a final message). The record is in
-[the Codex cells measurement note](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/plans/2026-10-02-facade-codex-cells-measurement.md).
+[the Codex cells measurement note](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/plans/2026-10-02-facade-codex-cells-measurement.md).
 
 | Codex CLI | success | median calls-to-success | trials with an error (errors) | tool-not-found | median billable tokens |
 |---|---|---|---|---|---|
@@ -202,7 +202,7 @@ These rows are **unmeasured — recommendation from docs**, not a result.
 - **Gemini CLI** — recommend `triad`. Each MCP tool is exposed as `mcp_<server>_<tool>`, characters other
   than letters, digits, `_`, `-`, `.` and `:` become `_`, and names over 63 characters are truncated
   ([MCP server docs](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)).
-  obsidian-tc's longest tool name is 28 characters, so `mcp_obsidian-tc_<tool>` stays under that limit in
+  reliquary-tc's longest tool name is 28 characters, so `mcp_reliquary-tc_<tool>` stays under that limit in
   every mode; the choice is therefore about context cost, and the three-tool surface is the smallest.
   The page documents no deferral of MCP tools.
 - **Claude Desktop, VS Code** — no client-specific evidence was gathered; keep the default.
@@ -222,8 +222,8 @@ within milliseconds:
 
 | Client | What it does headless | What the server returns | What to do |
 |---|---|---|---|
-| Claude Code (`claude -p`) | Advertises elicitation, then auto-**cancels** | `approval_not_obtained`, with a `recovery` that names the `obsidian-tc elicit` route | Offer the out-of-band route: mint a token with `obsidian-tc elicit` and let the agent retry, or run the operation yourself |
-| Codex (`codex exec`) | Advertises elicitation, then auto-**declines** | `approval_declined`: a hard stop, the agent is told not to retry or mint a token | The agent cannot recover. Approve it yourself: mint the token with `obsidian-tc elicit` in your own shell and retry, or run the tool interactively |
+| Claude Code (`claude -p`) | Advertises elicitation, then auto-**cancels** | `approval_not_obtained`, with a `recovery` that names the `reliquary-tc elicit` route | Offer the out-of-band route: mint a token with `reliquary-tc elicit` and let the agent retry, or run the operation yourself |
+| Codex (`codex exec`) | Advertises elicitation, then auto-**declines** | `approval_declined`: a hard stop, the agent is told not to retry or mint a token | The agent cannot recover. Approve it yourself: mint the token with `reliquary-tc elicit` in your own shell and retry, or run the tool interactively |
 | Cursor, Gemini CLI, Claude Desktop, VS Code | Not measured | | Follow the [HITL page](/security/hitl-elicit/); do not assume a prompt is rendered |
 
 Measured in the write-ergonomics study with Claude Code 2.1.285 and Codex 0.159.2: both advertised
@@ -238,14 +238,14 @@ The server announces itself and serves without a token:
 
 ```
 security: profile=trusted-local auth=jwt readOnly=false strictRead=false requireCas=false http=on
-obsidian-tc 1.19.0 ready on stdio (vault agents; native=on vec=on)
+reliquary-tc 1.19.0 ready on stdio (vault agents; native=on vec=on)
 ```
 
 `initialize` returns:
 
 ```json
 { "protocolVersion": "2025-11-25",
-  "serverInfo": { "name": "obsidian-tc", "version": "1.19.0" },
+  "serverInfo": { "name": "reliquary-tc", "version": "1.19.0" },
   "capabilities": { "tools":     { "listChanged": true },
                     "prompts":   { "listChanged": true },
                     "resources": { "listChanged": true, "subscribe": true },
@@ -319,7 +319,7 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"probe","version":"0.1"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-| obsidian-tc serve ./my-config.json
+| reliquary-tc serve ./my-config.json
 ```
 
 The process stays alive after answering — stdio has no end-of-stream. Read the responses and stop it.
@@ -347,5 +347,5 @@ Omit the `Authorization` header to observe the refusal path.
   a model can self-correct from the validation issues. Every result also carries a text block that
   answers the call on its own, for clients that read only `content`. If a client mishandles the
   advertised schema itself, set `toolFacade.outputSchema: omit` (see
-  [MCP compatibility](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/MCP-COMPATIBILITY.md)).
+  [MCP compatibility](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/MCP-COMPATIBILITY.md)).
 - **Auth** — which transports demand a bearer under `auth.mode: "jwt"`.

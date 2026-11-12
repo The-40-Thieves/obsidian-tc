@@ -1,4 +1,4 @@
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchFn } from "../src/embeddings/http";
 import {
@@ -164,12 +164,12 @@ describe("reranker slot", () => {
   });
 
   it("gateway yields null when no gateway URL is configured", async () => {
-    const prev = process.env.OBSIDIAN_TC_GATEWAY_URL;
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const prev = process.env.RELIQUARY_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     try {
       expect(await resolveReranker({ provider: "gateway", model: "rerank" }, {})).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.OBSIDIAN_TC_GATEWAY_URL = prev;
+      if (prev !== undefined) process.env.RELIQUARY_TC_GATEWAY_URL = prev;
     }
   });
 
@@ -285,7 +285,7 @@ describe("local reranker (THE-705)", () => {
         attempts: [
           {
             route: "bare-specifier",
-            target: "@the-40-thieves/obsidian-tc-reranker-local",
+            target: "@the-40-thieves/reliquary-tc-reranker-local",
             ok: false,
             error: "Cannot find module",
           },
@@ -388,12 +388,12 @@ describe("cohere-compatible forwards apiKey and timeoutMs (not just model/baseUr
 // that has never heard of the new `reranker` key. Exercises wireGatewaySeams directly rather than
 // resolveReranker, because that precedence chain lives in tool-wiring.ts, not the registry.
 describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
-  const prevGatewayUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
+  const prevGatewayUrl = process.env.RELIQUARY_TC_GATEWAY_URL;
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    if (prevGatewayUrl === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-    else process.env.OBSIDIAN_TC_GATEWAY_URL = prevGatewayUrl;
+    if (prevGatewayUrl === undefined) delete process.env.RELIQUARY_TC_GATEWAY_URL;
+    else process.env.RELIQUARY_TC_GATEWAY_URL = prevGatewayUrl;
   });
 
   function embeddingsWith(modelTierFullBaseUrl?: string) {
@@ -413,7 +413,7 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
   }
 
   it("neither model-tier.full nor a gateway URL configured -> null, exactly as before", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     // THE-944 review round 1 (F3): this test now injects a resolver that ALWAYS reports
     // unresolvable, rather than relying on packages/reranker-local/dist being absent on the real
     // filesystem. Before this fix, that ambient assumption made this suite order-dependent on
@@ -436,19 +436,19 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
   });
 
   it("only model-tier.full configured -> the model-tier reranker is reachable", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const { reranker } = await wireGatewaySeams(embeddingsWith("https://model-tier-full"));
     expect(reranker).not.toBeNull();
   });
 
   it("only a gateway URL configured -> the gateway reranker is reachable", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
+    process.env.RELIQUARY_TC_GATEWAY_URL = "https://gw";
     const { reranker } = await wireGatewaySeams(embeddingsWith());
     expect(reranker).not.toBeNull();
   });
 
   it("BOTH configured, no reranker block -> model-tier wins over gateway (unchanged precedence)", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
+    process.env.RELIQUARY_TC_GATEWAY_URL = "https://gw";
     const hits: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -465,7 +465,7 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
   });
 
   it("a declared reranker block wins even when model-tier.full is ALSO configured", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
+    process.env.RELIQUARY_TC_GATEWAY_URL = "https://gw";
     const hits: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -497,15 +497,15 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
 // RRF-only — the two cases above prove the absent-block path is unchanged, these two prove the
 // declared-block path now fails loudly instead of falling back.
 describe("wireGatewaySeams — a DECLARED block that resolves to null throws at boot", () => {
-  const prevGatewayUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
+  const prevGatewayUrl = process.env.RELIQUARY_TC_GATEWAY_URL;
 
   afterEach(() => {
-    if (prevGatewayUrl === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-    else process.env.OBSIDIAN_TC_GATEWAY_URL = prevGatewayUrl;
+    if (prevGatewayUrl === undefined) delete process.env.RELIQUARY_TC_GATEWAY_URL;
+    else process.env.RELIQUARY_TC_GATEWAY_URL = prevGatewayUrl;
   });
 
   it("declared model-tier without embeddings.modelTier.full throws, naming the missing field", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const embeddings = ServerConfigSchema.parse({
       vaults: [{ id: "main", path: "/v" }],
       embeddings: { provider: "ollama" },
@@ -526,8 +526,8 @@ describe("wireGatewaySeams — a DECLARED block that resolves to null throws at 
     expect(message).toContain("embeddings.modelTier.full");
   });
 
-  it("declared gateway with no baseUrl and no OBSIDIAN_TC_GATEWAY_URL throws, naming both sources", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+  it("declared gateway with no baseUrl and no RELIQUARY_TC_GATEWAY_URL throws, naming both sources", async () => {
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const embeddings = ServerConfigSchema.parse({
       vaults: [{ id: "main", path: "/v" }],
       embeddings: { provider: "ollama" },
@@ -546,6 +546,6 @@ describe("wireGatewaySeams — a DECLARED block that resolves to null throws at 
     ).rejects.toBeTruthy();
     expect(message).toContain("gateway");
     expect(message).toContain("reranker.baseUrl");
-    expect(message).toContain("OBSIDIAN_TC_GATEWAY_URL");
+    expect(message).toContain("RELIQUARY_TC_GATEWAY_URL");
   });
 });

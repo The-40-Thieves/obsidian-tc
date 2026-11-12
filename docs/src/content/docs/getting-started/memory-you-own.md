@@ -3,7 +3,7 @@ title: Memory you own
 description: What a memory entity actually is on disk, which ACL/audit pipeline writes it, how git provenance works, how to recall it (with and without semantic search), and a session-bootstrap recipe for reading and writing it back across sessions.
 ---
 
-obsidian-tc's memory graph is not a vendor-hosted "memory feature" — it is **plain Markdown files in
+reliquary-tc's memory graph is not a vendor-hosted "memory feature" — it is **plain Markdown files in
 your vault**, versioned by whatever git history your vault already has, queryable with the same
 tools that read any other note. This page shows the actual on-disk shape (generated from a real
 `create_entity` + `add_observation` + `link_entities` run, pasted verbatim, not invented), names
@@ -22,19 +22,19 @@ the *source* entity's note. The link names the target's note as it is filed (the
 path and link characters such as `/ : # ^ | [ ]` replaced by `-`), so a name holding `]]` can never
 close the link early, and the link still resolves to that note.
 
-The shape below is a real note — specifically, the output of `obsidian-tc memory import --from
+The shape below is a real note — specifically, the output of `reliquary-tc memory import --from
 basic-memory --apply` (the importer covered later on this page), which itself calls `create_entity`,
 `update_frontmatter` (the `imported_from`/`source_path`/`imported_at` keys — the importer is what
 adds those, not a bare `create_entity` call), and `link_entities`, in that order — run against a
 scratch copy of
-[`examples/scratch-vault`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/examples/scratch-vault)
+[`examples/scratch-vault`](https://github.com/The-40-Thieves/reliquary-tc/tree/main/examples/scratch-vault)
 and then read back off disk. A note you create with `create_entity`/`add_observation` directly (an
 MCP client, not the importer) looks the same MINUS the three `imported_*` keys — those are specific
 to notes the importer touched.
 
 ```md
 ---
-obsidian_tc_id: ent_72d95a75a7a5c176ece73b07
+reliquary_tc_id: ent_72d95a75a7a5c176ece73b07
 entity_type: note
 status: active
 imported_from: basic-memory
@@ -53,11 +53,11 @@ imported_at: 2026-09-25T05:22:47.231Z
 - relates_to [[Tea Brewing Methods]]
 ```
 
-`obsidian_tc_id`/`entity_type`/`status` are the ONLY frontmatter keys the projection owns
+`reliquary_tc_id`/`entity_type`/`status` are the ONLY frontmatter keys the projection owns
 (`packages/server/src/memory/materialize.ts`'s `OWNED_FM_KEYS`) — every other key, including the
 `imported_from`/`source_path`/`imported_at` provenance keys above, is **preserved verbatim** across
 every future re-materialization (another `add_observation`, another `link_entities`). That is how
-`obsidian-tc memory import` (below) can layer provenance onto a note without a special-cased write
+`reliquary-tc memory import` (below) can layer provenance onto a note without a special-cased write
 path of its own — it merges frontmatter through the same `update_frontmatter` tool an MCP client
 would call, and materialize.ts's ordinary round-trip discipline keeps it.
 
@@ -175,12 +175,12 @@ A relation is written into the readable entity's note as a `[[link]]`, so a read
 linked entity's name even when the entity itself is hidden from them (its observations stay hidden).
 
 If you set `readPaths` for an agent and still want it to use memory, add the memory folder to it,
-for example `"readPaths": ["public/**", "memory/**"]`. `obsidian-tc doctor --probe` warns
+for example `"readPaths": ["public/**", "memory/**"]`. `reliquary-tc doctor --probe` warns
 (`memory.read-acl`) when your ACL hides memory entities that exist.
 
 ## Git provenance
 
-obsidian-tc does not auto-commit. Materialized memory notes are ordinary files in your vault, so
+reliquary-tc does not auto-commit. Materialized memory notes are ordinary files in your vault, so
 "who wrote this and when" is answered the same way it is for any other note:
 
 - **Plain `git log -p -- memory/note/…`** on the vault repo, if you keep it under git — every
@@ -191,7 +191,7 @@ obsidian-tc does not auto-commit. Materialized memory notes are ordinary files i
   audit pipeline above — `git_commit` requires `execute:git`, a hardcoded human-confirmation floor,
   so an agent can stage and *propose* a commit but never lands one without you approving it.
 - If your vault's Obsidian Git plugin has its own autosave/auto-commit interval configured, that is
-  the plugin's own author/timestamp policy, independent of obsidian-tc.
+  the plugin's own author/timestamp policy, independent of reliquary-tc.
 
 Either way, the provenance frontmatter above (`source_path`, `imported_at`) already answers "where
 did this come from" without needing git at all — git only adds "and when did it change since."
@@ -281,14 +281,14 @@ spends its calls on.
 
 ## Importing memory you already have
 
-`obsidian-tc memory import` brings notes from two other memory formats into this graph, through the
+`reliquary-tc memory import` brings notes from two other memory formats into this graph, through the
 exact write path above — dry-run by default, `--apply` to write. `<dir>` is the source directory;
 `[path]` (or `--config <path>`) is the same config-path argument every other command here takes —
-a bare vault folder, a config file, or omitted to fall back to `OBSIDIAN_TC_CONFIG`:
+a bare vault folder, a config file, or omitted to fall back to `RELIQUARY_TC_CONFIG`:
 
 ```
-obsidian-tc memory import --from basic-memory <dir> [path] --vault <id> [--apply] [--resume]
-obsidian-tc memory import --from claude-code-memory <dir> [path] --vault <id> [--apply] [--resume]
+reliquary-tc memory import --from basic-memory <dir> [path] --vault <id> [--apply] [--resume]
+reliquary-tc memory import --from claude-code-memory <dir> [path] --vault <id> [--apply] [--resume]
 ```
 
 Every write goes through the SAME per-vault ACL an MCP client's calls would see — a `readOnly` root
@@ -331,7 +331,7 @@ does not exist in the batch, and one file has deliberately malformed frontmatter
 lines above are followed by:
 
 ```
-obsidian-tc memory import --from basic-memory: DRY RUN (nothing was written; pass --apply to write)
+reliquary-tc memory import --from basic-memory: DRY RUN (nothing was written; pass --apply to write)
 
 Entities:
 action  type  name                    source_path                    observations
@@ -374,7 +374,7 @@ Summary: 0 entity(ies) to create, 3 already present, 0 resumed, 0 collision(s), 
 
 The pattern above generalizes into an ordinary session workflow: **at session start, read a small
 index note; load only the domain block the current task needs; write back at session close.** It
-needs no obsidian-tc feature beyond the tools already covered on this page —
+needs no reliquary-tc feature beyond the tools already covered on this page —
 `search_text`/`query_entity_graph`/`get_entity` to read, `create_entity`/`add_observation`/
 `link_entities` to write back. Keep the index small on purpose: it is a table of contents, not the
 memory itself, so loading it never costs more than a few tool calls regardless of how large the
@@ -416,10 +416,10 @@ your deployment has them wired.
 
 ## Watch it work: two sessions
 
-![obsidian-tc memory: session one imports and writes an entity, session two starts fresh and recalls it via search, graph, and a direct read](/demo/memory-two-sessions-storyboard.svg)
+![reliquary-tc memory: session one imports and writes an entity, session two starts fresh and recalls it via search, graph, and a direct read](/demo/memory-two-sessions-storyboard.svg)
 
 A static storyboard for now — `docs/demo/memory-two-sessions.tape` renders the animated version
 (`docs/public/demo/memory-two-sessions.gif`) once `vhs` is on your PATH. Every panel above was
 captured from the real commands on this page, run against a scratch copy of
-[`examples/scratch-vault`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/examples/scratch-vault),
+[`examples/scratch-vault`](https://github.com/The-40-Thieves/reliquary-tc/tree/main/examples/scratch-vault),
 not invented.

@@ -1,5 +1,5 @@
 // Wikilink-edge production for GraphRAG — THE-233 W-INGEST. Reconciles the vault_edges
-// table (W-SCHEMA) that W-RETRIEVAL's recursive CTE walks, by reusing obsidian-tc's existing
+// table (W-SCHEMA) that W-RETRIEVAL's recursive CTE walks, by reusing reliquary-tc's existing
 // link parser/resolver (vault/links.ts) rather than porting KMS ingest/edges.ts wholesale.
 //
 // The graph the walk reads: undirected `links_to`. So a resolved [[wikilink]] / ![[embed]]

@@ -8,11 +8,11 @@
 //   unauthenticated   a caller label the server saw but nobody proved (stdio's local operator, or
 //                     `auth.mode: none`). Kept apart from `verified` so it cannot pass for it.
 //   self_reported     whatever the client said about itself (MCP clientInfo, the
-//                     `io.obsidian-tc/provenance` _meta block). A client can lie; nothing here is
+//                     `io.reliquary-tc/provenance` _meta block). A client can lie; nothing here is
 //                     checked.
 //
 // Hashes only, ever: the record carries sha256 digests of note bytes, never content or prompts.
-import { CURRENT_NAMES, readMetaKey } from "@the-40-thieves/obsidian-tc-shared";
+import { CURRENT_NAMES, readMetaKey } from "@the-40-thieves/reliquary-tc-shared";
 import { cleanMetaString } from "../mcp/client-info";
 
 /** Request `_meta` key a client may set to say which model/project/agent/machine is calling. */

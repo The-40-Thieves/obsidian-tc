@@ -1,4 +1,4 @@
-// GH #995: on macOS, obsidian-tc run as `bun packages/server/dist/cli.js` over stdio (one process
+// GH #995: on macOS, reliquary-tc run as `bun packages/server/dist/cli.js` over stdio (one process
 // per MCP client) IGNORED a plain SIGTERM during the boot reconcile/embed pass — needing SIGKILL —
 // whenever that pass was still busy embedding (the reporter's in-process ONNX embedder ran at
 // ~330% CPU). Root cause, confirmed here rather than assumed: the boot reconcile's embed calls are

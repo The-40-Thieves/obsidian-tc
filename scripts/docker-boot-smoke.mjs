@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// docker-boot-smoke: boot a built obsidian-tc image with NO network and assert what its ready
+// docker-boot-smoke: boot a built reliquary-tc image with NO network and assert what its ready
 // banner says about the optional native pieces.
 //
 // Why this exists: `native` and `vec` are both optional at run time. The server loads the napi
@@ -8,7 +8,7 @@
 // builds, still answers `version`, still resolves @redis/client and still boots; the only trace is
 // the last word of the ready banner. The published 1.32.0 image shipped exactly that:
 //
-//   obsidian-tc 1.32.0 ready (http-only; stdio disabled; vault agents; native=js-fallback vec=off)
+//   reliquary-tc 1.32.0 ready (http-only; stdio disabled; vault agents; native=js-fallback vec=off)
 //
 // (its node_modules held only @redis/client's tree, which switched Bun's runtime auto-install off,
 // and auto-install was the only thing that had ever provided sqlite-vec). ci-docker's `version`
@@ -42,7 +42,7 @@ import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // The stdio and http-only banners differ in the middle ("ready on stdio (vault x; ..." vs
 // "ready (http-only; stdio disabled; vault x; ..."), so anchor on the tail both share.
-const BANNER = /obsidian-tc (\S+) ready\b.*\bnative=(on|js-fallback) vec=(on|off)\)/;
+const BANNER = /reliquary-tc (\S+) ready\b.*\bnative=(on|js-fallback) vec=(on|off)\)/;
 
 /** Parse the server's ready banner out of captured container output; null when there is none. */
 export function parseReadyBanner(output) {
@@ -241,7 +241,7 @@ const HEALTHZ_PROBE =
   'const r=await fetch("http://127.0.0.1:8765/healthz");const b=await r.json();if(r.status!==200||b.status!=="ok")throw new Error("healthz "+r.status+": "+JSON.stringify(b))';
 
 const MCP_CLIENT = String.raw`
-const token=process.env.OBSIDIAN_TC_SMOKE_TOKEN;
+const token=process.env.RELIQUARY_TC_SMOKE_TOKEN;
 if(!token)throw new Error("missing smoke token");
 const version="2025-11-25";
 async function rpc(id,method,params){
@@ -262,18 +262,18 @@ process.stdout.write(JSON.stringify(result));
 // One tools/call with the tool and its JSON arguments taken from the environment.
 const MCP_TOOL_PROBE =
   MCP_CLIENT +
-  `const result=await rpc(2,"tools/call",{name:process.env.OBSIDIAN_TC_SMOKE_TOOL,arguments:JSON.parse(process.env.OBSIDIAN_TC_SMOKE_ARGS)});
+  `const result=await rpc(2,"tools/call",{name:process.env.RELIQUARY_TC_SMOKE_TOOL,arguments:JSON.parse(process.env.RELIQUARY_TC_SMOKE_ARGS)});
 process.stdout.write(JSON.stringify(result));
 `;
 
 // Git mode helpers. The laptop is a clone on the runner; the container's vault is a clone of the
 // bare repository, which the container reaches through the file:// transport.
 const GIT_ENV = {
-  OBSIDIAN_TC_VAULT_GIT_URL: "file:///remote/vault.git",
-  OBSIDIAN_TC_VAULT_GIT_BRANCH: "main",
-  OBSIDIAN_TC_VAULT_GIT_AUTHOR: "Vault Bot <vault@example.test>",
-  OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL: "10",
-  OBSIDIAN_TC_VAULT_GIT_PUSH: "batched",
+  RELIQUARY_TC_VAULT_GIT_URL: "file:///remote/vault.git",
+  RELIQUARY_TC_VAULT_GIT_BRANCH: "main",
+  RELIQUARY_TC_VAULT_GIT_AUTHOR: "Vault Bot <vault@example.test>",
+  RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL: "10",
+  RELIQUARY_TC_VAULT_GIT_PUSH: "batched",
 };
 
 function sleepMs(ms) {
@@ -326,11 +326,11 @@ function mcpCall(name, token, tool, args) {
     [
       "exec",
       "-e",
-      "OBSIDIAN_TC_SMOKE_TOKEN",
+      "RELIQUARY_TC_SMOKE_TOKEN",
       "-e",
-      "OBSIDIAN_TC_SMOKE_TOOL",
+      "RELIQUARY_TC_SMOKE_TOOL",
       "-e",
-      "OBSIDIAN_TC_SMOKE_ARGS",
+      "RELIQUARY_TC_SMOKE_ARGS",
       name,
       "bun",
       "-e",
@@ -341,9 +341,9 @@ function mcpCall(name, token, tool, args) {
       timeout: 60_000,
       env: {
         ...process.env,
-        OBSIDIAN_TC_SMOKE_TOKEN: token,
-        OBSIDIAN_TC_SMOKE_TOOL: tool,
-        OBSIDIAN_TC_SMOKE_ARGS: JSON.stringify(args),
+        RELIQUARY_TC_SMOKE_TOKEN: token,
+        RELIQUARY_TC_SMOKE_TOOL: tool,
+        RELIQUARY_TC_SMOKE_ARGS: JSON.stringify(args),
       },
     },
   );
@@ -477,21 +477,21 @@ function runHttp(opts) {
   const gitEnv = gitMode ? GIT_ENV : {};
   const containerEnv = {
     ...process.env,
-    OBSIDIAN_TC_CONFIG: "/config/obsidian-tc.config.json",
-    OBSIDIAN_TC_VAULT_PATH: "/data/vault",
-    OBSIDIAN_TC_CACHE_DIR: "/data/cache",
+    RELIQUARY_TC_CONFIG: "/config/reliquary-tc.config.json",
+    RELIQUARY_TC_VAULT_PATH: "/data/vault",
+    RELIQUARY_TC_CACHE_DIR: "/data/cache",
     PORT: "8765",
-    OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
-    OBSIDIAN_TC_JWT_SECRET: randomBytes(32).toString("base64url"),
+    RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com",
+    RELIQUARY_TC_JWT_SECRET: randomBytes(32).toString("base64url"),
     ...gitEnv,
   };
   const envNames = [
-    "OBSIDIAN_TC_CONFIG",
-    "OBSIDIAN_TC_VAULT_PATH",
-    "OBSIDIAN_TC_CACHE_DIR",
+    "RELIQUARY_TC_CONFIG",
+    "RELIQUARY_TC_VAULT_PATH",
+    "RELIQUARY_TC_CACHE_DIR",
     "PORT",
-    "OBSIDIAN_TC_PUBLIC_URL",
-    "OBSIDIAN_TC_JWT_SECRET",
+    "RELIQUARY_TC_PUBLIC_URL",
+    "RELIQUARY_TC_JWT_SECRET",
     ...Object.keys(gitEnv),
   ];
   const problems = [];
@@ -564,7 +564,7 @@ function runHttp(opts) {
           "/app/packages/server/dist/cli.js",
           "token",
           "mint",
-          "/config/obsidian-tc.config.json",
+          "/config/reliquary-tc.config.json",
           "--sub",
           "docker-boot-smoke",
           "--vault",
@@ -581,11 +581,11 @@ function runHttp(opts) {
     if (problems.length === 0) {
       const mcp = spawnSync(
         trustedExecutable("docker"),
-        ["exec", "-e", "OBSIDIAN_TC_SMOKE_TOKEN", name, "bun", "-e", MCP_PROBE],
+        ["exec", "-e", "RELIQUARY_TC_SMOKE_TOKEN", name, "bun", "-e", MCP_PROBE],
         {
           encoding: "utf8",
           timeout: opts.timeoutMs,
-          env: { ...process.env, OBSIDIAN_TC_SMOKE_TOKEN: token },
+          env: { ...process.env, RELIQUARY_TC_SMOKE_TOKEN: token },
         },
       );
       problems.push(...commandProblems("authenticated list_vaults probe", mcp));
@@ -620,7 +620,7 @@ function runHttp(opts) {
     problems.push(...commandProblems("docker logs", logs));
     output = `${logs.stdout ?? ""}${logs.stderr ?? ""}`;
     problems.push(...checkBoot(output, { expectNative: opts.expectNative }));
-    if (gitMode) problems.push(...secretProblems(output, [containerEnv.OBSIDIAN_TC_JWT_SECRET]));
+    if (gitMode) problems.push(...secretProblems(output, [containerEnv.RELIQUARY_TC_JWT_SECRET]));
     const banner = parseReadyBanner(output);
     process.stdout.write(`${banner ? banner.line : output.slice(-2000)}\n`);
 

@@ -13,7 +13,7 @@
 //   3. A vaultBound (HTTP-token) caller is refused on the PRESENCE of a non-empty `vaults` field
 //      alone, before any DB/embedding work — central dispatch cannot catch this by construction
 //      (it only inspects the declared singular `vaultArg`). See docs/design/graph-search.md.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../../acl";
 import type { CallerContext, ToolDefinition } from "../../../mcp/registry";

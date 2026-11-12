@@ -33,7 +33,7 @@ const note = join(root, "one", "two", "three", "four", "note.md");
 mkdirSync(join(root, "one", "two", "three", "four"), { recursive: true });
 writeFileSync(note, "fallback read benchmark\n");
 
-process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
 const { nativeVaultIo, readNote } = await import("../../src/vault/notes-io");
 if (nativeVaultIo !== false) throw new Error("benchmark did not force the JavaScript fallback");
 

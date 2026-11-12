@@ -1,5 +1,5 @@
 // Embedding provider abstraction (G2.2 component 8).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { ColbertMatrix, SparseVec } from "./vec-types";
 /** THE-308: how to encode the input. Asymmetric models (e.g. Cohere v3) embed a search query
  *  differently from a corpus document; "document" is the default (indexing is the common path). */
@@ -33,7 +33,7 @@ export interface EmbeddingProvider {
   embedFull?(texts: string[], opts?: EmbedOptions): Promise<MultiVectorEmbedding[]>;
 }
 // Exported (not just module-local) so `cli/setup/decide.ts` can detect a hosted key present in the
-// environment for the "suggest, never auto-choose" notice (obsidian-tc setup) without hand-keeping
+// environment for the "suggest, never auto-choose" notice (reliquary-tc setup) without hand-keeping
 // a second copy of this map — see that module's own comment for why setup must never read a key's
 // mere presence as consent to send note content to a third party.
 export const ENV_KEY: Record<string, string> = {

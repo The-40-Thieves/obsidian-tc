@@ -7,7 +7,7 @@
 // second, local harness that seeds that table directly — mirrors the pattern in
 // test/frontmatter-tools-branch-coverage.test.ts's makeIndexedVault.
 
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";

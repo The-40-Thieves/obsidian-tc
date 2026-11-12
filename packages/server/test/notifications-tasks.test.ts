@@ -11,7 +11,7 @@
 // undo an isolation guarantee, because the push side is what nobody re-checks: `tasks/get` can be
 // perfectly scoped while the stream quietly announces every caller's work to everyone.
 
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -46,7 +46,7 @@ async function boot(): Promise<{ handle: HttpHandle; queue: JobQueue }> {
     auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
   }).auth;
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,

@@ -1,7 +1,7 @@
 // The production M5 wiring hands its deindex hook to the memory tools: a confirmed delete_entity
 // dispatched through wireM5Tools, and through the wireDomainTools entry point that calls it, must
 // reach the deindex spy. Dropping `deindex:` from either wiring makes this fail.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";

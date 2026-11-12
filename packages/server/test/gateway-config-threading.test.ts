@@ -1,14 +1,14 @@
-// THE-832: `gateway.baseUrl` / `gateway.token` in obsidian-tc.config.json, threaded through
+// THE-832: `gateway.baseUrl` / `gateway.token` in reliquary-tc.config.json, threaded through
 // wireGatewaySeams' createGatewayClient call. Motivation (GitHub #787): a host app that rewrites
 // its own MCP config on restart drops env keys it did not author, silently reverting
-// OBSIDIAN_TC_GATEWAY_URL and leaving every generative seam unavailable with no error. Config is
+// RELIQUARY_TC_GATEWAY_URL and leaving every generative seam unavailable with no error. Config is
 // a channel that rewrite does not touch, so an explicit config value must win over the env var.
 //
 // Exercises wireGatewaySeams' `gateway` return directly via ping() against a stubbed global
 // fetch — proving the CLIENT actually targets the config URL/token, not just that it resolves
 // non-null (resolveGatewayUrl's own precedence is unit-tested in gateway/client, but nothing
 // previously proved the config value reaches that call at the tool-wiring layer).
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
@@ -24,19 +24,19 @@ function embeddingsOnly() {
 }
 
 describe("wireGatewaySeams — gateway config threading (THE-832)", () => {
-  const prevUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
-  const prevToken = process.env.OBSIDIAN_TC_GATEWAY_TOKEN;
+  const prevUrl = process.env.RELIQUARY_TC_GATEWAY_URL;
+  const prevToken = process.env.RELIQUARY_TC_GATEWAY_TOKEN;
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    if (prevUrl === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-    else process.env.OBSIDIAN_TC_GATEWAY_URL = prevUrl;
-    if (prevToken === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_TOKEN;
-    else process.env.OBSIDIAN_TC_GATEWAY_TOKEN = prevToken;
+    if (prevUrl === undefined) delete process.env.RELIQUARY_TC_GATEWAY_URL;
+    else process.env.RELIQUARY_TC_GATEWAY_URL = prevUrl;
+    if (prevToken === undefined) delete process.env.RELIQUARY_TC_GATEWAY_TOKEN;
+    else process.env.RELIQUARY_TC_GATEWAY_TOKEN = prevToken;
   });
 
   it("config.gateway.baseUrl set, env UNSET -> the client resolves to the config URL", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -54,7 +54,7 @@ describe("wireGatewaySeams — gateway config threading (THE-832)", () => {
   });
 
   it("config.gateway.baseUrl set AND env set to something different -> config wins", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://from-env:9999";
+    process.env.RELIQUARY_TC_GATEWAY_URL = "https://from-env:9999";
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -72,8 +72,8 @@ describe("wireGatewaySeams — gateway config threading (THE-832)", () => {
   });
 
   it("config.gateway.token set -> forwarded as the bearer, config wins over the env token too", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://from-config:4001";
-    process.env.OBSIDIAN_TC_GATEWAY_TOKEN = "env-token";
+    process.env.RELIQUARY_TC_GATEWAY_URL = "https://from-config:4001";
+    process.env.RELIQUARY_TC_GATEWAY_TOKEN = "env-token";
     const authHeaders: Array<string | null> = [];
     vi.stubGlobal(
       "fetch",
@@ -92,7 +92,7 @@ describe("wireGatewaySeams — gateway config threading (THE-832)", () => {
   });
 
   it("neither config nor env set -> gateway unconfigured, seams degrade, boot does not fail", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const { gateway, roles } = await wireGatewaySeams(embeddingsOnly());
     expect(gateway).toBeNull();
     expect(roles).toBeNull();

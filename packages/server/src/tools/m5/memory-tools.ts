@@ -10,7 +10,7 @@
 // type + name), not input-derivable, so it cannot be declared via a central pathAcl extractor —
 // ctx.grantedScopes is threaded into every handler-side enforcePathAcl call instead, so the
 // P1.4 rule-scope gate still applies here.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
 import type { ToolDefinition } from "../../mcp/registry";

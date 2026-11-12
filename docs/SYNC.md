@@ -1,6 +1,6 @@
 # Vault Sync
 
-`obsidian-tc` is sync-agnostic. Its only contract is a directory of Markdown: point the
+`reliquary-tc` is sync-agnostic. Its only contract is a directory of Markdown: point the
 server at a vault path and it indexes what it finds. How files arrive in that directory is
 up to you. The methods below are independent tools that write `.md` files into the vault
 directory; none of them are part of the server.
@@ -70,12 +70,12 @@ No subscription, no CouchDB.
 
 ### git, kept in sync by the server (the `-git` image)
 
-The `-git` image runs `obsidian-tc git-sync --supervise`. It starts the server as a child process
+The `-git` image runs `reliquary-tc git-sync --supervise`. It starts the server as a child process
 and keeps `vaultPath` in step with a Git remote beside it. The sidecar is POSIX only (Linux and
 macOS) and refuses to run on Windows. Container first: the `-git` image is the supported way to run it.
 
 The `-git` tags are first published with the next release. Until then, build the image from a
-checkout with `docker build --target git -t obsidian-tc:git .`. The Docker deployment page covers
+checkout with `docker build --target git -t reliquary-tc:git .`. The Docker deployment page covers
 the image and its run command.
 
 **What it does**
@@ -84,14 +84,14 @@ the image and its run command.
   `origin` matches the configured URL and pulls once before the server starts. It refuses, exits
   non-zero and names the directory when the directory holds files that are not a clone of that
   remote. It never deletes or overwrites a file it did not write.
-- **Pull** on `OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL` (default 30 seconds, minimum 10), and at once
+- **Pull** on `RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL` (default 30 seconds, minimum 10), and at once
   when a webhook arrives. A dirty tree is committed first, then the remote is fetched and local
   commits are rebased onto it.
 - **Commit** local changes in batches. A batch is committed after 10 seconds without further
   changes, or 60 seconds after the tree first went dirty, whichever comes first. Each batch is one
-  commit, `obsidian-tc: update N notes`, listing up to 20 changed paths.
+  commit, `reliquary-tc: update N notes`, listing up to 20 changed paths.
 - **Push** after the rebase, when the local branch is ahead of the remote.
-- **Mirror.** `OBSIDIAN_TC_VAULT_GIT_PUSH=off` makes the vault a read-only mirror: no commits and no
+- **Mirror.** `RELIQUARY_TC_VAULT_GIT_PUSH=off` makes the vault a read-only mirror: no commits and no
   push, and the pull only fast-forwards. A dirty tree that blocks a pull is reported, not discarded.
   Pair it with `acl.readOnly`.
 
@@ -101,7 +101,7 @@ The server's filesystem watch picks up the sidecar's writes, so no reindex call 
 re-rebase, is never merged or discarded. The sidecar:
 
 1. aborts the rebase;
-2. pushes the local commits to a rescue branch, `obsidian-tc/conflict/<UTC timestamp>`;
+2. pushes the local commits to a rescue branch, `reliquary-tc/conflict/<UTC timestamp>`;
 3. resets the vault to the upstream branch;
 4. records the conflict in `status.json`.
 
@@ -115,16 +115,16 @@ window small.
 
 **Credentials.** Give the sidecar one of two secrets:
 
-- `OBSIDIAN_TC_VAULT_GIT_SSH_KEY`, the private key contents, for a `git@host:org/repo.git` or
+- `RELIQUARY_TC_VAULT_GIT_SSH_KEY`, the private key contents, for a `git@host:org/repo.git` or
   `ssh://` URL. The server pushes, so use a deploy key with write access. Optionally pin the host
-  with `OBSIDIAN_TC_VAULT_GIT_KNOWN_HOSTS`; without it the first host key seen is trusted.
-- `OBSIDIAN_TC_VAULT_GIT_TOKEN`, for an `https://` URL.
+  with `RELIQUARY_TC_VAULT_GIT_KNOWN_HOSTS`; without it the first host key seen is trusted.
+- `RELIQUARY_TC_VAULT_GIT_TOKEN`, for an `https://` URL.
 
 The key is written with mode 0600 under the state directory and used through `GIT_SSH_COMMAND` with
 `IdentitiesOnly=yes`. The token reaches Git through `GIT_ASKPASS`. Neither appears in argv, in
 `.git/config`, in the remote URL or in logs, and a URL that carries a password or token is refused.
 
-**State.** The state lives in `<OBSIDIAN_TC_CACHE_DIR>/git-sync/`, outside the vault:
+**State.** The state lives in `<RELIQUARY_TC_CACHE_DIR>/git-sync/`, outside the vault:
 
 - `status.json` holds `lastPullAt`, `lastPushAt`, `head`, `lastError` and `conflicts`.
 - One line per sync event goes to stderr. It never contains a secret.
@@ -134,7 +134,7 @@ each device, and the sidecar is the server's side of that loop.
 
 #### Webhook (optional)
 
-Set `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` to mount `POST /hooks/vault-sync` behind the same Host
+Set `RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET` to mount `POST /hooks/vault-sync` behind the same Host
 check as `/mcp`. The secret must be at least 32 characters, or the server refuses to start. Like the
 sidecar, the webhook is Linux and macOS only: on Windows the server refuses to start while the
 secret is set.

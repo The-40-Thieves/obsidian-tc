@@ -51,7 +51,7 @@ function createOnceLogger(label: string): (key: string, line: string) => void {
       if (capNoticeWritten) return;
       capNoticeWritten = true;
       process.stderr.write(
-        `obsidian-tc toolFacade: ${label} log capped at ${MAX_LOGGED_RESOLUTIONS} distinct keys\n`,
+        `reliquary-tc toolFacade: ${label} log capped at ${MAX_LOGGED_RESOLUTIONS} distinct keys\n`,
       );
       return;
     }
@@ -77,7 +77,7 @@ function logFacadeResolutionOnce(
     rawName === undefined ? "(none)" : sanitizeDisplayText(rawName, MAX_LOGGED_CLIENT_NAME_LEN);
   logResolutionOnce(
     `${configured}\u0000${name}\u0000${effective}`,
-    `obsidian-tc toolFacade: configured=${configured} client=${name} effective=${effective}\n`,
+    `reliquary-tc toolFacade: configured=${configured} client=${name} effective=${effective}\n`,
   );
 }
 
@@ -135,7 +135,7 @@ export function createFacadeModeResolver(
         lastExplanation = explanation;
         logExplanationOnce(
           JSON.stringify(explanation),
-          `obsidian-tc toolFacade.explain ${JSON.stringify(explanation)}\n`,
+          `reliquary-tc toolFacade.explain ${JSON.stringify(explanation)}\n`,
         );
       } else mode = resolveAutoFacadeMode(clientName, autoClients);
       // Cache only once a name was actually seen — see the module comment above.

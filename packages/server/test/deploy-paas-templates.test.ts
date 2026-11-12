@@ -11,10 +11,10 @@ import { parse } from "yaml";
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const paasRoot = join(repoRoot, "deploy/paas");
 const composePath = join(repoRoot, "deploy/compose.http.yml");
-const sharedConfigPath = join(repoRoot, "deploy/config/obsidian-tc.config.json");
+const sharedConfigPath = join(repoRoot, "deploy/config/reliquary-tc.config.json");
 const dockerfilePath = join(repoRoot, "Dockerfile");
-const serviceName = "obsidian-tc";
-const configTarget = "/config/obsidian-tc.config.json";
+const serviceName = "reliquary-tc";
+const configTarget = "/config/reliquary-tc.config.json";
 
 interface VolumeObject {
   type?: string;
@@ -95,9 +95,9 @@ const base = (() => {
   return {
     image: service?.image,
     env: {
-      OBSIDIAN_TC_CONFIG: env.OBSIDIAN_TC_CONFIG,
-      OBSIDIAN_TC_VAULT_PATH: env.OBSIDIAN_TC_VAULT_PATH,
-      OBSIDIAN_TC_CACHE_DIR: env.OBSIDIAN_TC_CACHE_DIR,
+      RELIQUARY_TC_CONFIG: env.RELIQUARY_TC_CONFIG,
+      RELIQUARY_TC_VAULT_PATH: env.RELIQUARY_TC_VAULT_PATH,
+      RELIQUARY_TC_CACHE_DIR: env.RELIQUARY_TC_CACHE_DIR,
       PORT: /^\$\{PORT:-(\d+)\}$/.exec(env.PORT ?? "")?.[1],
     },
     volumeTargets: (service?.volumes ?? []).map(volumeTarget),
@@ -107,11 +107,11 @@ const base = (() => {
 })();
 
 function loadCoolify(): Normalized {
-  const doc = parse(readText(join(paasRoot, "coolify/obsidian-tc.yaml"))) as ComposeFile;
+  const doc = parse(readText(join(paasRoot, "coolify/reliquary-tc.yaml"))) as ComposeFile;
   const service = doc.services?.[serviceName];
   const env = envOf(service?.environment);
   const routed = Object.keys(env)
-    .map((key) => /^SERVICE_URL_OBSIDIAN_TC_(\d+)$/.exec(key)?.[1])
+    .map((key) => /^SERVICE_URL_RELIQUARY_TC_(\d+)$/.exec(key)?.[1])
     .find((port) => port !== undefined);
   const configVolume = (service?.volumes ?? []).find(
     (volume): volume is VolumeObject =>
@@ -173,7 +173,7 @@ function loadCaprover(): Normalized {
   interface CaproverService extends ComposeService {
     caproverExtra?: { containerHttpPort?: string; dockerfileLines?: string[] };
   }
-  const doc = parse(readText(join(paasRoot, "caprover/obsidian-tc.yml"))) as {
+  const doc = parse(readText(join(paasRoot, "caprover/reliquary-tc.yml"))) as {
     services?: Record<string, CaproverService>;
     caproverOneClickApp?: { variables?: Array<{ id: string; defaultValue?: string }> };
   };
@@ -198,7 +198,7 @@ function loadCaprover(): Normalized {
 }
 
 function caproverLines(): string[] {
-  const doc = parse(readText(join(paasRoot, "caprover/obsidian-tc.yml"))) as {
+  const doc = parse(readText(join(paasRoot, "caprover/reliquary-tc.yml"))) as {
     services: Record<string, { caproverExtra: { dockerfileLines: string[] } }>;
   };
   return doc.services.$$cap_appname?.caproverExtra.dockerfileLines ?? [];
@@ -220,9 +220,9 @@ describe("deploy/paas templates", () => {
   });
 
   it("reads a real base image, config env and port from compose.http.yml", () => {
-    expect(base.image).toMatch(/^ghcr\.io\/the-40-thieves\/obsidian-tc:/);
+    expect(base.image).toMatch(/^ghcr\.io\/the-40-thieves\/reliquary-tc:/);
     expect(base.port).toBe(8765);
-    expect(base.env.OBSIDIAN_TC_CONFIG).toBe(configTarget);
+    expect(base.env.RELIQUARY_TC_CONFIG).toBe(configTarget);
     expect(base.volumeTargets).toContain("/data");
   });
 
@@ -234,9 +234,9 @@ describe("deploy/paas templates", () => {
     "$name: sets the config, vault, cache and port env like compose.http.yml",
     ({ load }) => {
       const { env } = load();
-      expect(env.OBSIDIAN_TC_CONFIG).toBe(base.env.OBSIDIAN_TC_CONFIG);
-      expect(env.OBSIDIAN_TC_VAULT_PATH).toBe(base.env.OBSIDIAN_TC_VAULT_PATH);
-      expect(env.OBSIDIAN_TC_CACHE_DIR).toBe(base.env.OBSIDIAN_TC_CACHE_DIR);
+      expect(env.RELIQUARY_TC_CONFIG).toBe(base.env.RELIQUARY_TC_CONFIG);
+      expect(env.RELIQUARY_TC_VAULT_PATH).toBe(base.env.RELIQUARY_TC_VAULT_PATH);
+      expect(env.RELIQUARY_TC_CACHE_DIR).toBe(base.env.RELIQUARY_TC_CACHE_DIR);
       expect(env.PORT).toBe(String(base.port));
     },
   );
@@ -262,7 +262,7 @@ describe("deploy/paas templates", () => {
   });
 
   it.each(templates)("$name: never hard-codes the JWT secret", ({ load }) => {
-    expect(load().env.OBSIDIAN_TC_JWT_SECRET).toMatch(/^\$[{$]/);
+    expect(load().env.RELIQUARY_TC_JWT_SECRET).toMatch(/^\$[{$]/);
   });
 
   it("the image HEALTHCHECK probes /healthz and EXPOSE 8765 is declared", () => {
@@ -273,11 +273,11 @@ describe("deploy/paas templates", () => {
 });
 
 describe("Coolify template", () => {
-  const path = join(paasRoot, "coolify/obsidian-tc.yaml");
+  const path = join(paasRoot, "coolify/reliquary-tc.yaml");
 
   it("declares the routed port in the header and as a SERVICE_URL magic variable", () => {
     expect(readText(path)).toMatch(/^# port: 8765$/m);
-    expect(loadCoolify().env).toHaveProperty("SERVICE_URL_OBSIDIAN_TC_8765");
+    expect(loadCoolify().env).toHaveProperty("SERVICE_URL_RELIQUARY_TC_8765");
   });
 
   it("starts with the documentation header Coolify reads", () => {
@@ -286,8 +286,8 @@ describe("Coolify template", () => {
 
   it("takes the public URL and the 64-char JWT secret from Coolify magic variables", () => {
     const { env } = loadCoolify();
-    expect(env.OBSIDIAN_TC_PUBLIC_URL).toBe(`\${SERVICE_URL_OBSIDIAN_TC}`);
-    expect(env.OBSIDIAN_TC_JWT_SECRET).toBe(`\${SERVICE_PASSWORD_64_OBSIDIANTC}`);
+    expect(env.RELIQUARY_TC_PUBLIC_URL).toBe(`\${SERVICE_URL_RELIQUARY_TC}`);
+    expect(env.RELIQUARY_TC_JWT_SECRET).toBe(`\${SERVICE_PASSWORD_64_RELIQUARYTC}`);
   });
 
   it("omits container_name, ports and restart", () => {
@@ -305,9 +305,9 @@ describe("Dokploy template", () => {
   it("takes the public URL from the generated domain and the secret from a 64-char password", () => {
     const toml = readText(join(dir, "template.toml"));
     expect(toml).toMatch(/^main_domain = "\$\{domain\}"$/m);
-    expect(loadDokploy().env.OBSIDIAN_TC_PUBLIC_URL).toBe(`https://\${main_domain}`);
+    expect(loadDokploy().env.RELIQUARY_TC_PUBLIC_URL).toBe(`https://\${main_domain}`);
     expect(toml).toMatch(/^jwt_secret = "\$\{password:64\}"$/m);
-    expect(loadDokploy().env.OBSIDIAN_TC_JWT_SECRET).toBe(`\${jwt_secret}`);
+    expect(loadDokploy().env.RELIQUARY_TC_JWT_SECRET).toBe(`\${jwt_secret}`);
   });
 
   it("routes the domain to the compose service key", () => {
@@ -322,7 +322,7 @@ describe("Dokploy template", () => {
     };
     const environment = envOf(doc.services[serviceName]?.environment);
     const tomlEnv = dokployTomlEnv(toml);
-    expect(Object.keys(tomlEnv)).toContain("OBSIDIAN_TC_JWT_SECRET");
+    expect(Object.keys(tomlEnv)).toContain("RELIQUARY_TC_JWT_SECRET");
     for (const key of Object.keys(tomlEnv)) {
       expect(environment[key]).toBe(`\${${key}}`);
     }
@@ -340,13 +340,13 @@ describe("Dokploy template", () => {
 
   it("meta.json names the blueprint folder and pins the image tag as its version", () => {
     const meta = JSON.parse(readText(join(dir, "meta.json"))) as { id: string; version: string };
-    expect(meta.id).toBe("obsidian-tc");
+    expect(meta.id).toBe("reliquary-tc");
     expect(meta.version).toBe(base.image?.split(":").at(-1));
   });
 });
 
 describe("CapRover template", () => {
-  const path = join(paasRoot, "caprover/obsidian-tc.yml");
+  const path = join(paasRoot, "caprover/reliquary-tc.yml");
 
   it("starts with captainVersion 4", () => {
     expect(Object.keys(parse(readText(path)) as object)[0]).toBe("captainVersion");
@@ -362,7 +362,7 @@ describe("CapRover template", () => {
     );
     expect(variable?.defaultValue).toBe(base.image?.split(":").at(-1));
     expect(readText(path)).toMatch(
-      /^ {16}- FROM ghcr\.io\/the-40-thieves\/obsidian-tc:\$\$cap_obsidian_tc_version$/m,
+      /^ {16}- FROM ghcr\.io\/the-40-thieves\/reliquary-tc:\$\$cap_obsidian_tc_version$/m,
     );
   });
 
@@ -373,8 +373,8 @@ describe("CapRover template", () => {
 
   it("takes the public URL from the app domain and the secret from a generated hex value", () => {
     const { env } = loadCaprover();
-    expect(env.OBSIDIAN_TC_PUBLIC_URL).toBe("https://$$cap_appname.$$cap_root_domain");
-    expect(env.OBSIDIAN_TC_JWT_SECRET).toBe("$$cap_jwt_secret");
+    expect(env.RELIQUARY_TC_PUBLIC_URL).toBe("https://$$cap_appname.$$cap_root_domain");
+    expect(env.RELIQUARY_TC_JWT_SECRET).toBe("$$cap_jwt_secret");
     const doc = parse(readText(path)) as {
       caproverOneClickApp: { variables: Array<{ id: string; defaultValue?: string }> };
     };

@@ -1,7 +1,7 @@
 // Domain 24 — plur read-API proxy (G2.1). Four READ-ONLY tools over the external,
 // GLOBAL plur engram store: plur_recall (BM25), plur_recall_hybrid (BM25+vector RRF),
 // plur_similarity_search (cosine), plur_get (by id). Writes (learn/capture/forget) are
-// deliberately NOT exposed — obsidian-tc is not the authority over engram lifecycle.
+// deliberately NOT exposed — reliquary-tc is not the authority over engram lifecycle.
 // These take no `vault` argument (the engram store is global) and the read:plur scope
 // (read family — no mutation, no HITL). openPlur degrades to plugin_missing with NO
 // network call when plur is unconfigured; a configured-but-down endpoint degrades to
@@ -17,7 +17,7 @@ const K = z.number().int().positive().max(50).default(10);
 // THE-417: every tool here is a bare pass-through of `client.request<T>(...)`'s parsed JSON
 // `result`, forwarded to an EXTERNAL plur server this package does not own or control the schema
 // of. There is no local handler logic between the wire response and the tool return — modeling a
-// concrete shape here would assert a contract obsidian-tc has no authority to keep. z.unknown() is
+// concrete shape here would assert a contract reliquary-tc has no authority to keep. z.unknown() is
 // the honest declaration: "this tool has an output, its shape is the plur backend's".
 const PlurProxyOutput = z.unknown();
 

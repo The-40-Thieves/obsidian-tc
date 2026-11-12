@@ -1,7 +1,7 @@
 # memory-two-sessions.tape — the "Memory you own" guide's demo (getting-started/memory-you-own.md).
 #
 # Renders docs/public/demo/memory-two-sessions.gif: session ONE imports a small basic-memory note
-# set into the vault's memory graph (obsidian-tc memory import --from basic-memory --apply), then a
+# set into the vault's memory graph (reliquary-tc memory import --from basic-memory --apply), then a
 # fresh session TWO — no state carried over except the vault itself — recalls what session one
 # wrote, three ways: plain full-text (search_text), a graph walk (query_entity_graph), and a direct
 # read (get_entity). The point of the recording is that recall in session two needs nothing but the
@@ -24,9 +24,9 @@
 # (packages/server/test/fixtures/memory-import/basic-memory) — see the getting-started/
 # memory-you-own.md guide page, which embeds the exact same captured output this tape re-derives.
 #
-# Prerequisite for a real run: a built obsidian-tc (`bun run build` in packages/server, or `npx
-# obsidian-tc` once published) on PATH, and a small script or a second MCP client wired for the
-# "session two" tool calls below — `obsidian-tc memory import` is a CLI command, but
+# Prerequisite for a real run: a built reliquary-tc (`bun run build` in packages/server, or `npx
+# reliquary-tc` once published) on PATH, and a small script or a second MCP client wired for the
+# "session two" tool calls below — `reliquary-tc memory import` is a CLI command, but
 # get_entity/query_entity_graph/search_text are MCP tools with no bare-CLI form, so a real render
 # drives them through whatever MCP client this environment already recommends (see
 # getting-started/first-run.md), the same choice quickstart.tape makes for its own tool calls.
@@ -47,7 +47,7 @@ Hide
 # recording never dirties either checked-in fixture — and an EXPLICIT config with an explicit,
 # scratch cacheDir. Passing a bare vault directory (zero-config mode) resolves cacheDir to a
 # HOME-ANCHORED default (config/load.ts) — exactly the trap that silently landed a real run's
-# audit rows in this box's own ~/.obsidian-tc during development of this feature; every recording
+# audit rows in this box's own ~/.reliquary-tc during development of this feature; every recording
 # and every doc example on this page uses an explicit config for that reason.
 Type "cp -r examples/scratch-vault /tmp/memory-demo-vault && cp -r packages/server/test/fixtures/memory-import/basic-memory /tmp/memory-demo-src && printf '{\"vaults\":[{\"id\":\"main\",\"path\":\"/tmp/memory-demo-vault\"}],\"cacheDir\":\"/tmp/memory-demo-cache\"}' > /tmp/memory-demo-config.json"
 Enter
@@ -60,14 +60,14 @@ Show
 # not found (a note in the fixture references a note that is not in this small batch), 1 file
 # skipped for malformed frontmatter. The banner line ("vault: … cache: … mode: dry-run") prints
 # BEFORE anything else, so where this run is pointed is never a mystery.
-Type "obsidian-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-config.json --vault main"
+Type "reliquary-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-config.json --vault main"
 Enter
 Sleep 2s
 
 # 2. --apply writes for real: create_entity + add_observation + link_entities + update_frontmatter,
 # through the same ACL-checked (built from THIS config's acl block, same as any MCP client's) and
 # audited dispatch.
-Type "obsidian-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-config.json --vault main --apply"
+Type "reliquary-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-config.json --vault main --apply"
 Enter
 Sleep 2s
 

@@ -1,4 +1,4 @@
-// Write-ergonomics eval: real LLM clients write, fix and edit notes through obsidian-tc.
+// Write-ergonomics eval: real LLM clients write, fix and edit notes through reliquary-tc.
 //
 // Usage:
 //   bun eval/write-ergonomics/run.ts --root <dir> --client claude|codex [--tasks id,id] [--arm main|hardened]
@@ -82,7 +82,7 @@ export function runTrial(
   writeConfig(config, task.arm, vault, cache, facade);
   const binDir = join(root, "bin");
   mkdirSync(binDir, { recursive: true });
-  const shim = join(binDir, "obsidian-tc");
+  const shim = join(binDir, "reliquary-tc");
   writeFileSync(shim, `#!/bin/sh\nexec node ${CLI} "$@"\n`);
   chmodSync(shim, 0o755);
 

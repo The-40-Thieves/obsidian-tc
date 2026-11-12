@@ -2,7 +2,7 @@
 // token-dense reconcile cannot pack ~87k tokens into one call and crash a stock local runner.
 // THE-390: a provider REJECTION (HTTP 400 — batch over the model's loaded context) is bisected
 // and retried; a text rejected even alone quarantines its plan instead of aborting the pass.
-import { err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { EmbeddingProvider } from "../src/embeddings/provider";
 import { embedPlans } from "../src/search/indexer";

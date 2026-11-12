@@ -1,4 +1,4 @@
-// esbuild bundler for the obsidian-tc companion plugin. Produces dist/main.js (the
+// esbuild bundler for the reliquary-tc companion plugin. Produces dist/main.js (the
 // single CommonJS bundle Obsidian loads) and copies manifest.json beside it. The
 // Obsidian runtime, Electron, CodeMirror, and Node builtins are externalized — they
 // are provided by the host app, not bundled. Run `node esbuild.config.mjs production`

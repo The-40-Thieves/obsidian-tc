@@ -92,7 +92,7 @@ describe("THE-417 Phase 2: output-schema drift is observable", () => {
     }).dispatch("drifter", {}, ctx());
     // Registration alone proves nothing — assert the VALUE, per THE-585's dead-gauge lesson.
     expect(await metrics.metrics()).toContain(
-      'obsidian_tc_output_schema_drift_total{vault="main",tool="drifter"} 1',
+      'reliquary_tc_output_schema_drift_total{vault="main",tool="drifter"} 1',
     );
   });
 });

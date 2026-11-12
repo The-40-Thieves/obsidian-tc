@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // MORGIANA event schema (G2.4 §MORGIANA events — THE-183). CloudEvents 1.0 envelope plus the
-// shared data shape. Lives in @the-40-thieves/obsidian-tc-shared so the server emitter AND MORGIANA itself
+// shared data shape. Lives in @the-40-thieves/reliquary-tc-shared so the server emitter AND MORGIANA itself
 // validate against one source of truth; the `specversion` field is the schema version, so a
 // breaking change bumps it. Spool/HTTP transport + emission live server-side (src/morgiana/).
 
@@ -46,7 +46,7 @@ export const MorgianaEventDataSchema = z.object({
 });
 export type MorgianaEventData = z.infer<typeof MorgianaEventDataSchema>;
 
-/** CloudEvents 1.0 envelope (G2.4 §Envelope). `source` is `obsidian-tc/<vault_id>`. */
+/** CloudEvents 1.0 envelope (G2.4 §Envelope). `source` is `reliquary-tc/<vault_id>`. */
 export const CloudEventSchema = z.object({
   specversion: z.literal("1.0"),
   id: z.string().min(1),

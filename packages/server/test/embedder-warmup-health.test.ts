@@ -35,14 +35,14 @@ describe("server_health.embedder_warmup", () => {
   });
 
   it("failed is visible to everyone, the error text only to an authenticated unbound caller", () => {
-    const t = toolWith({ state: "failed", error: "ENOENT /home/x/.obsidian-tc/models" });
+    const t = toolWith({ state: "failed", error: "ENOENT /home/x/.reliquary-tc/models" });
     expect(call(t, { authenticated: false }).embedder_warmup).toEqual({ state: "failed" });
     expect(call(t, { authenticated: true, vaultBound: true }).embedder_warmup).toEqual({
       state: "failed",
     });
     expect(call(t, { authenticated: true }).embedder_warmup).toEqual({
       state: "failed",
-      error: "ENOENT /home/x/.obsidian-tc/models",
+      error: "ENOENT /home/x/.reliquary-tc/models",
     });
   });
 

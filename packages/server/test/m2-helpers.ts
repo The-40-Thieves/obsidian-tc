@@ -5,7 +5,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ResponseFormat, ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";

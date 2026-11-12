@@ -14,7 +14,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { decodeJwt, SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -397,7 +397,7 @@ describe("external authorization server (auth.mode: jwt, no bundled AS)", () => 
       auth: { mode: "jwt", jwtSecret: SECRET, resource: RESOURCE, ...auth },
     }).auth;
     return createHttpApp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "t",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: cfg,

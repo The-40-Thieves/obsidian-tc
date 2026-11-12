@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "obsidian-tc-docs-ingest"
+name = "reliquary-tc-docs-ingest"
 version = "0.1.0"
-description = "Vendor/external-docs ingestion for obsidian-tc: a Docling/crawl4ai parse-router + LangExtract, writing md+frontmatter into a corpus vault (THE-444)"
+description = "Vendor/external-docs ingestion for reliquary-tc: a Docling/crawl4ai parse-router + LangExtract, writing md+frontmatter into a corpus vault (THE-444)"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.13",
@@ -26,10 +26,10 @@ extract = ["langextract[openai]>=1.5"]
 test = ["pytest>=8"]
 
 [project.scripts]
-docs-ingest = "obsidian_tc_docs_ingest.cli:main"
+docs-ingest = "reliquary_tc_docs_ingest.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["obsidian_tc_docs_ingest"]
+packages = ["reliquary_tc_docs_ingest"]
 
 [tool.ruff]
 line-length = 100

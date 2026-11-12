@@ -1,8 +1,8 @@
 // The declared-reranker resolver `wireGatewaySeams` boots through, split out of tool-wiring.ts to
 // keep that file under the per-file line cap.
 
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { resolveReranker } from "../providers/registry";
 import { rerankerBuildBlocker } from "../providers/reranker-preflight";
 import type { Reranker } from "../search/rerank";
@@ -19,7 +19,7 @@ import type { Reranker } from "../search/rerank";
  *
  * `provider: "local"` is a DELIBERATE exception: unlike model-tier/gateway (a config-correctness
  * defect), a `null` here is an environment-availability question — the optional
- * @the-40-thieves/obsidian-tc-reranker-local package may simply not be resolvable on this exact
+ * @the-40-thieves/reliquary-tc-reranker-local package may simply not be resolvable on this exact
  * deployment. It degrades like an ABSENT block instead of crashing boot. `doctor/checks.ts`'s
  * `rerankerBuildableCheck` keeps this loud rather than silently identical to "nothing configured".
  * Full rationale (THE-705 round 2, #806): docs/design/runtime-gateway-seams.md.
@@ -35,7 +35,7 @@ export async function resolveDeclaredReranker(
   // pre-boot check and this boot-time throw can never disagree about why a block cannot build.
   const blocker = rerankerBuildBlocker(cfg.provider, ctx?.embeddings, {
     baseUrl: cfg.baseUrl,
-    gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+    gatewayUrlEnv: process.env.RELIQUARY_TC_GATEWAY_URL,
   });
   if (blocker) {
     throw err.invalidInput(blocker.reason, { provider: cfg.provider, hint: blocker.hint });

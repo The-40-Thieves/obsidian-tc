@@ -20,11 +20,11 @@ import { existsSync } from "node:fs";
 import {
   ElicitToken,
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   VaultId,
   type VaultMemoryDefenseConfig,
   VaultPath,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -129,8 +129,8 @@ const BulkMoveInput = z
 
 // ── output schemas ──────────────────────────────────────────────────────────────
 
-// THE-417: ErrorJSON (@the-40-thieves/obsidian-tc-shared errors.ts), the shape every
-// ObsidianTcError.toJSON() produces. `code` stays z.string() rather than re-enumerating the ~40
+// THE-417: ErrorJSON (@the-40-thieves/reliquary-tc-shared errors.ts), the shape every
+// ReliquaryTcError.toJSON() produces. `code` stays z.string() rather than re-enumerating the ~40
 // entry ErrorCode union declared there — that union is additive and owned by the shared package;
 // mirroring it here would drift the first time a code is added without this file being touched.
 const ErrorJson = z.object({
@@ -426,9 +426,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             return { from: m.from, to: m.to, fromRel, toRel, destExists, ok: true };
           } catch (e) {
             const error = (
-              e instanceof ObsidianTcError
+              e instanceof ReliquaryTcError
                 ? e
-                : new ObsidianTcError("internal_error", (e as Error).message)
+                : new ReliquaryTcError("internal_error", (e as Error).message)
             ).toJSON();
             return { from: m.from, to: m.to, ok: false, error };
           }
@@ -467,7 +467,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             reason = "destination already claimed by another move in this batch";
           if (reason) {
             r.ok = false;
-            r.error = new ObsidianTcError("invalid_input", reason, {
+            r.error = new ReliquaryTcError("invalid_input", reason, {
               from: r.fromRel,
               to: r.toRel,
             }).toJSON();
@@ -538,9 +538,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           } catch (e) {
             r.ok = false;
             r.error = (
-              e instanceof ObsidianTcError
+              e instanceof ReliquaryTcError
                 ? e
-                : new ObsidianTcError("internal_error", (e as Error).message)
+                : new ReliquaryTcError("internal_error", (e as Error).message)
             ).toJSON();
             moveMap.delete(r.fromRel);
           }
@@ -598,9 +598,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
                   if (!row) throw e;
                   row.ok = false;
                   row.error = (
-                    e instanceof ObsidianTcError
+                    e instanceof ReliquaryTcError
                       ? e
-                      : new ObsidianTcError("internal_error", (e as Error).message)
+                      : new ReliquaryTcError("internal_error", (e as Error).message)
                   ).toJSON();
                   moveMap.delete(m.fromRel);
                   throw new PlanChanged();
@@ -645,7 +645,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
               if (!undone) ctx.markEffectCommitted?.();
               // A destination that appeared after the rows were validated refuses its create (the
               // batch rolled back whole): that row fails alone, the rest are planned again.
-              if (undone && e instanceof ObsidianTcError && e.code === "note_exists") {
+              if (undone && e instanceof ReliquaryTcError && e.code === "note_exists") {
                 const raced = rows.filter(
                   (r) =>
                     r.ok &&

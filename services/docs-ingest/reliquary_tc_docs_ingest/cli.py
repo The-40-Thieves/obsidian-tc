@@ -420,7 +420,7 @@ def _setup(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="docs-ingest", description="Vendor/external-docs ingestion for obsidian-tc."
+        prog="docs-ingest", description="Vendor/external-docs ingestion for reliquary-tc."
     )
     commands = parser.add_subparsers(dest="command", required=True)
     setup = commands.add_parser(

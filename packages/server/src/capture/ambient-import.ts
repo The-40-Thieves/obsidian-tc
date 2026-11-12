@@ -29,7 +29,10 @@
 //      checked against every existing `source: "ambient"` row (pending AND committed, via
 //      queue.ts's `listCaptureTags`) before enqueueing. `commit_capture`/human review is still the
 //      only path to the vault; this only keeps the QUEUE itself from filling with repeats.
-import { ObsidianTcError, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  ReliquaryTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import { argsHash } from "../hash";
 import type { MetricsRecorder } from "../metrics/registry";
@@ -194,7 +197,7 @@ export function ingestAmbient(
         // app/window_title/url/machine — additive, not a double-count.
         redacted += scan.redactions;
       } catch (e) {
-        if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+        if (e instanceof ReliquaryTcError && e.code === "secret_detected") {
           skipped_secret++;
           seen.add(key);
           continue;
@@ -236,7 +239,7 @@ export function ingestAmbient(
         content = rescan.fields.content as string;
         redacted += rescan.redactions;
       } catch (e) {
-        if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+        if (e instanceof ReliquaryTcError && e.code === "secret_detected") {
           skipped_secret++;
           seen.add(key);
           continue;

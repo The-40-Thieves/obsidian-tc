@@ -1,5 +1,5 @@
-// The local embedder is an explicit install, not an optionalDependency of obsidian-tc (owner
-// decision, 2026-10): `obsidian-tc setup` offers to run it. The planner (which package manager and
+// The local embedder is an explicit install, not an optionalDependency of reliquary-tc (owner
+// decision, 2026-10): `reliquary-tc setup` offers to run it. The planner (which package manager and
 // which prefix an install would use) lives in providers/embedder-install-plan.ts, shared with the
 // doctor and boot hints. This module is the one process boundary that runs a plan, plus the prompt
 // policy around it. Setup injects both (cli/commands/setup.ts), so tests never run a real install.
@@ -55,7 +55,7 @@ export function runEmbedderInstall(
 }
 
 /**
- * Whether a FRESH Node process can load the embedder from obsidian-tc's own location. Bun caches a
+ * Whether a FRESH Node process can load the embedder from reliquary-tc's own location. Bun caches a
  * failed dynamic import for the life of the process, so the in-process probe cannot see an install
  * made a moment ago; a child process can. Run from the package directory, so resolution walks up
  * to the same node_modules a local or global install writes into.
@@ -77,7 +77,7 @@ export interface SetupEmbedderInstallDeps {
   /** Default: stdin is a TTY and neither --yes nor --dry-run was given. */
   interactive?: boolean;
   ask?: (question: string) => Promise<boolean>;
-  /** Default: planEmbedderInstall over this obsidian-tc's own install layout (currentInstallSite). */
+  /** Default: planEmbedderInstall over this reliquary-tc's own install layout (currentInstallSite). */
   plan?: () => EmbedderInstallPlan | undefined;
   run?: (plan: EmbedderInstallPlan) => EmbedderInstallResult;
   /** Default: verifyEmbedderInstalled in a child process. */
@@ -120,7 +120,7 @@ export function embedderInstallOffer(
     if (!interactive || resolved === undefined) {
       const command = resolved ? embedderInstallHint(resolved) : localEmbedderInstallHint();
       process.stdout.write(
-        `obsidian-tc setup: ${EMBEDDER_PACKAGE} is not installed. Install it with: ${command}\n`,
+        `reliquary-tc setup: ${EMBEDDER_PACKAGE} is not installed. Install it with: ${command}\n`,
       );
       return false;
     }
@@ -129,19 +129,19 @@ export function embedderInstallOffer(
     // A global plan runs from the home directory, so its prompt names no directory.
     const where = resolved.cwd === undefined ? "" : ` in ${resolved.cwd}`;
     if (!(await ask(`Install ${embedderSpec()} now by running \`${command}\`${where}? [Y/n] `))) {
-      process.stdout.write(`obsidian-tc setup: not installed. Install it later with: ${hint}\n`);
+      process.stdout.write(`reliquary-tc setup: not installed. Install it later with: ${hint}\n`);
       return false;
     }
     const result = run(resolved);
     if (!result.ok) {
       process.stderr.write(
-        `obsidian-tc setup: installing ${embedderSpec()} failed (${result.error}). Run it by hand: ${hint}\n`,
+        `reliquary-tc setup: installing ${embedderSpec()} failed (${result.error}). Run it by hand: ${hint}\n`,
       );
       return false;
     }
     if (!verify()) {
       process.stderr.write(
-        `obsidian-tc setup: ${embedderSpec()} was installed, but this Node cannot load it yet. Re-run obsidian-tc setup in a new process.\n`,
+        `reliquary-tc setup: ${embedderSpec()} was installed, but this Node cannot load it yet. Re-run reliquary-tc setup in a new process.\n`,
       );
       return false;
     }

@@ -1,7 +1,7 @@
-// THE-1122 item 1 — bundled local dense embedder for obsidian-tc's `embeddings.provider: "local"`.
+// THE-1122 item 1 — bundled local dense embedder for reliquary-tc's `embeddings.provider: "local"`.
 //
 // ZERO TOP-LEVEL IMPORT OF @huggingface/transformers. Same reasoning as
-// packages/reranker-local/src/index.ts's header comment: obsidian-tc's cold-start perf gate
+// packages/reranker-local/src/index.ts's header comment: reliquary-tc's cold-start perf gate
 // measures module-evaluation cost, and packages/server's registry.ts dynamically imports THIS
 // module even when embeddings.provider is "local" — so simply resolving the provider must not pay
 // for loading the runtime or the model weights. Both are deferred to the first actual embed() call,

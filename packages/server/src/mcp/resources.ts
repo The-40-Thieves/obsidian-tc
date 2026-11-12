@@ -5,8 +5,8 @@ import {
   grantsAll,
   LEGACY_NAMES,
   matchResourceScheme,
-  ObsidianTcError,
-} from "@the-40-thieves/obsidian-tc-shared";
+  ReliquaryTcError,
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import { type ResponseFormat, resolveResponseFormat } from "../util/response-format";
 import { enforcePathAcl } from "../vault/acl-path";
@@ -21,8 +21,7 @@ import { assertScopesGranted, type CallerContext, type ToolRegistry } from "./re
 import { withInternalReason } from "./resource-errors";
 import type { VisibilityCaller } from "./visibility";
 
-/** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links.
- *  The pre-2.0 scheme (`LEGACY_NAMES.resourceScheme`) is still accepted on read. */
+/** Resource URI scheme; distinct from the Obsidian app's `obsidian://` deep links. */
 export const RESOURCE_SCHEME = CURRENT_NAMES.resourceScheme;
 const MIME_MARKDOWN = "text/markdown";
 const MIME_JSON = "application/json";
@@ -33,7 +32,6 @@ const MIME_JSON = "application/json";
 export const CATALOG_RESOURCE_URI = `${RESOURCE_SCHEME}://catalog`;
 const LEGACY_CATALOG_RESOURCE_URI = `${LEGACY_NAMES.resourceScheme}://catalog`;
 
-/** True for the catalog resource under either scheme. */
 export function isCatalogResourceUri(uri: string): boolean {
   return uri === CATALOG_RESOURCE_URI || uri === LEGACY_CATALOG_RESOURCE_URI;
 }
@@ -116,8 +114,7 @@ export function buildResourceUri(vaultId: string, relPath: string): string {
   return `${RESOURCE_SCHEME}://${vaultId}/${encodedPath}`;
 }
 
-/** Parse a `<scheme>://<vault>/<path>` resource URI, under the current or the pre-2.0 scheme.
- *  Throws on a foreign or malformed URI. */
+/** Parse `<scheme>://<vault>/<path>` (current or pre-2.0 scheme); throws on anything else. */
 export function parseResourceUri(uri: string): { vaultId: string; relPath: string } {
   const matched = matchResourceScheme(uri);
   if (!matched) throw err.invalidInput(`unsupported resource URI scheme: ${uri}`, { uri });
@@ -228,7 +225,7 @@ function answeringAsMissing<T>(uri: string, locate: () => T): T {
   try {
     return locate();
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.code !== "internal") {
+    if (e instanceof ReliquaryTcError && e.code !== "internal") {
       // The caller learns nothing; the audit gets the true reason (an unknown vault is
       // vault_not_found), and read_resources still counts every such item as a denial.
       throw withInternalReason(err.noteNotFound("note not found", { uri }), e.code);

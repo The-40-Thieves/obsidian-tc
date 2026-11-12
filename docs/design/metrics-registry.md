@@ -41,7 +41,7 @@ around it. With 5 as the top bucket every timeout would fall into `+Inf` alone, 
 full timeout and then threw" would be indistinguishable from "waited a minute". The 5..10s band is
 where timeouts land.
 
-## authFamilyRevocations counter — obsidian_tc_auth_family_revocations_total
+## authFamilyRevocations counter — reliquary_tc_auth_family_revocations_total
 
 A replayed authorization code or refresh token revokes the whole grant family on sight (RFC 9700
 section 4.14) — the correct behaviour, and also a one-request kill switch on a client's session:
@@ -51,40 +51,40 @@ nor the DoS pattern was queryable. `reason` is the closed union in
 `src/auth/family-revocation-telemetry.ts`: `authorization_code_reuse` / `refresh_token_reuse` /
 `refresh_token_foreign` are the replay signal (alert on any growth); `revoked_by_client` and
 `authorization_code_failed` are the benign counterparts. No `vault` label — the authorization server
-is process-wide, the `obsidian_tc_auth_rejections_total` precedent. The per-event companion (when,
+is process-wide, the `reliquary_tc_auth_rejections_total` precedent. The per-event companion (when,
 which client_id, how many access tokens died) is the `auth_family_revoked` row in cache.db's
 `event_log`, which the `auth.family-revocations` doctor check reads; the counter stays content-free
 and the row never holds a token or a hash. Operator grant revocations are not counted here — they
 already audit as `auth_grant_revoked` / `auth_credentials_reset`.
 
-## vecRebuild counter — obsidian_tc_vec_rebuild_total
+## vecRebuild counter — reliquary_tc_vec_rebuild_total
 
 `ensureVecChunks` DROPs and rebuilds `vec_chunks` — a full re-embed of every vault sharing the
 table — whenever the stored representation fingerprint drifts or a legacy pre-partition shape is
 detected. This is rare (a deploy changed the embedding model, or a one-time schema upgrade) and
 huge blast radius (dense retrieval goes cold for every vault until re-embedded), and previously
 had no counter at all. No `vault` label, because the event is not scoped to one vault — see
-`obsidian_tc_auth_rejections_total` for the same precedent.
+`reliquary_tc_auth_rejections_total` for the same precedent.
 
-## outputSchemaDrift counter — obsidian_tc_output_schema_drift_total (Phase 2)
+## outputSchemaDrift counter — reliquary_tc_output_schema_drift_total (Phase 2)
 
 This is the instrument that makes warn-mode runnable. Before it existed, a schema mismatch wrote
 one stderr line among every other internal error and nothing accumulated it, so "let warn-mode
 surface latent mismatches" had no way to be read. Labels are bounded exactly like
-`obsidian_tc_tool_calls_total`'s — vault id and tool name, never the payload or the Zod issues,
+`reliquary_tc_tool_calls_total`'s — vault id and tool name, never the payload or the Zod issues,
 which would put note content into a label.
 
-## provenanceFaults counter — obsidian_tc_provenance_faults_total
+## provenanceFaults counter — reliquary_tc_provenance_faults_total
 
 Write-provenance settlement is fail-open after a write commits: a recording fault is logged and the
 write it describes still succeeds, so before this counter an omitted record looked exactly like "no
 write happened". A multi-note pending-row failure happens before the first rename and fails closed.
 `kind=omitted` is a committed write with no record; `kind=head_untrusted` is a record written while
 the chain head failed validation (the head is then left as found, not re-signed). Labels are vault
-id, tool name and the two-value kind, never a path or an error message. `obsidian-tc doctor` reports
+id, tool name and the two-value kind, never a path or an error message. `reliquary-tc doctor` reports
 the same events from `event_log`, so an operator without a scraper still sees them.
 
-## activationRecomputeChunks counter — obsidian_tc_activation_recompute_chunks_total (item 1)
+## activationRecomputeChunks counter — reliquary_tc_activation_recompute_chunks_total (item 1)
 
 `registerActivationRecompute`'s `onRecompute` stats were computed every tick and discarded —
 nothing outside the process could see whether the periodic ACT-R activation recompute was running,
@@ -110,7 +110,7 @@ point, more than the duration: their RATIO per stage is the retrieval funnel.
 drifts to 1.0 has quietly stopped doing its job while still costing its latency. Neither number
 answers that alone.
 
-## aclWalkPruned counter — obsidian_tc_acl_walk_pruned_total (item 3)
+## aclWalkPruned counter — reliquary_tc_acl_walk_pruned_total (item 3)
 
 The graph-walk ACL filter has been unconditional since v1.22.0 — fine for
 correctness, but its recall cost (readable notes reachable only through an unreadable bridge) had

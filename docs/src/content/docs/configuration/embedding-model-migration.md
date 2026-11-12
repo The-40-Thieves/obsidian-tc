@@ -1,6 +1,6 @@
 ---
 title: Changing the embedding model
-description: How to migrate obsidian-tc to a different embedding model or dimension — a coordinated re-embed, not a flag flip.
+description: How to migrate reliquary-tc to a different embedding model or dimension — a coordinated re-embed, not a flag flip.
 ---
 
 Changing `embeddings.model` (or `embeddings.dimensions`) is a **coordinated migration**, not a
@@ -14,9 +14,9 @@ Treat a model change like a schema migration: plan it, run a full re-embed, and 
 
 - **Dimension is locked into the vector index.** `vec_chunks` is declared as `float[N]` at first
   index. A model whose output width differs from the stored `N` makes sqlite-vec reject the query (a
-  dimension mismatch), and obsidian-tc's semantic path then falls back to the (correct but slower)
+  dimension mismatch), and reliquary-tc's semantic path then falls back to the (correct but slower)
   brute-force scan. Stored vectors at the old dimension are not comparable to new ones.
-- **Query and document vectors share the model by construction.** obsidian-tc uses one embedding
+- **Query and document vectors share the model by construction.** reliquary-tc uses one embedding
   provider for both indexing and querying, so there is no query/document split-brain to manage — the
   only risk is a mismatch between the *configured* model/dimension and the *stored* vectors.
 

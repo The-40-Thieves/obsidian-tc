@@ -22,11 +22,11 @@ export type VerifiedIdentity = JwtIdentity;
  * Pluggable bearer-token verifier seam. The HTTP edge authenticates by calling
  * `verify(token)`; the default implementation verifies an HS256 JWT (jose). An OAuth 2.1
  * bearer / introspection verifier can be dropped in here without touching the transport —
- * the floor for folding the knowledge-mcp-server OAuth surface onto obsidian-tc's jose auth.
+ * the floor for folding the knowledge-mcp-server OAuth surface onto reliquary-tc's jose auth.
  *
  * THE-233 W-AUTH probe finding: KMS's full OAuth 2.1 Authorization Server + DCR (consent,
  * /register, token issuance via mcp-oauth-server) was load-bearing for the *cloud* service
- * (claude.ai's connector registered dynamically). The converged obsidian-tc has no AS or
+ * (claude.ai's connector registered dynamically). The converged reliquary-tc has no AS or
  * DCR client of its own yet, so per the locked decision note this seam is the floor; a full
  * AS port (on Hono + jose, dropping express + mcp-oauth-server) is a follow-up gated on the
  * converged product directly hosting a remote DCR client.

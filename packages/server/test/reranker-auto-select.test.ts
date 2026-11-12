@@ -30,7 +30,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   resolveLocalRerankerModule,
@@ -66,11 +66,11 @@ const REAL_DIST_SNAPSHOT_AT_START = REAL_DIST_EXISTED_AT_START
 // built the real dist — GH #958 review round 2, finding 3.
 let builtRealDistThisRun = false;
 
-const prevGatewayUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
+const prevGatewayUrl = process.env.RELIQUARY_TC_GATEWAY_URL;
 afterEach(() => {
   vi.unstubAllGlobals();
-  if (prevGatewayUrl === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-  else process.env.OBSIDIAN_TC_GATEWAY_URL = prevGatewayUrl;
+  if (prevGatewayUrl === undefined) delete process.env.RELIQUARY_TC_GATEWAY_URL;
+  else process.env.RELIQUARY_TC_GATEWAY_URL = prevGatewayUrl;
 });
 
 function ollamaEmbeddings() {
@@ -111,7 +111,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
 
   describe("local unresolvable — independent of the real checkout", () => {
     it("no model-tier, no gateway, local unresolvable -> reranker stays null (RRF-only), unchanged", async () => {
-      delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+      delete process.env.RELIQUARY_TC_GATEWAY_URL;
 
       // Staged anchor-only tree (no dist) — proves resolveSourceCheckoutLocalRerankerPath's own
       // walk behaves correctly, independent of the real checkout (GH #958 review round 2, findings
@@ -175,7 +175,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
       }
       builtRealDistThisRun = ensured.built;
 
-      delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+      delete process.env.RELIQUARY_TC_GATEWAY_URL;
       const { reranker } = await wireGatewaySeams(ollamaEmbeddings());
       expect(reranker).not.toBeNull();
       expect(typeof reranker).toBe("function");
@@ -211,7 +211,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     });
 
     it("no model-tier, no gateway -> auto-selects 'local' (staged package, injected resolver)", async () => {
-      delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+      delete process.env.RELIQUARY_TC_GATEWAY_URL;
       const { reranker } = await wireGatewaySeams(
         ollamaEmbeddings(),
         undefined,
@@ -226,7 +226,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     });
 
     it("a gateway URL configured -> gateway wins; local auto-select never fires", async () => {
-      process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
+      process.env.RELIQUARY_TC_GATEWAY_URL = "https://gw";
       const hits: string[] = [];
       vi.stubGlobal(
         "fetch",
@@ -251,7 +251,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     });
 
     it("model-tier configured -> model-tier wins over the now-resolvable local package", async () => {
-      delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+      delete process.env.RELIQUARY_TC_GATEWAY_URL;
       const hits: string[] = [];
       vi.stubGlobal(
         "fetch",
@@ -274,7 +274,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     });
 
     it("a DECLARED reranker block still wins over auto-select entirely (unaffected by THE-944)", async () => {
-      delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+      delete process.env.RELIQUARY_TC_GATEWAY_URL;
       const rerankerCfg = ServerConfigSchema.parse({
         vaults: [{ id: "main", path: "/v" }],
         reranker: {
@@ -314,7 +314,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
 // attempted, so a stub that WOULD succeed proves the skip is real, not incidental.
 describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-select on an unsupported platform", () => {
   it("a future no-runtime binary keeps reranker null and never attempts resolution", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const resolveLocalReranker = vi.fn(async () => ({
       ok: true as const,
       mod: { createReranker: () => async () => [] },
@@ -335,7 +335,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
   });
 
   it("darwin-x64 Node route is supported: auto-select runs and wires the local reranker via the wasm fallback", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const resolveLocalReranker = vi.fn(async () => ({
       ok: true as const,
       mod: { createReranker: () => async () => [] },
@@ -356,7 +356,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
   });
 
   it("musl linux: same skip, same never-attempted proof", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const resolveLocalReranker = vi.fn(async () => ({
       ok: true as const,
       mod: { createReranker: () => async () => [] },
@@ -377,7 +377,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
   });
 
   it("logs the remedy naming the platform, only when config alone would have auto-selected", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       await wireGatewaySeams(
@@ -400,7 +400,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
   });
 
   it("does NOT log on an unsupported platform when a gateway is configured — platform is not why it's skipped", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
+    process.env.RELIQUARY_TC_GATEWAY_URL = "https://gw";
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       vi.stubGlobal(
@@ -425,7 +425,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
   });
 
   it("does NOT log on a SUPPORTED platform even though config alone would auto-select (nothing to remedy)", async () => {
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const resolveLocalReranker = vi.fn(async () => ({

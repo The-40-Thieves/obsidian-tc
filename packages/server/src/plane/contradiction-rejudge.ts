@@ -1,5 +1,5 @@
 // Re-judge the open contradiction flags with the CURRENT judge — the one-time data fix behind
-// `obsidian-tc contradiction-rejudge`. A 100-pair audit of stored rows found the original judge
+// `reliquary-tc contradiction-rejudge`. A 100-pair audit of stored rows found the original judge
 // (gpt-4.1) flagged conflicts that two frontier labelers called no_conflict on 81/86 pairs, and the
 // stored verdict matched the labelers on 3/86. The owner chose RE-JUDGE over purge: a purge would
 // silently drop the real flags until each chunk happens to be re-indexed (the detector only judges

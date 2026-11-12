@@ -25,7 +25,7 @@ import {
 const RESET_TOKEN = "reset-token-0123456789-abcdefghijk";
 const NEW_PASSWORD = "a different passphrase, long enough";
 const DAY = 24 * 3_600_000;
-const ENV = { OBSIDIAN_TC_AS_RESET_TOKEN: RESET_TOKEN };
+const ENV = { RELIQUARY_TC_AS_RESET_TOKEN: RESET_TOKEN };
 const TOKEN_A = "reset-token-A-0123456789-abcdefgh";
 const TOKEN_B = "reset-token-B-0123456789-abcdefgh";
 const THIRD_PASSWORD = "a third passphrase, also long enough";
@@ -102,20 +102,20 @@ function seedGrant(op: OperatorFixture, registry: ReturnType<typeof fakeRegistry
 
 describe("reset mode is off unless every condition holds", () => {
   it("with the variable unset, a claimed server answers as before (403 closed, 404 with no setup token)", async () => {
-    const op = await makeOperator({ env: { OBSIDIAN_TC_AS_RESET_TOKEN: undefined } });
+    const op = await makeOperator({ env: { RELIQUARY_TC_AS_RESET_TOKEN: undefined } });
     await claimViaSetup(op);
     expect((await get(op, "/oauth/setup")).res.status).toBe(403);
     expect((await resetPost(op)).res.status).toBe(403);
 
     const bare = await makeOperator({
-      env: { OBSIDIAN_TC_AS_RESET_TOKEN: undefined, OBSIDIAN_TC_AS_SETUP_TOKEN: undefined },
+      env: { RELIQUARY_TC_AS_RESET_TOKEN: undefined, RELIQUARY_TC_AS_SETUP_TOKEN: undefined },
     });
     await claimViaSetup(bare).catch(() => undefined);
     expect((await get(bare, "/oauth/setup")).res.status).toBe(404);
   });
 
   it("a token shorter than 24 characters leaves reset mode off", async () => {
-    const op = await makeOperator({ env: { OBSIDIAN_TC_AS_RESET_TOKEN: "too-short" } });
+    const op = await makeOperator({ env: { RELIQUARY_TC_AS_RESET_TOKEN: "too-short" } });
     await claimViaSetup(op);
     const r = await get(op, "/oauth/setup");
     expect(r.res.status).toBe(403);
@@ -243,11 +243,11 @@ describe("the token", () => {
   it("a reset completed after this boot closes reset mode for a stale worker", async () => {
     // Two workers share one oauth.db. A booted first with token A; B booted later with token B and
     // resets. A still holds token A, which was never burned, and must not reset the password again.
-    const { op: a } = await claimedWithReset({ env: { OBSIDIAN_TC_AS_RESET_TOKEN: TOKEN_A } });
+    const { op: a } = await claimedWithReset({ env: { RELIQUARY_TC_AS_RESET_TOKEN: TOKEN_A } });
     const b = await makeOperator({
       db: a.db,
       at: T0 + MIN,
-      env: { OBSIDIAN_TC_AS_RESET_TOKEN: TOKEN_B },
+      env: { RELIQUARY_TC_AS_RESET_TOKEN: TOKEN_B },
     });
     expect((await resetPost(b, { token: TOKEN_B })).res.status).toBe(303);
     const afterB = passwordHashOf(a);
@@ -264,9 +264,9 @@ describe("the token", () => {
     // The token claimed the server through the setup variable; the operator then pointed the setup
     // variable elsewhere, so the reset variable still holds the spent token.
     const { op } = await claimedWithReset({
-      env: { OBSIDIAN_TC_AS_RESET_TOKEN: SETUP_TOKEN },
+      env: { RELIQUARY_TC_AS_RESET_TOKEN: SETUP_TOKEN },
     });
-    delete op.env.OBSIDIAN_TC_AS_SETUP_TOKEN;
+    delete op.env.RELIQUARY_TC_AS_SETUP_TOKEN;
     const before = passwordHashOf(op);
     const r = await resetPost(op, { token: SETUP_TOKEN });
     expect(r.res.status).toBe(403);
@@ -277,7 +277,7 @@ describe("the token", () => {
   it("reset mode stays off while the reset value equals the setup value", async () => {
     const { resetBootNotice } = await import("../src/auth/as-operator");
     const { op } = await claimedWithReset({
-      env: { OBSIDIAN_TC_AS_RESET_TOKEN: SETUP_TOKEN, OBSIDIAN_TC_AS_SETUP_TOKEN: SETUP_TOKEN },
+      env: { RELIQUARY_TC_AS_RESET_TOKEN: SETUP_TOKEN, RELIQUARY_TC_AS_SETUP_TOKEN: SETUP_TOKEN },
     });
     const page = await get(op, "/oauth/setup", new Jar());
     expect(page.res.status).toBe(403);
@@ -287,10 +287,10 @@ describe("the token", () => {
     expect(passwordHashOf(op)).toBe(before);
     expect(
       resetBootNotice(
-        { OBSIDIAN_TC_AS_RESET_TOKEN: SETUP_TOKEN, OBSIDIAN_TC_AS_SETUP_TOKEN: SETUP_TOKEN },
-        "OBSIDIAN_TC_AS_RESET_TOKEN",
+        { RELIQUARY_TC_AS_RESET_TOKEN: SETUP_TOKEN, RELIQUARY_TC_AS_SETUP_TOKEN: SETUP_TOKEN },
+        "RELIQUARY_TC_AS_RESET_TOKEN",
         "https://vault.example.com",
-        "OBSIDIAN_TC_AS_SETUP_TOKEN",
+        "RELIQUARY_TC_AS_SETUP_TOKEN",
       ),
     ).toMatch(/same value/);
   });
@@ -378,14 +378,14 @@ describe("revoking grants", () => {
 describe("the boot notice", () => {
   it("is emitted while the variable is set, names it, and is absent when it is not", async () => {
     const { resetBootNotice } = await import("../src/auth/as-operator");
-    const name = "OBSIDIAN_TC_AS_RESET_TOKEN";
+    const name = "RELIQUARY_TC_AS_RESET_TOKEN";
     const issuer = "https://vault.example.com";
     expect(
-      resetBootNotice({ [name]: RESET_TOKEN }, name, issuer, "OBSIDIAN_TC_AS_SETUP_TOKEN"),
-    ).toMatch(/warning.*OBSIDIAN_TC_AS_RESET_TOKEN.*remove/s);
-    expect(resetBootNotice({}, name, issuer, "OBSIDIAN_TC_AS_SETUP_TOKEN")).toBeUndefined();
+      resetBootNotice({ [name]: RESET_TOKEN }, name, issuer, "RELIQUARY_TC_AS_SETUP_TOKEN"),
+    ).toMatch(/warning.*RELIQUARY_TC_AS_RESET_TOKEN.*remove/s);
+    expect(resetBootNotice({}, name, issuer, "RELIQUARY_TC_AS_SETUP_TOKEN")).toBeUndefined();
     expect(
-      resetBootNotice({ [name]: RESET_TOKEN }, name, issuer, "OBSIDIAN_TC_AS_SETUP_TOKEN"),
+      resetBootNotice({ [name]: RESET_TOKEN }, name, issuer, "RELIQUARY_TC_AS_SETUP_TOKEN"),
     ).not.toContain(RESET_TOKEN);
   });
 });

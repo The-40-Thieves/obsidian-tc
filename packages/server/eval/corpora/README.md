@@ -25,8 +25,8 @@ refused) and a digest of the Markdown it keeps: file count, byte count and a sha
 skips them, so the digest covers exactly what a run can see.
 
 ```
-bun eval/corpora/fetch-corpus.ts quartz-docs --out /data/obsidian-tc-eval/multishape/corpora/quartz-docs
-bun eval/corpora/fetch-corpus.ts knowledge-garden --out /data/obsidian-tc-eval/multishape/corpora/knowledge-garden
+bun eval/corpora/fetch-corpus.ts quartz-docs --out /data/reliquary-tc-eval/multishape/corpora/quartz-docs
+bun eval/corpora/fetch-corpus.ts knowledge-garden --out /data/reliquary-tc-eval/multishape/corpora/knowledge-garden
 bun eval/corpora/fetch-corpus.ts quartz-docs --verify <dir>     # re-check a directory against the pin
 ```
 

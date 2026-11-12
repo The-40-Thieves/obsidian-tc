@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { CapabilityCache } from "../src/bridge";
 import { type M4Deps, openCompanionBridge } from "../src/tools/m4/shared";
@@ -11,11 +11,11 @@ function deps(companion: "missing" | "unreachable"): M4Deps {
   };
 }
 
-function thrownBy(fn: () => void): ObsidianTcError {
+function thrownBy(fn: () => void): ReliquaryTcError {
   try {
     fn();
   } catch (e) {
-    return e as ObsidianTcError;
+    return e as ReliquaryTcError;
   }
   throw new Error("expected a throw");
 }
@@ -23,7 +23,7 @@ function thrownBy(fn: () => void): ObsidianTcError {
 describe("openCompanionBridge degradation hint", () => {
   it("points a missing companion at the plugin install command", () => {
     const e = thrownBy(() => openCompanionBridge(deps("missing"), "main"));
-    expect(e).toBeInstanceOf(ObsidianTcError);
+    expect(e).toBeInstanceOf(ReliquaryTcError);
     expect(e.code).toBe("plugin_unreachable");
     expect(e.details?.companion).toBe("missing");
     expect(String(e.details?.hint)).toMatch(/plugin install/);

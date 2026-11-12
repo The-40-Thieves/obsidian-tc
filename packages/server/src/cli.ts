@@ -63,9 +63,9 @@ import { installShutdownSignals } from "./runtime/shutdown";
 
 async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // PR B of GH #995's two-part follow-up: when there is NOTHING to boot from at all (no
-  // `--config`/positional, no OBSIDIAN_TC_CONFIG, no default config on disk yet), run PR A's own
+  // `--config`/positional, no RELIQUARY_TC_CONFIG, no default config on disk yet), run PR A's own
   // setup detection once, non-interactively, and boot straight off what it writes — the common
-  // first-run shape of an MCP client launching `obsidian-tc` with no arguments. See
+  // first-run shape of an MCP client launching `reliquary-tc` with no arguments. See
   // cli/setup/first-run-fallback.ts's own header for the safety rules and race handling. This
   // check is deliberately BEFORE `resolveOrUsageExitWithProvenance` runs any of its own
   // input/env/default-path resolution, and applies the identical input/env rule that resolver
@@ -90,9 +90,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // Fix round 2 (Codex review 1001-verify-r2, finding 7): `configFilePath` — the module-loader's
   // trust root (server-runtime.ts's `configPath`) — comes from the SAME resolution `config` did,
   // not a second independent re-derivation of input/env/default. A separate derivation (the
-  // pre-fix shape: `normalizeConfigPathInput(cmd.input) || process.env.OBSIDIAN_TC_CONFIG`) never
-  // saw `resolveServeConfigWithProvenance`'s own default-path fallback (`~/.obsidian-tc/config.json`,
-  // what `obsidian-tc setup` writes by convention) — so a bare `obsidian-tc` relying on that
+  // pre-fix shape: `normalizeConfigPathInput(cmd.input) || process.env.RELIQUARY_TC_CONFIG`) never
+  // saw `resolveServeConfigWithProvenance`'s own default-path fallback (`~/.reliquary-tc/config.json`,
+  // what `reliquary-tc setup` writes by convention) — so a bare `reliquary-tc` relying on that
   // fallback loaded a real config while the module hatch's trust root stayed `undefined`.
   const { config, planeEnabledExplicit, configFilePath } = resolveOrUsageExitWithProvenance(
     cmd.input,
@@ -144,7 +144,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 async function main(): Promise<void> {
   // The embedder child (embeddings.host "child-process") re-runs this entry with the flag set. It serves
   // the embeddings protocol on stdin/stdout and never reaches argument dispatch or the MCP transport.
-  if (process.env.OBSIDIAN_TC_EMBEDDER_HOST === "1") {
+  if (process.env.RELIQUARY_TC_EMBEDDER_HOST === "1") {
     const { runEmbedderChild } = await import("./embeddings/host/child-main");
     await runEmbedderChild({ input: process.stdin, output: process.stdout });
     process.exit(0);

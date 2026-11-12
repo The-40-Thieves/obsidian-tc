@@ -1,5 +1,5 @@
 // THE-136 — the prewarm cache for vault_context's session-bootstrap mode. The anticipatory
-// prefetch (CLI `obsidian-tc prefetch`) composes the bootstrap bundle per vault and writes it
+// prefetch (CLI `reliquary-tc prefetch`) composes the bootstrap bundle per vault and writes it
 // here; the bootstrap reader takes a cache hit instead of cold-querying. FlowState-QMD lifts,
 // hardened: the entry carries a timestamp AND the reader enforces it (FlowState's actual bug
 // was a reader that never inspected the timestamp it stored), plus a signal-content hash so an

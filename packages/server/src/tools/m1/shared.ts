@@ -2,7 +2,7 @@
 // module so implementation files can import it without pulling in index.ts's barrel — which
 // imports every implementation file back, and previously made each of those a two-node
 // import cycle through ./index).
-import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../../db/types";
 import type { PagingDeps } from "../../mcp/byte-page";
 import type { MetricsRecorder } from "../../metrics/registry";
@@ -49,7 +49,7 @@ export interface M1Deps {
    *  Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan), same "closure, defaulted at the read
    *  site" shape M5/M8 already use. */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
-  /** GH #994 follow-up: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
+  /** GH #994 follow-up: memoryDefense's reliquary_tc_memory_defense_hits_total counter. */
   metrics?: MetricsRecorder;
   /** Continuation-cursor signing codec + live byte budget for bulk reads (mcp/byte-page.ts). Absent
    *  (tests, bare registries) -> a per-process random key and the registry's 1 MB default budget. */

@@ -6,9 +6,9 @@ import { join } from "node:path";
 import {
   ERROR_CODES,
   err,
-  type ObsidianTcError,
+  type ReliquaryTcError,
   recoveryFor,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stageNoteWrite, writeFileAtomic, writeNoteAtomic } from "../src/vault/notes-io";
 import { applyWriteBatch, type BatchWrite } from "../src/vault/write-batch";
@@ -37,11 +37,11 @@ const w = (rel: string, content: string, prevRaw: string | null): BatchWrite => 
   content,
   prevRaw,
 });
-const thrown = (fn: () => unknown): ObsidianTcError => {
+const thrown = (fn: () => unknown): ReliquaryTcError => {
   try {
     fn();
   } catch (e) {
-    return e as ObsidianTcError;
+    return e as ReliquaryTcError;
   }
   throw new Error("expected a throw");
 };

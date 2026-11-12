@@ -10,13 +10,13 @@ describe("mergeMcpServersEntryYaml — nested serversPath (Goose's extensions)",
   it("creates the key from scratch when no existing file", () => {
     const { alreadyExists, text } = mergeMcpServersEntryYaml(
       undefined,
-      { type: "stdio", cmd: "obsidian-tc" },
+      { type: "stdio", cmd: "reliquary-tc" },
       {},
       ["extensions"],
     );
     expect(alreadyExists).toBe(false);
     expect(parseYaml(text)).toEqual({
-      extensions: { "obsidian-tc": { type: "stdio", cmd: "obsidian-tc" } },
+      extensions: { "reliquary-tc": { type: "stdio", cmd: "reliquary-tc" } },
     });
   });
 
@@ -32,7 +32,7 @@ describe("mergeMcpServersEntryYaml — nested serversPath (Goose's extensions)",
     ].join("\n");
     const { alreadyExists, text } = mergeMcpServersEntryYaml(
       existing,
-      { type: "stdio", cmd: "obsidian-tc" },
+      { type: "stdio", cmd: "reliquary-tc" },
       {},
       ["extensions"],
     );
@@ -41,12 +41,12 @@ describe("mergeMcpServersEntryYaml — nested serversPath (Goose's extensions)",
     expect(text).toContain("filesystem ext");
     const parsed = parseYaml(text);
     expect(parsed.extensions.fs).toEqual({ type: "stdio", cmd: "npx" });
-    expect(parsed.extensions["obsidian-tc"]).toEqual({ type: "stdio", cmd: "obsidian-tc" });
+    expect(parsed.extensions["reliquary-tc"]).toEqual({ type: "stdio", cmd: "reliquary-tc" });
     expect(parsed.other_key).toBe("value");
   });
 
-  it("refuses a duplicate obsidian-tc entry without force — text is unchanged", () => {
-    const existing = "extensions:\n  obsidian-tc:\n    cmd: old\n";
+  it("refuses a duplicate reliquary-tc entry without force — text is unchanged", () => {
+    const existing = "extensions:\n  reliquary-tc:\n    cmd: old\n";
     const { alreadyExists, text } = mergeMcpServersEntryYaml(existing, { cmd: "new" }, {}, [
       "extensions",
     ]);
@@ -54,8 +54,8 @@ describe("mergeMcpServersEntryYaml — nested serversPath (Goose's extensions)",
     expect(text).toBe(existing);
   });
 
-  it("overwrites a duplicate obsidian-tc entry with force", () => {
-    const existing = "# keep me\nextensions:\n  obsidian-tc:\n    cmd: old\n";
+  it("overwrites a duplicate reliquary-tc entry with force", () => {
+    const existing = "# keep me\nextensions:\n  reliquary-tc:\n    cmd: old\n";
     const { alreadyExists, text } = mergeMcpServersEntryYaml(
       existing,
       { cmd: "new" },
@@ -64,7 +64,7 @@ describe("mergeMcpServersEntryYaml — nested serversPath (Goose's extensions)",
     );
     expect(alreadyExists).toBe(false);
     expect(text).toContain("# keep me");
-    expect(parseYaml(text).extensions["obsidian-tc"]).toEqual({ cmd: "new" });
+    expect(parseYaml(text).extensions["reliquary-tc"]).toEqual({ cmd: "new" });
   });
 
   it("refuses (never silently replaces) a path segment that is not a mapping", () => {
@@ -87,28 +87,28 @@ describe("mergeMcpServersEntryYaml — empty serversPath (Continue's per-server 
     const { alreadyExists, text } = mergeMcpServersEntryYaml(
       undefined,
       {
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.1",
         schema: "v1",
-        mcpServers: [{ name: "obsidian-tc" }],
+        mcpServers: [{ name: "reliquary-tc" }],
       },
       {},
       [],
     );
     expect(alreadyExists).toBe(false);
     expect(parseYaml(text)).toEqual({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.1",
       schema: "v1",
-      mcpServers: [{ name: "obsidian-tc" }],
+      mcpServers: [{ name: "reliquary-tc" }],
     });
   });
 
   it("treats ANY existing non-empty content as already-installed, refusing without force", () => {
-    const existing = "name: obsidian-tc\nversion: 0.0.1\n";
+    const existing = "name: reliquary-tc\nversion: 0.0.1\n";
     const { alreadyExists, text } = mergeMcpServersEntryYaml(
       existing,
-      { name: "obsidian-tc" },
+      { name: "reliquary-tc" },
       {},
       [],
     );
@@ -120,11 +120,11 @@ describe("mergeMcpServersEntryYaml — empty serversPath (Continue's per-server 
     const existing = "name: stale\n";
     const { alreadyExists, text } = mergeMcpServersEntryYaml(
       existing,
-      { name: "obsidian-tc" },
+      { name: "reliquary-tc" },
       { force: true },
       [],
     );
     expect(alreadyExists).toBe(false);
-    expect(parseYaml(text)).toEqual({ name: "obsidian-tc" });
+    expect(parseYaml(text)).toEqual({ name: "reliquary-tc" });
   });
 });

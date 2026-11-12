@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { provisionCacheDb } from "../src/db/provision";
@@ -97,7 +97,7 @@ describe("RR-L2 telemetry carries the vault the call acted on", () => {
       }),
     );
     const server = createMcpServer({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry,
       context: () => placeholderCtx(db),

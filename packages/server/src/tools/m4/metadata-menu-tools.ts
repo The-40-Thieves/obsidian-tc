@@ -2,7 +2,7 @@
 // IMetadataMenuApi.namedFileFields, proxied through the companion /metadata-menu/fields
 // route. Read scope only (read:metadata-menu), path ACL-enforced; degrades via the
 // capability gate when Metadata Menu or the companion is absent.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

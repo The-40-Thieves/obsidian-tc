@@ -21,7 +21,7 @@ describe("formatPlaneOptInNotice (THE-825)", () => {
     expect(notice).toContain("plane.enabled");
     // Actionable: names the exact key to add, not just that something changed.
     expect(notice).toContain('"plane": { "enabled": true }');
-    expect(notice).toContain("obsidian-tc.config.json");
+    expect(notice).toContain("reliquary-tc.config.json");
   });
 
   it("gateway configured + plane.enabled explicitly false -> does NOT emit (deliberate opt-out)", () => {

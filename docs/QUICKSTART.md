@@ -1,6 +1,6 @@
 # Quickstart — install to first governed write in ~5 minutes
 
-This gets obsidian-tc running against your vault, wired into Claude Desktop or Claude
+This gets reliquary-tc running against your vault, wired into Claude Desktop or Claude
 Code, and through your first queries — ending with a governed (human-confirmed) write.
 
 ## 1. Install
@@ -9,14 +9,14 @@ Pick one:
 
 ```bash
 # npm (global) — runs under Node >= 24
-npm install -g obsidian-tc
+npm install -g reliquary-tc
 
 # or no install at all — your MCP client launches it via npx (step 3)
-npx -y obsidian-tc --help
+npx -y reliquary-tc --help
 ```
 
 Claude Desktop users can instead grab the prebuilt **`.mcpb` bundle** from the GitHub
-Release (or build it with `bun run bundle` → `dist/obsidian-tc.mcpb`) and open it for a
+Release (or build it with `bun run bundle` → `dist/reliquary-tc.mcpb`) and open it for a
 one-click install — it is self-contained under Node 24+ (built-in `node:sqlite`
 fallback), no `node_modules` required. If you use the `.mcpb`, skip to step 4.
 
@@ -24,7 +24,7 @@ fallback), no `node_modules` required. If you use the `.mcpb`, skip to step 4.
 
 A vault `id` and `path` is the minimum; every other field has a default.
 
-`obsidian-tc.config.json`:
+`reliquary-tc.config.json`:
 
 ```json
 {
@@ -32,15 +32,15 @@ A vault `id` and `path` is the minimum; every other field has a default.
 }
 ```
 
-The config file path is the **first CLI argument** (or the `OBSIDIAN_TC_CONFIG`
+The config file path is the **first CLI argument** (or the `RELIQUARY_TC_CONFIG`
 environment variable). Sanity-check it:
 
 ```bash
-obsidian-tc config show ./obsidian-tc.config.json   # effective config, secrets redacted
-obsidian-tc ./obsidian-tc.config.json               # start; logs "ready on stdio" to stderr
+reliquary-tc config show ./reliquary-tc.config.json   # effective config, secrets redacted
+reliquary-tc ./reliquary-tc.config.json               # start; logs "ready on stdio" to stderr
 ```
 
-(Zero-config also works: `obsidian-tc /path/to/your/vault` boots a single vault named
+(Zero-config also works: `reliquary-tc /path/to/your/vault` boots a single vault named
 `main`.) For local semantic search, pull the default embeddings model once:
 `ollama pull nomic-embed-text` — everything else runs without it.
 
@@ -52,10 +52,10 @@ Config):
 ```json
 {
   "mcpServers": {
-    "obsidian-tc": {
+    "reliquary-tc": {
       "command": "npx",
-      "args": ["-y", "obsidian-tc"],
-      "env": { "OBSIDIAN_TC_CONFIG": "/ABSOLUTE/PATH/TO/obsidian-tc.config.json" }
+      "args": ["-y", "reliquary-tc"],
+      "env": { "RELIQUARY_TC_CONFIG": "/ABSOLUTE/PATH/TO/reliquary-tc.config.json" }
     }
   }
 }
@@ -64,7 +64,7 @@ Config):
 **Claude Code** — one command:
 
 ```bash
-claude mcp add obsidian-tc --env OBSIDIAN_TC_CONFIG=/ABSOLUTE/PATH/TO/obsidian-tc.config.json -- npx -y obsidian-tc
+claude mcp add reliquary-tc --env RELIQUARY_TC_CONFIG=/ABSOLUTE/PATH/TO/reliquary-tc.config.json -- npx -y reliquary-tc
 ```
 
 Restart the client. By default the server advertises three meta-tools
@@ -85,7 +85,7 @@ server_health {}
 search_text { "vault": "main", "query": "weekly review" }
 
 // read one note: raw content, parsed frontmatter, body, content hash, stat
-read_note { "vault": "main", "path": "Projects/obsidian-tc.md" }
+read_note { "vault": "main", "path": "Projects/reliquary-tc.md" }
 ```
 
 Via the facade these are `call_capability { "name": "search_text", "args": { ... } }` —
@@ -143,7 +143,7 @@ Metadata Menu, Obsidian Git, the command palette, …) additionally talk to your
 2. Install the companion plugin into the vault, then enable it in Obsidian:
 
    ```bash
-   obsidian-tc plugin install --vault /absolute/path/to/your/vault
+   reliquary-tc plugin install --vault /absolute/path/to/your/vault
    ```
 
 3. Give the vault entry the endpoint + key:

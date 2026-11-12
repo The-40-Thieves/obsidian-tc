@@ -1,4 +1,4 @@
-// The "not installed" and version-skew hints name the install this obsidian-tc's own layout needs:
+// The "not installed" and version-skew hints name the install this reliquary-tc's own layout needs:
 // a global install gets `npm install --global`, a project install gets `--save-exact` run in that
 // project, and a layout the planner refuses keeps the two-form hint. Every case injects its install
 // site, so no test reads the real install location or shells out to npm.
@@ -10,24 +10,24 @@ import {
   localEmbedderInstallHint,
 } from "../src/providers/local-embedder-registry";
 
-const PKG = "@the-40-thieves/obsidian-tc-embedder-local";
+const PKG = "@the-40-thieves/reliquary-tc-embedder-local";
 const SPEC = `${PKG}@${version}`;
 
 const globalSite: EmbedderInstallSite = {
-  pkgDir: "/usr/lib/node_modules/obsidian-tc",
+  pkgDir: "/usr/lib/node_modules/reliquary-tc",
   globalRoot: "/usr/lib/node_modules",
   userAgent: "npm/10.9.0 node/v24.0.0 linux x64",
 };
 const localSite: EmbedderInstallSite = {
-  pkgDir: "/home/u/proj/node_modules/obsidian-tc",
+  pkgDir: "/home/u/proj/node_modules/reliquary-tc",
   exists: (p) => p === "/home/u/proj/package.json",
 };
 const storeSite: EmbedderInstallSite = {
-  pkgDir: "/home/u/proj/node_modules/.pnpm/obsidian-tc@1.33.1/node_modules/obsidian-tc",
+  pkgDir: "/home/u/proj/node_modules/.pnpm/reliquary-tc@1.33.1/node_modules/reliquary-tc",
   exists: () => true,
 };
 
-describe("localEmbedderInstallHint — planned from this obsidian-tc's install layout", () => {
+describe("localEmbedderInstallHint — planned from this reliquary-tc's install layout", () => {
   it("a global install names npm install --global at its own version, never --save-exact", () => {
     expect(localEmbedderInstallHint(globalSite)).toBe(`npm install --global ${SPEC}`);
   });
@@ -41,7 +41,7 @@ describe("localEmbedderInstallHint — planned from this obsidian-tc's install l
   it("a layout the planner refuses (a package-manager store) keeps both forms", () => {
     const hint = localEmbedderInstallHint(storeSite);
     expect(hint).toContain(`npm install --save-exact ${SPEC} in your project`);
-    expect(hint).toContain(`npm install --global ${SPEC} if obsidian-tc is installed globally`);
+    expect(hint).toContain(`npm install --global ${SPEC} if reliquary-tc is installed globally`);
   });
 });
 
@@ -49,7 +49,7 @@ describe("embedderVersionSkew — the stale-pair warning names the planned insta
   it("a global install is told to install --global, not --save-exact", () => {
     const warn = embedderVersionSkew("0.0.1", globalSite);
     expect(warn).toBe(
-      `${PKG}@0.0.1 is installed, but this obsidian-tc is ${version}. Install the matching embedder: npm install --global ${SPEC}`,
+      `${PKG}@0.0.1 is installed, but this reliquary-tc is ${version}. Install the matching embedder: npm install --global ${SPEC}`,
     );
   });
 });

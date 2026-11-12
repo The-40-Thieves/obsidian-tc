@@ -5,7 +5,7 @@ sidebar:
   order: 9
 ---
 
-Every configuration key obsidian-tc understands, generated from the Zod schema so it stays in sync
+Every configuration key reliquary-tc understands, generated from the Zod schema so it stays in sync
 with the server. For task-oriented guidance on setting these, see the
 [config.yaml guide](/configuration/config-yaml/).
 

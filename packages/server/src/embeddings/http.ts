@@ -1,4 +1,4 @@
-import { err, extractCauseCode } from "@the-40-thieves/obsidian-tc-shared";
+import { err, extractCauseCode } from "@the-40-thieves/reliquary-tc-shared";
 import { PlainHttpRefusedError } from "../gateway/plain-http";
 import { providerFetch } from "../gateway/provider-fetch";
 import { ProviderBodyTooLargeError, readBodyText } from "../gateway/read-body";

@@ -9,10 +9,10 @@ const run = (view: CaptureLocationView) => captureLocationCheck(view).run(ctx);
 
 describe("experiential.capture-location", () => {
   it("is ok when cacheDir sits outside every vault root — the shipped default", async () => {
-    // config/load.ts anchors the default (".obsidian-tc") to homedir(), which never nests inside
+    // config/load.ts anchors the default (".reliquary-tc") to homedir(), which never nests inside
     // a vault path.
     const r = await run({
-      cacheDir: "/home/user/.obsidian-tc",
+      cacheDir: "/home/user/.reliquary-tc",
       vaults: [{ id: "main", path: "/home/user/Documents/vault" }],
     });
     expect(r.status).toBe("ok");
@@ -21,7 +21,7 @@ describe("experiential.capture-location", () => {
 
   it("WARNS when cacheDir is nested inside a vault root, and names the vault", async () => {
     const r = await run({
-      cacheDir: "/home/user/iCloud/vault/.obsidian-tc",
+      cacheDir: "/home/user/iCloud/vault/.reliquary-tc",
       vaults: [{ id: "icloud-vault", path: "/home/user/iCloud/vault" }],
     });
     expect(r.status).toBe("warning");
@@ -39,7 +39,7 @@ describe("experiential.capture-location", () => {
 
   it("checks EVERY configured vault, not just the first", async () => {
     const r = await run({
-      cacheDir: "/home/user/sync/vault-b/.obsidian-tc",
+      cacheDir: "/home/user/sync/vault-b/.reliquary-tc",
       vaults: [
         { id: "vault-a", path: "/home/user/local/vault-a" },
         { id: "vault-b", path: "/home/user/sync/vault-b" },
@@ -53,14 +53,14 @@ describe("experiential.capture-location", () => {
   it("does not false-positive on a sibling path that merely shares a string prefix", async () => {
     // /home/user/vault-two must not be treated as nested inside /home/user/vault.
     const r = await run({
-      cacheDir: "/home/user/vault-two/.obsidian-tc",
+      cacheDir: "/home/user/vault-two/.reliquary-tc",
       vaults: [{ id: "main", path: "/home/user/vault" }],
     });
     expect(r.status).toBe("ok");
   });
 
   it("is ok with an empty vault list — nothing to be nested inside", async () => {
-    const r = await run({ cacheDir: "/home/user/.obsidian-tc", vaults: [] });
+    const r = await run({ cacheDir: "/home/user/.reliquary-tc", vaults: [] });
     expect(r.status).toBe("ok");
   });
 

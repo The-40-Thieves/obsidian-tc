@@ -17,7 +17,7 @@ import {
   grokAddCommand,
   hermesAddCommand,
   mergeMcpServersEntry,
-  obsidianTcServerEntry,
+  reliquaryTcServerEntry,
   shellQuoteArg,
 } from "../src/cli/setup/client-install";
 import {
@@ -77,24 +77,24 @@ describe("cursorMcpConfigPath", () => {
 
 describe("claudeCodeAddCommand", () => {
   it("uses the documented `claude mcp add --scope user <name> -- <cmd> [args]` shape", () => {
-    expect(claudeCodeAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+    expect(claudeCodeAddCommand("/home/op/.reliquary-tc/config.json")).toEqual([
       "mcp",
       "add",
       "--scope",
       "user",
-      "obsidian-tc",
+      "reliquary-tc",
       "--",
-      "obsidian-tc",
+      "reliquary-tc",
       "--config",
-      "/home/op/.obsidian-tc/config.json",
+      "/home/op/.reliquary-tc/config.json",
     ]);
   });
 });
 
-describe("obsidianTcServerEntry", () => {
+describe("reliquaryTcServerEntry", () => {
   it("is the same {command,args} shape both JSON clients use", () => {
-    expect(obsidianTcServerEntry("/cfg.json")).toEqual({
-      command: "obsidian-tc",
+    expect(reliquaryTcServerEntry("/cfg.json")).toEqual({
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
     });
   });
@@ -105,7 +105,7 @@ describe("mergeMcpServersEntry", () => {
     const { alreadyExists, merged } = mergeMcpServersEntry(undefined, "/cfg.json");
     expect(alreadyExists).toBe(false);
     expect(merged).toEqual({
-      mcpServers: { "obsidian-tc": { command: "obsidian-tc", args: ["--config", "/cfg.json"] } },
+      mcpServers: { "reliquary-tc": { command: "reliquary-tc", args: ["--config", "/cfg.json"] } },
     });
   });
 
@@ -117,29 +117,29 @@ describe("mergeMcpServersEntry", () => {
       command: "gh-mcp",
       args: [],
     });
-    expect((merged.mcpServers as Record<string, unknown>)["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect((merged.mcpServers as Record<string, unknown>)["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
     });
   });
 
-  it("refuses a duplicate obsidian-tc entry without force — merged is unchanged", () => {
+  it("refuses a duplicate reliquary-tc entry without force — merged is unchanged", () => {
     const existing = {
-      mcpServers: { "obsidian-tc": { command: "obsidian-tc", args: ["--config", "/old.json"] } },
+      mcpServers: { "reliquary-tc": { command: "reliquary-tc", args: ["--config", "/old.json"] } },
     };
     const { alreadyExists, merged } = mergeMcpServersEntry(existing, "/new.json");
     expect(alreadyExists).toBe(true);
     expect(merged).toEqual(existing);
   });
 
-  it("overwrites a duplicate obsidian-tc entry with force", () => {
+  it("overwrites a duplicate reliquary-tc entry with force", () => {
     const existing = {
-      mcpServers: { "obsidian-tc": { command: "obsidian-tc", args: ["--config", "/old.json"] } },
+      mcpServers: { "reliquary-tc": { command: "reliquary-tc", args: ["--config", "/old.json"] } },
     };
     const { alreadyExists, merged } = mergeMcpServersEntry(existing, "/new.json", { force: true });
     expect(alreadyExists).toBe(false);
-    expect((merged.mcpServers as Record<string, unknown>)["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect((merged.mcpServers as Record<string, unknown>)["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", "/new.json"],
     });
   });
@@ -181,15 +181,15 @@ describe("clientLabel", () => {
 describe("vscodeAddCommand / vscodeAddMcpPayload", () => {
   it("embeds name/command/args in the JSON payload code --add-mcp expects", () => {
     expect(vscodeAddMcpPayload("/cfg.json")).toEqual({
-      name: "obsidian-tc",
-      command: "obsidian-tc",
+      name: "reliquary-tc",
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
     });
     expect(vscodeAddCommand("/cfg.json")).toEqual([
       "--add-mcp",
       JSON.stringify({
-        name: "obsidian-tc",
-        command: "obsidian-tc",
+        name: "reliquary-tc",
+        command: "reliquary-tc",
         args: ["--config", "/cfg.json"],
       }),
     ]);
@@ -215,7 +215,7 @@ describe("opencodeConfigPath / opencodeServerEntry", () => {
   it("builds opencode's own type:local, array-command entry shape", () => {
     expect(opencodeServerEntry("/cfg.json")).toEqual({
       type: "local",
-      command: ["obsidian-tc", "--config", "/cfg.json"],
+      command: ["reliquary-tc", "--config", "/cfg.json"],
       enabled: true,
       environment: {},
     });
@@ -247,8 +247,8 @@ describe("geminiAddCommand", () => {
     expect(geminiAddCommand("/cfg.json")).toEqual([
       "mcp",
       "add",
-      "obsidian-tc",
-      "obsidian-tc",
+      "reliquary-tc",
+      "reliquary-tc",
       "--config",
       "/cfg.json",
     ]);
@@ -270,7 +270,7 @@ describe("zedSettingsPath / zedServerEntry", () => {
 
   it("builds the three-field entry shown in Zed's own current docs — no source:custom field", () => {
     expect(zedServerEntry("/cfg.json")).toEqual({
-      command: "obsidian-tc",
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
       env: {},
     });
@@ -294,58 +294,58 @@ describe("aiderUnsupportedReason", () => {
 
 describe("codexAddCommand", () => {
   it("uses the documented `codex mcp add <name> -- <command>...` shape", () => {
-    expect(codexAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+    expect(codexAddCommand("/home/op/.reliquary-tc/config.json")).toEqual([
       "mcp",
       "add",
-      "obsidian-tc",
+      "reliquary-tc",
       "--",
-      "obsidian-tc",
+      "reliquary-tc",
       "--config",
-      "/home/op/.obsidian-tc/config.json",
+      "/home/op/.reliquary-tc/config.json",
     ]);
   });
 });
 
 describe("antigravityAddCommand", () => {
   it("uses the documented `agy mcp add <name> <commandOrUrl> [args...]` shape", () => {
-    expect(antigravityAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+    expect(antigravityAddCommand("/home/op/.reliquary-tc/config.json")).toEqual([
       "mcp",
       "add",
-      "obsidian-tc",
-      "obsidian-tc",
+      "reliquary-tc",
+      "reliquary-tc",
       "--config",
-      "/home/op/.obsidian-tc/config.json",
+      "/home/op/.reliquary-tc/config.json",
     ]);
   });
 });
 
 describe("hermesAddCommand", () => {
   it("uses the documented `hermes mcp add <name> --command <cmd> --args <args...>` shape, with --args LAST", () => {
-    expect(hermesAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+    expect(hermesAddCommand("/home/op/.reliquary-tc/config.json")).toEqual([
       "mcp",
       "add",
-      "obsidian-tc",
+      "reliquary-tc",
       "--command",
-      "obsidian-tc",
+      "reliquary-tc",
       "--args",
       "--config",
-      "/home/op/.obsidian-tc/config.json",
+      "/home/op/.reliquary-tc/config.json",
     ]);
   });
 });
 
 describe("grokAddCommand", () => {
   it("uses the documented `grok mcp add -s user <name> <cmd> -- <args>...` shape", () => {
-    expect(grokAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+    expect(grokAddCommand("/home/op/.reliquary-tc/config.json")).toEqual([
       "mcp",
       "add",
       "-s",
       "user",
-      "obsidian-tc",
-      "obsidian-tc",
+      "reliquary-tc",
+      "reliquary-tc",
       "--",
       "--config",
-      "/home/op/.obsidian-tc/config.json",
+      "/home/op/.reliquary-tc/config.json",
     ]);
   });
 });
@@ -378,7 +378,7 @@ describe("CLIENT_REGISTRY", () => {
       expect(entry.binary.length).toBeGreaterThan(0);
       // VS Code embeds the name INSIDE a JSON payload arg rather than as its own argv token (see
       // vscodeAddMcpPayload's own test) — `.some(...includes)` covers both shapes.
-      expect(entry.buildArgs("/cfg.json").some((a) => a.includes("obsidian-tc"))).toBe(true);
+      expect(entry.buildArgs("/cfg.json").some((a) => a.includes("reliquary-tc"))).toBe(true);
     }
   });
 
@@ -414,7 +414,12 @@ describe("CLIENT_REGISTRY", () => {
 
 describe("formatClientSnippets", () => {
   it("names all seven clients and the config path", () => {
-    const text = formatClientSnippets("/home/op/.obsidian-tc/config.json", "linux", {}, "/home/op");
+    const text = formatClientSnippets(
+      "/home/op/.reliquary-tc/config.json",
+      "linux",
+      {},
+      "/home/op",
+    );
     expect(text).toContain("Claude Code");
     expect(text).toContain("Claude Desktop");
     expect(text).toContain("Cursor");
@@ -422,13 +427,13 @@ describe("formatClientSnippets", () => {
     expect(text).toContain("ChatGPT");
     expect(text).toContain("Antigravity");
     expect(text).toContain("Hermes Agent");
-    expect(text).toContain("/home/op/.obsidian-tc/config.json");
-    expect(text).toContain("claude mcp add --scope user obsidian-tc -- obsidian-tc --config");
-    expect(text).toContain("codex mcp add obsidian-tc -- obsidian-tc --config");
-    expect(text).toContain("agy mcp add obsidian-tc obsidian-tc --config");
-    expect(text).toContain("hermes mcp add obsidian-tc --command obsidian-tc --args --config");
+    expect(text).toContain("/home/op/.reliquary-tc/config.json");
+    expect(text).toContain("claude mcp add --scope user reliquary-tc -- reliquary-tc --config");
+    expect(text).toContain("codex mcp add reliquary-tc -- reliquary-tc --config");
+    expect(text).toContain("agy mcp add reliquary-tc reliquary-tc --config");
+    expect(text).toContain("hermes mcp add reliquary-tc --command reliquary-tc --args --config");
     expect(text).toContain("Grok CLI");
-    expect(text).toContain("grok mcp add -s user obsidian-tc obsidian-tc -- --config");
+    expect(text).toContain("grok mcp add -s user reliquary-tc reliquary-tc -- --config");
     expect(text).toContain("docs/wiki/Deployment-Modes.md");
     expect(text).toContain("VS Code (Copilot)");
     expect(text).toContain("opencode");
@@ -437,39 +442,39 @@ describe("formatClientSnippets", () => {
     expect(text).toContain("Zed");
     expect(text).toContain("Devin (cloud)");
     expect(text).toContain("Aider");
-    expect(text).toContain("gemini mcp add obsidian-tc obsidian-tc --config");
+    expect(text).toContain("gemini mcp add reliquary-tc reliquary-tc --config");
     expect(text).toContain("comments preserved");
   });
 
   it("finding 3: labels the win32 snippet as PowerShell and single-quotes its config path", () => {
     const text = formatClientSnippets(
-      "C:\\Users\\Op Name\\.obsidian-tc\\config.json",
+      "C:\\Users\\Op Name\\.reliquary-tc\\config.json",
       "win32",
       {},
       "C:\\Users\\Op Name",
     );
     expect(text).toMatch(/Claude Code.*PowerShell/);
     expect(text).toContain(
-      "claude mcp add --scope user obsidian-tc -- obsidian-tc --config 'C:\\Users\\Op Name\\.obsidian-tc\\config.json'",
+      "claude mcp add --scope user reliquary-tc -- reliquary-tc --config 'C:\\Users\\Op Name\\.reliquary-tc\\config.json'",
     );
   });
 
   it("finding 6: quotes the printed claude mcp add line's config path when it has a space", () => {
     const text = formatClientSnippets(
-      "/home/op user/.obsidian-tc/config.json",
+      "/home/op user/.reliquary-tc/config.json",
       "linux",
       {},
       "/home/op user",
     );
     expect(text).toContain(
-      "claude mcp add --scope user obsidian-tc -- obsidian-tc --config '/home/op user/.obsidian-tc/config.json'",
+      "claude mcp add --scope user reliquary-tc -- reliquary-tc --config '/home/op user/.reliquary-tc/config.json'",
     );
   });
 });
 
 describe("shellQuoteArg", () => {
   it("leaves a plain token unquoted on POSIX", () => {
-    expect(shellQuoteArg("obsidian-tc", "linux")).toBe("obsidian-tc");
+    expect(shellQuoteArg("reliquary-tc", "linux")).toBe("reliquary-tc");
   });
 
   it("single-quotes a POSIX arg containing a space, escaping an embedded single quote", () => {

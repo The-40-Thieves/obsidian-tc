@@ -6,7 +6,7 @@
 // must never be silently replaced by a fresh empty database that then looks healthy.
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { version as VERSION } from "../../package.json";
 import { openConfiguredDatabase } from "../db/open";
 import { provisionAuthDb } from "../db/provision";

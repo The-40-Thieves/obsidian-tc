@@ -8,7 +8,7 @@
 // from ideal seeds, no expansion tuning can surface it — the lever is llm_enrichment, not
 // hub_noise_filter.
 //
-// obsidian-tc port: the edge set is read from the `vault_edges` table through the synchronous
+// reliquary-tc port: the edge set is read from the `vault_edges` table through the synchronous
 // Database wrapper (edge_type='links_to', scoped by vault_id) instead of KMS's Supabase/Postgres
 // client, and the probe returns a richer verdict that distinguishes "no wikilink path exists in
 // the graph" from "a path exists but lies beyond the expansion horizon" (the no-path-vs-buried
@@ -50,7 +50,7 @@ function addEdge(adj: UndirectedGraph, from: string, to: string): void {
 /**
  * Load the undirected wikilink graph from `vault_edges`.
  *
- * obsidian-tc schema rewrite of KMS's loadVaultGraph: a single SELECT over vault_edges scoped by
+ * reliquary-tc schema rewrite of KMS's loadVaultGraph: a single SELECT over vault_edges scoped by
  * vault_id with edge_type='links_to' (KMS keyed on a `type` column against a paginated Supabase
  * table). `unresolved` edges point at non-existent notes and cannot reach a real target, so they
  * are correctly excluded by the edge_type filter. Each stored edge is added in BOTH directions so

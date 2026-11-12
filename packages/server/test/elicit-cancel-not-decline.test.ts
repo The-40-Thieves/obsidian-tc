@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { parseCliArgs } from "../src/cli/args";
@@ -102,7 +102,7 @@ async function boot(
     acl,
   });
   const server = createMcpServer({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     context,
@@ -164,12 +164,12 @@ describe.each(CASES)("elicitation answers on $tool", (c) => {
       const text = textOf(res);
       expect(text).not.toMatch(/declined/i);
       expect(text).not.toMatch(/do not mint/i);
-      expect(text).toContain(`confirm with: obsidian-tc elicit --hash `);
+      expect(text).toContain(`confirm with: reliquary-tc elicit --hash `);
       expect(text).toContain(`--tool ${c.tool}`);
       const sc = structured(res);
       expect(sc.code).toBe("elicit_required");
       expect((sc.details as { reason?: string }).reason).toBe("approval_not_obtained");
-      expect(String(sc.recovery)).toContain("obsidian-tc elicit");
+      expect(String(sc.recovery)).toContain("reliquary-tc elicit");
       expect(String(sc.recovery)).not.toMatch(/declined|do not mint/i);
     } finally {
       await b.close();
@@ -192,7 +192,7 @@ describe.each(CASES)("elicitation answers on $tool", (c) => {
       const sc = structured(res);
       expect((sc.details as { reason?: string }).reason).toBe("approval_declined");
       expect(String(sc.recovery)).toMatch(/do not mint/i);
-      expect(String(sc.recovery)).not.toContain("obsidian-tc elicit");
+      expect(String(sc.recovery)).not.toContain("reliquary-tc elicit");
     } finally {
       await b.close();
     }
@@ -220,11 +220,11 @@ describe.each(CASES)("elicitation answers on $tool", (c) => {
       const text = textOf(res);
       expect(text).not.toMatch(/declined/i);
       expect(text).not.toContain("do not mint a token");
-      expect(text).toContain("confirm with: obsidian-tc elicit --hash ");
+      expect(text).toContain("confirm with: reliquary-tc elicit --hash ");
       // `recovery` carries the very command the text channel renders (vault and caller included),
       // not the stock `--hash <args_hash>` placeholder: a client that follows it must mint for the
       // caller that made this call, or redemption fails closed.
-      const line = /confirm with: (obsidian-tc elicit [^\n]*)/.exec(text)?.[1];
+      const line = /confirm with: (reliquary-tc elicit [^\n]*)/.exec(text)?.[1];
       expect(line).toContain(`--vault ${VAULT}`);
       expect(line).toContain("--caller alice");
       const recovery = String(structured(res).recovery);
@@ -346,12 +346,12 @@ describe.each(CASES)("a failed confirm leg inside the SDK shim on $tool", (c) =>
         const text = textOf(res);
         expect(text).not.toContain("Fulfilling input required");
         expect(text).not.toMatch(/declined|do not mint/i);
-        expect(text).toContain("confirm with: obsidian-tc elicit --hash ");
+        expect(text).toContain("confirm with: reliquary-tc elicit --hash ");
         expect(text).toContain(`--tool ${c.tool}`);
         const sc = structured(res);
         expect(sc.code).toBe("elicit_required");
         expect((sc.details as { reason?: string }).reason).toBe("approval_not_obtained");
-        expect(String(sc.recovery)).toContain("obsidian-tc elicit");
+        expect(String(sc.recovery)).toContain("reliquary-tc elicit");
       } finally {
         await b.close();
       }
@@ -365,7 +365,7 @@ describe.each(CASES)("a failed confirm leg inside the SDK shim on $tool", (c) =>
 // this call. A non-default caller makes a recovery that drops --caller fail redemption.
 describe.each(CASES)("following `recovery` verbatim on $tool", (c) => {
   const mintFromRecovery = (b: Awaited<ReturnType<typeof boot>>, recovery: string): string => {
-    const m = /`obsidian-tc (elicit [^`]*)`/.exec(recovery);
+    const m = /`reliquary-tc (elicit [^`]*)`/.exec(recovery);
     if (!m) throw new Error(`no elicit command in recovery: ${recovery}`);
     const cmd = parseCliArgs((m[1] as string).split(/\s+/));
     if (cmd.kind !== "elicit-mint") throw new Error(`parsed as ${cmd.kind}`);
@@ -404,7 +404,7 @@ describe.each(CASES)("following `recovery` verbatim on $tool", (c) => {
     try {
       await b.connect("cancel");
       const res = await b.client.callTool({ name: c.tool, arguments: c.input });
-      const line = /confirm with: (obsidian-tc elicit [^\n]*)/.exec(textOf(res))?.[1];
+      const line = /confirm with: (reliquary-tc elicit [^\n]*)/.exec(textOf(res))?.[1];
       expect(line).toContain("--caller alice");
       expect(String(structured(res).recovery)).toContain(`\`${line}\``);
     } finally {
@@ -429,7 +429,7 @@ describe.skipIf(process.platform === "win32")(
           await b.connect();
           const first = await b.client.callTool({ name: c.tool, arguments: c.input });
           const recovery = String(structured(first).recovery);
-          const m = /`obsidian-tc (elicit [^`]*)`/.exec(recovery);
+          const m = /`reliquary-tc (elicit [^`]*)`/.exec(recovery);
           if (!m) throw new Error(`no elicit command in recovery: ${recovery}`);
           // `set --` does the word-splitting and quote removal a pasted line gets; the loop reads
           // the argv back NUL-delimited (a shell argument cannot contain a NUL).

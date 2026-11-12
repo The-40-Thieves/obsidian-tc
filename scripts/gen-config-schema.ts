@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Emit a JSON Schema for obsidian-tc.config.json from the Zod schema that already validates it.
+// Emit a JSON Schema for reliquary-tc.config.json from the Zod schema that already validates it.
 //
 // WHY THIS IS WORTH DOING AND WHY IT IS CHEAP. The config surface is the customization layer for
 // anyone who does not want to write code — toolVisibility, auth.mode, acl, retrieval, embeddings —
@@ -13,7 +13,7 @@
 // rather than something discovered when the published schema is already stale.
 //
 // usage:
-//   bun scripts/gen-config-schema.ts            # write docs/obsidian-tc.config.schema.json
+//   bun scripts/gen-config-schema.ts            # write docs/reliquary-tc.config.schema.json
 //   bun scripts/gen-config-schema.ts --check    # fail if the committed file is stale
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
+const OUT = join(ROOT, "docs", "reliquary-tc.config.schema.json");
 
 // Drift is checked two ways, and neither is a pinned literal (a single shared hash made any two
 // config PRs conflict by construction):
@@ -44,9 +44,9 @@ const { configJsonSchema } = await import(
 
 const schema = configJsonSchema();
 schema.$schema = "https://json-schema.org/draft/2020-12/schema";
-schema.title = "obsidian-tc server config";
+schema.title = "reliquary-tc server config";
 schema.description =
-  'Configuration for obsidian-tc. Generated from packages/shared/src/config.schema.ts — do not edit by hand. Add `"$schema": "./obsidian-tc.config.schema.json"` to your config for editor autocomplete.';
+  'Configuration for reliquary-tc. Generated from packages/shared/src/config.schema.ts — do not edit by hand. Add `"$schema": "./reliquary-tc.config.schema.json"` to your config for editor autocomplete.';
 
 const json = `${JSON.stringify(schema, null, 2)}\n`;
 
@@ -86,7 +86,7 @@ if (process.argv.includes("--check")) {
     try {
       baseJson = execFileSync(
         trustedExecutable("git"),
-        ["show", `${baseRef}:docs/obsidian-tc.config.schema.json`],
+        ["show", `${baseRef}:docs/reliquary-tc.config.schema.json`],
         {
           cwd: ROOT,
           encoding: "utf8",
@@ -97,7 +97,7 @@ if (process.argv.includes("--check")) {
     } catch (err) {
       // Fail closed: a check that cannot read its baseline has compared nothing.
       console.error(
-        `config schema: cannot read docs/obsidian-tc.config.schema.json at "${baseRef}" ` +
+        `config schema: cannot read docs/reliquary-tc.config.schema.json at "${baseRef}" ` +
           `(${(err as Error).message.split("\n")[0]}). Fetch the ref, or drop --base.`,
       );
       process.exit(1);

@@ -46,7 +46,7 @@ test("MCP and /metrics both serve real responses from one process", async () => 
   );
 
   const http = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth: { mode: "none" } as never,
@@ -86,7 +86,7 @@ test("MCP and /metrics both serve real responses from one process", async () => 
     expect(metricsBody).not.toContain(BUN_PLACEHOLDER);
     expect(metricsRes.status).toBe(200);
     // A non-empty floor: an exposition that scraped nothing would pass every assertion above.
-    expect(metricsBody).toContain("obsidian_tc");
+    expect(metricsBody).toContain("reliquary_tc");
   } finally {
     await http.close();
     await metrics.close();

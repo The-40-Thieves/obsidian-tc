@@ -73,7 +73,7 @@ jobs:
         run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
       - name: config JSON Schema drift gate
         # The published schema is what editors read for autocomplete + inline docs on
-        # obsidian-tc.config.json. It is generated from the Zod schema that already validates the
+        # reliquary-tc.config.json. It is generated from the Zod schema that already validates the
         # config, so a new key with a .describe() reaches users automatically — but only if the
         # committed artifact is regenerated. Stale here means an editor silently tells someone a
         # valid key is invalid, which is worse than having no schema at all.

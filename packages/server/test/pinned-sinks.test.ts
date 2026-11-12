@@ -309,7 +309,7 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
   "an addon that predates safeUnlink",
   () => {
     it("refuses a pinned delete and still deletes a plain file", async () => {
-      const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native") as Record<
+      const mod = createRequire(import.meta.url)("@the-40-thieves/reliquary-tc-native") as Record<
         string,
         unknown
       >;

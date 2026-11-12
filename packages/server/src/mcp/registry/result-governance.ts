@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 
 // WP4.3: result governance — output-schema validation (warn vs strict) and the byte-budget/
@@ -29,10 +29,10 @@ export function takeSerialized(data: unknown): string | undefined {
 /** THE-457 (audit #4): default strict output-schema validation ON in test/CI, so a handler whose
  *  payload drifts from its advertised outputSchema fails a test instead of shipping warn-only to a
  *  client. Vitest sets NODE_ENV=test, so the existing suite exercises every real handler under strict
- *  validation; OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA=1 opts in elsewhere (a CI job, a local run). Production
+ *  validation; RELIQUARY_TC_STRICT_OUTPUT_SCHEMA=1 opts in elsewhere (a CI job, a local run). Production
  *  sets neither and stays warn-only for backward compatibility; an explicit strictOutputSchema wins. */
 export function strictOutputSchemaDefault(): boolean {
-  return process.env.NODE_ENV === "test" || process.env.OBSIDIAN_TC_STRICT_OUTPUT_SCHEMA === "1";
+  return process.env.NODE_ENV === "test" || process.env.RELIQUARY_TC_STRICT_OUTPUT_SCHEMA === "1";
 }
 
 /**
@@ -79,7 +79,7 @@ export function checkOutputSchema(
     /* observability is never load-bearing */
   }
   if (strict) {
-    throw new ObsidianTcError(
+    throw new ReliquaryTcError(
       "internal_error",
       `output does not match advertised outputSchema for ${name}`,
     );
@@ -93,8 +93,8 @@ export function isOverflow(resultSize: number, maxResponseBytes: number): boolea
 
 /** The overflow error, shared by the real byte-budget check and the idempotency terminal-overflow
  *  replay (registry.ts) — same code, message, and details in both places. */
-export function overflowError(resultSize: number, maxResponseBytes: number): ObsidianTcError {
-  return new ObsidianTcError("overflow", "response exceeds byte budget", {
+export function overflowError(resultSize: number, maxResponseBytes: number): ReliquaryTcError {
+  return new ReliquaryTcError("overflow", "response exceeds byte budget", {
     result_size: resultSize,
     limit: maxResponseBytes,
   });

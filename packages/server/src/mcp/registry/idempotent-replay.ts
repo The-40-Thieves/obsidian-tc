@@ -1,4 +1,4 @@
-import type { ObsidianTcError, ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ReliquaryTcError, ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { type DispatchObservability, telemetryDetail } from "./dispatch-observability";
 import type { CallerContext } from "./types";
 
@@ -11,7 +11,7 @@ export function idempotentErrorReplay(
   ctx: CallerContext,
   name: string,
   audit: (status: "error", durationMs: number, resultSize: number, code: string) => void,
-  e: ObsidianTcError,
+  e: ReliquaryTcError,
   duration: number,
   resultSize: number,
   extraMeta: Record<string, number> = {},

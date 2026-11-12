@@ -18,7 +18,7 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
   default ship **dark** behind flags. Cross-encoder rerankers and the class router have
   A/B results on the record (`docs/EVALUATION.md`, ADR 0007); learned sparse, ColBERT,
   convex fusion, query decomposition and MMR have **no recorded result**
-  (`docs/DARK_MECHANISMS.md` is the inventory). **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the earlier virtual-hop experiment hit an 80% bridge-recall ceiling; the champion figure it was compared against has since been [withdrawn as unreproducible](https://github.com/The-40-Thieves/obsidian-tc/pull/752), so that comparison needs re-deriving before it means anything).
+  (`docs/DARK_MECHANISMS.md` is the inventory). **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the earlier virtual-hop experiment hit an 80% bridge-recall ceiling; the champion figure it was compared against has since been [withdrawn as unreproducible](https://github.com/The-40-Thieves/reliquary-tc/pull/752), so that comparison needs re-deriving before it means anything).
 - **The experiential work-memory tier** (v1.6): a quarantined second store with
   serve-path retrieval logging, auto-captured work episodes (poison-scanned,
   evaluator-stamped eligibility), and reader tools under a strict contract.

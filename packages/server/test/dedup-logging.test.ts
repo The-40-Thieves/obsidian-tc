@@ -19,7 +19,7 @@ function dupVault() {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env.OBSIDIAN_TC_DEBUG_DEDUP;
+  delete process.env.RELIQUARY_TC_DEBUG_DEDUP;
 });
 
 describe("THE-499 aggregate dedup logging", () => {
@@ -50,8 +50,8 @@ describe("THE-499 aggregate dedup logging", () => {
     v.cleanup();
   });
 
-  it("exposes individual paths behind OBSIDIAN_TC_DEBUG_DEDUP", async () => {
-    process.env.OBSIDIAN_TC_DEBUG_DEDUP = "1";
+  it("exposes individual paths behind RELIQUARY_TC_DEBUG_DEDUP", async () => {
+    process.env.RELIQUARY_TC_DEBUG_DEDUP = "1";
     const v = dupVault();
     const writes: string[] = [];
     vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {

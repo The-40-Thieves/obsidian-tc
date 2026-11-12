@@ -2,7 +2,7 @@
 // contract: best-effort-continue by default (every item attempted, per-item report
 // with ok/error and stable identity), stop-on-first-error halts the queue, and a
 // concurrency cap bounds in-flight sub-ops. No vault, no IO — pure orchestration.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { runBulk } from "../src/vault/bulk";
 
@@ -16,7 +16,7 @@ describe("runBulk — best-effort (default)", () => {
       { maxConcurrent: 4, stopOnFirstError: false },
       id,
       (item) => {
-        if (item.path === "b") throw new ObsidianTcError("note_not_found", "missing b");
+        if (item.path === "b") throw new ReliquaryTcError("note_not_found", "missing b");
         return { wrote: item.path };
       },
     );
@@ -30,7 +30,7 @@ describe("runBulk — best-effort (default)", () => {
     expect(report.results[2]).toMatchObject({ path: "c", ok: true, wrote: "c" });
   });
 
-  it("wraps a non-ObsidianTcError as internal_error", async () => {
+  it("wraps a non-ReliquaryTcError as internal_error", async () => {
     const report = await runBulk(
       [{ path: "x" }],
       { maxConcurrent: 1, stopOnFirstError: false },
@@ -53,7 +53,7 @@ describe("runBulk — stop_on_first_error", () => {
       id,
       (item) => {
         attempted.push(item.path);
-        if (item.path === "b") throw new ObsidianTcError("note_not_found", "missing b");
+        if (item.path === "b") throw new ReliquaryTcError("note_not_found", "missing b");
         return { wrote: item.path };
       },
     );

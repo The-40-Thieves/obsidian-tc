@@ -63,15 +63,15 @@ function corpus(): Database {
  * FTS5 availability, with the two causes kept DISTINCT (mirrors lexical-sparse-acl.test.ts).
  *
  * The lexical arm must be live for this A/B to mean anything, and a suite that silently returns
- * reports the side-channel property as HELD. But `OBSIDIAN_TC_DISABLE_FTS=1` is a SUPPORTED opt-out,
+ * reports the side-channel property as HELD. But `RELIQUARY_TC_DISABLE_FTS=1` is a SUPPORTED opt-out,
  * so throwing on it would fail a contributor for doing something legitimate. Deliberate opt-out
  * reports SKIPPED; an unexpected absence still throws.
  */
 function ftsState(db: Database): "ok" | "deliberately-disabled" {
   if (ensureChunkFts(db)) return "ok";
-  if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") return "deliberately-disabled";
+  if (process.env.RELIQUARY_TC_DISABLE_FTS === "1") return "deliberately-disabled";
   throw new Error(
-    "FTS5 is unavailable and OBSIDIAN_TC_DISABLE_FTS is not set — the trace A/B cannot run and " +
+    "FTS5 is unavailable and RELIQUARY_TC_DISABLE_FTS is not set — the trace A/B cannot run and " +
       "this suite refuses to pass vacuously. Set the env var if the omission is intended.",
   );
 }
@@ -108,7 +108,7 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
   it("results are IDENTICAL with tracing on and off", async (ctx) => {
     expect.hasAssertions();
     const { db, skip } = corpusOrSkip();
-    ctx.skip(skip, "OBSIDIAN_TC_DISABLE_FTS=1");
+    ctx.skip(skip, "RELIQUARY_TC_DISABLE_FTS=1");
     const opts = {
       query: "quokka",
       queryVec: QUERY_VEC,
@@ -144,7 +144,7 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
   it("pointing the trace at a DIFFERENT note does not change results either", async (ctx) => {
     expect.hasAssertions();
     const { db, skip } = corpusOrSkip();
-    ctx.skip(skip, "OBSIDIAN_TC_DISABLE_FTS=1");
+    ctx.skip(skip, "RELIQUARY_TC_DISABLE_FTS=1");
     const opts = {
       query: "quokka",
       queryVec: QUERY_VEC,
@@ -176,7 +176,7 @@ describe("tracing does not perturb the pipeline (THE-632, the actual contract)",
   it("emits absent-not-zero from the REAL pipeline, not just from a literal", async (ctx) => {
     expect.hasAssertions();
     const { db, skip } = corpusOrSkip();
-    ctx.skip(skip, "OBSIDIAN_TC_DISABLE_FTS=1");
+    ctx.skip(skip, "RELIQUARY_TC_DISABLE_FTS=1");
     // The absent-not-zero rule asserted against production output. seedGeneration has no notion of
     // a score, so its record must OMIT the key rather than report 0 — an invented 0 reads as
     // "scored terribly" instead of "not scored here".

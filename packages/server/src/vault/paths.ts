@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { type Dirent, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { err, wikiLinkNameProblem, windowsNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { err, wikiLinkNameProblem, windowsNameProblem } from "@the-40-thieves/reliquary-tc-shared";
 import { existsNoFollow } from "../auth/key-files";
 // GH #994 second security review, M1: every path_invalid throw below carries the caller's raw,
 // unscanned relPath in `details.path` — reached before memoryDefense ever runs (this is the

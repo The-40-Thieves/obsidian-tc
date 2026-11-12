@@ -53,11 +53,11 @@ export interface ElicitRequestState {
  */
 export function deriveRequestStateKey(secret: string): Uint8Array {
   return new Uint8Array(
-    createHash("sha256").update(`${secret}|obsidian-tc/elicit-request-state`).digest(),
+    createHash("sha256").update(`${secret}|reliquary-tc/elicit-request-state`).digest(),
   );
 }
 
-const SERVER_ELICIT_INFO = "obsidian-tc/elicit-request-state/v1";
+const SERVER_ELICIT_INFO = "reliquary-tc/elicit-request-state/v1";
 
 /**
  * The HTTP codec key: HKDF-SHA256 over the per-server secret (auth/server-secret.ts) under this

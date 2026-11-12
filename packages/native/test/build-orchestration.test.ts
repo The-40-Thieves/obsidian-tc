@@ -105,7 +105,7 @@ describe("runBuild", () => {
   });
 
   it("removes the stage dir when the copy hits a typed ArtifactCopyError", () => {
-    writeFileSync(join(stageDir, "obsidian-tc-native.linux-x64-gnu.node"), "bytes");
+    writeFileSync(join(stageDir, "reliquary-tc-native.linux-x64-gnu.node"), "bytes");
     const spawnFn = fakeSpawn({ status: 0 });
     const lockErr = Object.assign(new Error("busy"), { code: "EBUSY" });
 
@@ -127,7 +127,7 @@ describe("runBuild", () => {
   });
 
   it("removes the stage dir even when an UNEXPECTED (non-lock) error throws", () => {
-    writeFileSync(join(stageDir, "obsidian-tc-native.linux-x64-gnu.node"), "bytes");
+    writeFileSync(join(stageDir, "reliquary-tc-native.linux-x64-gnu.node"), "bytes");
     const spawnFn = fakeSpawn({ status: 0 });
     const oddErr = Object.assign(new Error("disk full"), { code: "ENOSPC" });
 
@@ -169,7 +169,7 @@ describe("runBuild", () => {
   });
 
   it("promotes on success and still removes the (now empty of artifacts) stage dir", () => {
-    writeFileSync(join(stageDir, "obsidian-tc-native.linux-x64-gnu.node"), "bytes");
+    writeFileSync(join(stageDir, "reliquary-tc-native.linux-x64-gnu.node"), "bytes");
     const spawnFn = fakeSpawn({ status: 0 });
     const logs: string[] = [];
 
@@ -185,7 +185,7 @@ describe("runBuild", () => {
 
     expect(code).toBe(0);
     expect(existsSync(stageDir)).toBe(false);
-    expect(existsSync(join(nativeDir, "obsidian-tc-native.linux-x64-gnu.node"))).toBe(true);
+    expect(existsSync(join(nativeDir, "reliquary-tc-native.linux-x64-gnu.node"))).toBe(true);
     expect(logs.some((m) => m.includes("updated"))).toBe(true);
   });
 });

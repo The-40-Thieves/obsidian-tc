@@ -1,24 +1,24 @@
 ---
 title: Installation
-description: Install the obsidian-tc MCP server via npm, a standalone binary, a one-click .mcpb bundle, or Docker.
+description: Install the reliquary-tc MCP server via npm, a standalone binary, a one-click .mcpb bundle, or Docker.
 ---
 
 The fastest way to try it, no install step and no config file:
 
 ```sh
-npx obsidian-tc /path/to/vault
+npx reliquary-tc /path/to/vault
 ```
 
 Every note tool and lexical search work immediately. Semantic search needs an embedder. The default `local` embedder is a separate, fully offline
-package (`@the-40-thieves/obsidian-tc-embedder-local`) that `npm install` does not include;
-`obsidian-tc setup` offers to install it, and once it is installed it needs no config file, no
+package (`@the-40-thieves/reliquary-tc-embedder-local`) that `npm install` does not include;
+`reliquary-tc setup` offers to install it, and once it is installed it needs no config file, no
 Ollama, and no API key (one-time model download on first use). The table below says
 which install methods carry it; [Embeddings](/configuration/embeddings/) has the detail.
 Ollama and every hosted provider (OpenAI, Voyage, Cohere, …) are opt-in either way — a
 config file is what selects one, and is also the upgrade for ACLs, HITL, the generative
 tier, and everything else — see [First Run](/getting-started/first-run/).
 
-obsidian-tc ships in several forms. All of them run the same server; pick whichever
+reliquary-tc ships in several forms. All of them run the same server; pick whichever
 fits your environment.
 
 | Method | macOS | Windows | Linux | Notes |
@@ -39,7 +39,7 @@ same models. WASM embedding is roughly 4x slower than native in the measured two
 
 | Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
 | --- | --- | --- | --- | --- |
-| **npm** | No by default. Install the embedder at the same version (`npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>`, or let `obsidian-tc setup` offer to); it then installs the generated base with only the host's optional ONNX runtime package. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | About 15-46 MB of ONNX runtime files plus the bundled base, down from about 585 MB |
+| **npm** | No by default. Install the embedder at the same version (`npm install -g @the-40-thieves/reliquary-tc-embedder-local@<same version>`, or let `reliquary-tc setup` offer to); it then installs the generated base with only the host's optional ONNX runtime package. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | About 15-46 MB of ONNX runtime files plus the bundled base, down from about 585 MB |
 | **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64: the embedder and its selected native/WASM ONNX runtime are inside the one file. | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
 | **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 66 MB, up from about 2 MB; it carries all native runtimes plus the macOS x64 WASM assets |
 | **Docker** | Not part of the matrix; see [Docker](#docker) below. | | | |
@@ -50,27 +50,27 @@ them (about 140 MB) into the cache directory, then works offline.
 ## npm (Node 24+)
 
 ```sh
-npm install -g obsidian-tc
-obsidian-tc --version
+npm install -g reliquary-tc
+reliquary-tc --version
 ```
 
-This installs the `obsidian-tc` binary backed by the published `obsidian-tc`
-package and its `@the-40-thieves/obsidian-tc-{shared,native}` companions. The
+This installs the `reliquary-tc` binary backed by the published `reliquary-tc`
+package and its `@the-40-thieves/reliquary-tc-{shared,native}` companions. The
 native module ships prebuilds for eight targets — `linux-x64-gnu`,
 `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl` (Alpine), `darwin-x64`,
 `darwin-arm64`, `win32-x64-msvc`, and `win32-arm64-msvc`; on any other platform it
 transparently falls back to a pure-JS implementation.
 
-The local embedder is opt-in: `npm install -g obsidian-tc` does not install it. If you use Ollama
+The local embedder is opt-in: `npm install -g reliquary-tc` does not install it. If you use Ollama
 or a hosted embeddings provider, you do not need it. For the default local embedder, install the
-same version as obsidian-tc (`obsidian-tc --version`):
+same version as reliquary-tc (`reliquary-tc --version`):
 
 ```sh
-npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>
+npm install -g @the-40-thieves/reliquary-tc-embedder-local@<same version>
 ```
 
-`obsidian-tc setup` offers to run this install for you. npm then installs the embedder's generated
-base package plus only `@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>` for the host. It
+`reliquary-tc setup` offers to run this install for you. npm then installs the embedder's generated
+base package plus only `@the-40-thieves/reliquary-tc-embedder-local-<os>-<arch>` for the host. It
 does not install `@huggingface/transformers` or the other platforms' ONNX binaries. Installing it
 with `--omit=optional` or `--no-optional` leaves out that host runtime.
 
@@ -93,8 +93,8 @@ lexical search is unaffected.
 
 ```sh
 docker run --rm -v "$HOME/vaults:/vaults" \
-  -v "$HOME/.config/obsidian-tc:/config" \
-  ghcr.io/the-40-thieves/obsidian-tc:1.34.0 /config/config.json
+  -v "$HOME/.config/reliquary-tc:/config" \
+  ghcr.io/the-40-thieves/reliquary-tc:1.34.0 /config/config.json
 ```
 
 The image is an `oven/bun:1.4.2-slim` build (Debian, glibc): the native prebuilds are
@@ -106,7 +106,7 @@ search until the embedder package's first npm publish lands.
 
 ## One-click bundle (`.mcpb`)
 
-For MCPB-capable MCP hosts, each release attaches a one-click `obsidian-tc.mcpb`
+For MCPB-capable MCP hosts, each release attaches a one-click `reliquary-tc.mcpb`
 bundle. It runs the server under the host's Node (24+) and is self-contained: no
 `node_modules` and no native build are required on the machine. It carries `sqlite-vec`
 for every platform (loaded through Node's built-in `node:sqlite`, so the dense index is on)
@@ -124,36 +124,36 @@ Claude Desktop and other MCPB hosts; the plugin below is the route for Claude's 
 ## Claude Code plugin and other agents
 
 The repository is also a Claude-style plugin marketplace. The plugin launches the
-published package over stdio (`npx -y obsidian-tc`) and asks for your config file path
-when you enable it, passing it to the server as `OBSIDIAN_TC_CONFIG`.
+published package over stdio (`npx -y reliquary-tc`) and asks for your config file path
+when you enable it, passing it to the server as `RELIQUARY_TC_CONFIG`.
 
 ```sh
-claude plugin marketplace add The-40-Thieves/obsidian-tc
-claude plugin install obsidian-tc@the-40-thieves
+claude plugin marketplace add The-40-Thieves/reliquary-tc
+claude plugin install reliquary-tc@the-40-thieves
 ```
 
-Inside a session the same thing is `/plugin marketplace add The-40-Thieves/obsidian-tc`.
+Inside a session the same thing is `/plugin marketplace add The-40-Thieves/reliquary-tc`.
 Node 24+ must be on `PATH` for `npx`.
 
 - **Grok Build** documents that it reads Claude Code marketplaces, plugins and MCP servers
   with no extra setup ([docs.x.ai](https://docs.x.ai/build/features/skills-plugins-marketplaces),
   read 2026-10-10). Its docs do not say which files it reads, and the `${user_config.*}`
   substitution is a Claude Code feature, so if the server starts with a literal
-  placeholder as its config path, set `OBSIDIAN_TC_CONFIG` yourself in a `.grok` MCP entry.
+  placeholder as its config path, set `RELIQUARY_TC_CONFIG` yourself in a `.grok` MCP entry.
 - **Muse Code** (1.4.0 and later) has a plugin system that third-party write-ups report sits
   behind `MUSE_EXPERIMENTAL_PLUGINS=1`. It reads the same marketplace file, and the plugin carries a `.muse-plugin/plugin.json`
   with the server under `capabilities.mcpServers`. Meta's published Muse Code docs do not yet
   describe the plugin format, so that manifest follows the shape existing Muse plugins use and
-  has not been run through `muse plugins validate` here. Export `OBSIDIAN_TC_CONFIG` in the
+  has not been run through `muse plugins validate` here. Export `RELIQUARY_TC_CONFIG` in the
   shell that starts Muse; the manifest has no place to prompt for it.
 
 One-click install into an editor (generated from the same launch config as the plugin, and
 checked in CI):
 
 <!-- BEGIN INSTALL-LINKS (generated by scripts/gen-install-links.mjs; do not hand-edit) -->
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=obsidian-tc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIm9ic2lkaWFuLXRjIl0sImVudiI6eyJPQlNJRElBTl9UQ19DT05GSUciOiIvQUJTT0xVVEUvUEFUSC9UTy9vYnNpZGlhbi10Yy5jb25maWcuanNvbiJ9fQ%3D%3D)
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_obsidian--tc-0098FF?logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%22obsidian-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22obsidian-tc%22%5D%2C%22env%22%3A%7B%22OBSIDIAN_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Fobsidian-tc.config.json%22%7D%7D)
-[Install in VS Code Insiders](vscode-insiders:mcp/install?%7B%22name%22%3A%22obsidian-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22obsidian-tc%22%5D%2C%22env%22%3A%7B%22OBSIDIAN_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Fobsidian-tc.config.json%22%7D%7D)
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=reliquary-tc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInJlbGlxdWFyeS10YyJdLCJlbnYiOnsiUkVMSVFVQVJZX1RDX0NPTkZJRyI6Ii9BQlNPTFVURS9QQVRIL1RPL3JlbGlxdWFyeS10Yy5jb25maWcuanNvbiJ9fQ%3D%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_obsidian--tc-0098FF?logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%22reliquary-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22reliquary-tc%22%5D%2C%22env%22%3A%7B%22RELIQUARY_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Freliquary-tc.config.json%22%7D%7D)
+[Install in VS Code Insiders](vscode-insiders:mcp/install?%7B%22name%22%3A%22reliquary-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22reliquary-tc%22%5D%2C%22env%22%3A%7B%22RELIQUARY_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Freliquary-tc.config.json%22%7D%7D)
 <!-- END INSTALL-LINKS -->
 
 Replace the placeholder path with your config file after installing.

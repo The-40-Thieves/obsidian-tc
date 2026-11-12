@@ -3,7 +3,7 @@ title: Telemetry
 description: Opt-in, anonymous usage telemetry — off by default, no default endpoint, and never any vault content.
 ---
 
-obsidian-tc ships **no telemetry by default**. Nothing leaves the process unless you
+reliquary-tc ships **no telemetry by default**. Nothing leaves the process unless you
 explicitly turn it on **and** name a collector — there is no built-in endpoint, and
 turning `telemetry.enabled` on without `telemetry.endpoint` set is a **config error at
 boot**, not a silent no-op.
@@ -15,7 +15,7 @@ every `intervalMinutes` (never at boot, never before the first interval elapses)
 
 ```json
 {
-  "schema": "obsidian-tc.telemetry/1",
+  "schema": "reliquary-tc.telemetry/1",
   "installId": "3b9e1a2c-4b1e-4a2f-9c3d-1e2f3a4b5c6d",
   "serverVersion": "1.31.3",
   "os": "linux",
@@ -31,7 +31,7 @@ every `intervalMinutes` (never at boot, never before the first interval elapses)
 
 - **`installId`** — a random UUID generated on the first send (not at boot), stored in
   `cache.db`. Not derived from your machine, your vault, or anything else identifying.
-  Rotate it any time with `obsidian-tc telemetry reset-id`.
+  Rotate it any time with `reliquary-tc telemetry reset-id`.
 - **`toolCalls`** — counts keyed by tool name, but ONLY a **registered** tool name can
   become a key: a `tools/call` naming anything else (including a bug, or a hostile
   client probing with an arbitrary string) is counted under a single fixed key,
@@ -49,7 +49,7 @@ every `intervalMinutes` (never at boot, never before the first interval elapses)
 Inspect the exact document SHAPE and your install id, without sending anything:
 
 ```
-obsidian-tc telemetry preview
+reliquary-tc telemetry preview
 ```
 
 **`toolCalls`/`errorCodes`/`clientNames` are always empty in `telemetry preview`'s
@@ -119,7 +119,7 @@ are kept (not reset) so the next attempt is cumulative rather than lossy.
 ## Checking status
 
 ```
-obsidian-tc telemetry status
+reliquary-tc telemetry status
 ```
 
 Prints `enabled` / `endpoint` (redacted) / `installId` / `intervalMinutes` /
@@ -141,6 +141,6 @@ forward this server's telemetry config.
 
 ## Full disclosure
 
-See [SECURITY.md](https://github.com/The-40-Thieves/obsidian-tc/blob/main/SECURITY.md#telemetry)
+See [SECURITY.md](https://github.com/The-40-Thieves/reliquary-tc/blob/main/SECURITY.md#telemetry)
 for the complete, security-reviewed statement of what is and is not sent, and how to
 verify it yourself.

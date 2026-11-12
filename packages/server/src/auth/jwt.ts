@@ -1,4 +1,4 @@
-import { isQualifiedScope } from "@the-40-thieves/obsidian-tc-shared";
+import { isQualifiedScope } from "@the-40-thieves/reliquary-tc-shared";
 import {
   createLocalJWKSet,
   createRemoteJWKSet,
@@ -228,7 +228,7 @@ export async function verifyJwtJwks(
 export interface ClaimMapping {
   subject: ClaimPath;
   scopes: ClaimPath;
-  /** Role/group value -> the obsidian-tc scopes it grants. Own keys only. */
+  /** Role/group value -> the reliquary-tc scopes it grants. Own keys only. */
   scopeMap?: Record<string, readonly string[]>;
   principal?: ClaimPath;
   vault?: ClaimPath;

@@ -107,7 +107,7 @@ export function patchOrtBindingSource(src) {
 }
 
 export const SHARP_STUB = `export default function sharp() {
-  throw new Error("sharp is not bundled: obsidian-tc only runs text embedding models, which need no image processing");
+  throw new Error("sharp is not bundled: reliquary-tc only runs text embedding models, which need no image processing");
 }
 `;
 
@@ -121,7 +121,7 @@ const ORT_BINDING_FILE = /[\\/]onnxruntime-node[\\/]dist[\\/]binding\.js$/;
  */
 export function embedderBundlePlugin(extra) {
   return {
-    name: "obsidian-tc-embedder-bundle",
+    name: "reliquary-tc-embedder-bundle",
     setup(build) {
       build.onResolve({ filter: /^sharp$/ }, () => ({ path: "sharp", namespace: "obtc-stub" }));
       build.onResolve({ filter: /^onnxruntime-(?:node|web)$/ }, () => ({

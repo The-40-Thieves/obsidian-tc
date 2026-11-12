@@ -31,14 +31,14 @@
   //    node_modules/.bin, which is unsafe to exec on Windows) to shell out to the ast-grep binary.
   //  - dependency-cruiser: scripts/check-boundaries.mjs uses import.meta.resolve("dependency-cruiser")
   //    to locate its CLI script on disk and invoke it directly.
-  //  - @the-40-thieves/obsidian-tc-native: src/search/native.ts and src/vault/notes-io.ts both
-  //    build `["@the-40-thieves", "obsidian-tc-native"].join("/")` before importing, so the
+  //  - @the-40-thieves/reliquary-tc-native: src/search/native.ts and src/vault/notes-io.ts both
+  //    build `["@the-40-thieves", "reliquary-tc-native"].join("/")` before importing, so the
   //    native module (which may not exist on every platform/arch) is never named as a literal
   //    import specifier.
   "ignoreDependencies": [
     "@ast-grep/cli",
     "dependency-cruiser",
-    "@the-40-thieves/obsidian-tc-native"
+    "@the-40-thieves/reliquary-tc-native"
   ],
   "ignoreExportsUsedInFile": true,
   "includeEntryExports": false

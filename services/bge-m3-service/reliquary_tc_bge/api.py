@@ -52,7 +52,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="obsidian-tc bge-m3-service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="reliquary-tc bge-m3-service", version="0.1.0", lifespan=lifespan)
 
 
 def require_auth(authorization: str | None = Header(default=None)) -> None:

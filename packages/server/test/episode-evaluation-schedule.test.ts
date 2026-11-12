@@ -1,5 +1,5 @@
 // THE-698 — the experiential tier was DARK. `evaluateEpisodes` had exactly two non-test call sites:
-// its own definition and the manual `obsidian-tc reflect` CLI. Nothing wired it on a schedule the
+// its own definition and the manual `reliquary-tc reflect` CLI. Nothing wired it on a schedule the
 // way registerActivationRecompute wires activation, so rows born 'pending' stayed pending forever.
 // Measured on the live store: 337 of 337 pending, zero eligible, spanning 2026-07-16 to 2026-08-02.
 //
@@ -190,7 +190,7 @@ describe("THE-698 registerEpisodeEvaluation", () => {
 
   // THE-726 review round 1: the derive step is an ADDITION in front of this working pass. A throw
   // in it must not take the pass down or trip the scheduler's own backoff for a tick that would
-  // otherwise have succeeded — reachable today (`obsidian-tc reflect` against a cacheDir the server
+  // otherwise have succeeded — reachable today (`reliquary-tc reflect` against a cacheDir the server
   // never booted throws "no such table: workspace_sessions" without this guard).
   it("a throwing deriveClosedWindows is routed to onError but does not block evaluateEpisodes", async () => {
     vi.useFakeTimers();

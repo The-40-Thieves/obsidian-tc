@@ -4,7 +4,7 @@
 // A replayed authorization code or refresh token revokes the whole family on sight (RFC 9700
 // section 4.14) — correct, but a leaked credential is then a one-request kill switch on the
 // client's session, and the revocation was previously visible only on the process's stderr. This
-// check is the operator surface for it; `obsidian_tc_auth_family_revocations_total` is the
+// check is the operator surface for it; `reliquary_tc_auth_family_revocations_total` is the
 // continuous one.
 //
 // WARNING, never FAIL: a reuse-driven revocation means the defence WORKED — it is the smell of a
@@ -108,7 +108,7 @@ export function familyRevocationsCheck(view: FamilyRevocationsView): Check {
             : `latest: ${latest.reason} (client ${latest.clientId ?? "unknown"}) at ${new Date(latest.ts).toISOString()}, revoking ${latest.accessTokens} access token(s) with the family`,
         ],
         remediation:
-          "A reused authorization code or refresh token revokes its whole family on sight (RFC 9700 section 4.14): the defence worked, but one leaked credential is a one-request kill switch on that client's session. If no client of yours retried with a stale token, treat the credential as leaked — revoke the grant (`obsidian-tc auth as grants list`, then `revoke`) and have the client re-consent. `obsidian_tc_auth_family_revocations_total` counts these continuously; event_log keeps the rows under event_type=auth_family_revoked.",
+          "A reused authorization code or refresh token revokes its whole family on sight (RFC 9700 section 4.14): the defence worked, but one leaked credential is a one-request kill switch on that client's session. If no client of yours retried with a stale token, treat the credential as leaked — revoke the grant (`reliquary-tc auth as grants list`, then `revoke`) and have the client re-consent. `reliquary_tc_auth_family_revocations_total` counts these continuously; event_log keeps the rows under event_type=auth_family_revoked.",
       };
     },
   };

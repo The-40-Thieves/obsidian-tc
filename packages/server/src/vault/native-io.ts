@@ -4,13 +4,13 @@
 // A configured symlinked folder (`wiki -> pages`) is only reachable through a pin, and a pin is only
 // as good as the open that verifies it: the native walk opens the pinned directory with O_NOFOLLOW
 // and fstats it. Node has no openat, so every pure-JS path (no addon, Windows,
-// OBSIDIAN_TC_FORCE_JS_FALLBACK, a .node that predates the primitive) would have to follow the live
+// RELIQUARY_TC_FORCE_JS_FALLBACK, a .node that predates the primitive) would have to follow the live
 // alias, and a retarget between the check and the open would hit another in-vault file. Those paths
 // therefore REFUSE a path that runs through a pinned folder (`refuseJsThroughPin`); folders that are
 // not symlinks are untouched.
 import { statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { type PinnedDir, pinnedOpenPath, vaultDetailPath } from "./folder-links";
 
 export interface NativeVaultIo {
@@ -53,10 +53,10 @@ export interface NativeVaultIo {
   pinnedMkdir: boolean;
 }
 
-const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
+const NATIVE_PKG = ["@the-40-thieves", "reliquary-tc-native"].join("/");
 
 function loadNativeIo(): NativeVaultIo | null {
-  if (process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") return null;
+  if (process.env.RELIQUARY_TC_FORCE_JS_FALLBACK === "1") return null;
   try {
     const mod = createRequire(import.meta.url)(NATIVE_PKG) as Partial<NativeVaultIo> & {
       nativeLoaded?: boolean;
@@ -116,7 +116,7 @@ export const pinnedWritesAvailable = (): boolean =>
 export function refuseJsThroughPin(abs: string): void {
   if (pinnedOpenPath(abs).pinned === undefined) return;
   throw err.aclDenied(
-    "configured symlinked folders require the native module: this path runs through one, and without it (Windows, OBSIDIAN_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
+    "configured symlinked folders require the native module: this path runs through one, and without it (Windows, RELIQUARY_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
     { path: vaultDetailPath(abs) },
   );
 }

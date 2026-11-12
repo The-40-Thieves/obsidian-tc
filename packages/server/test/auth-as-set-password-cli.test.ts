@@ -1,10 +1,10 @@
-// `obsidian-tc auth as set-password` (design v2 section 4.5), slice S4: the CLI way to claim the
+// `reliquary-tc auth as set-password` (design v2 section 4.5), slice S4: the CLI way to claim the
 // bundled authorization server, driven through the same function cli.ts dispatches to, against a
 // real config file and a real oauth.db on disk.
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { verifyPassword } from "../src/auth/as-password";
 import { openOauthDb } from "../src/auth/oauth-db";

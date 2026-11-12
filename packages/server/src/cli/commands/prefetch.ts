@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/reliquary-tc-shared";
 import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import {

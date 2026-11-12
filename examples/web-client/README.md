@@ -1,6 +1,6 @@
 # Web client example
 
-A static page that signs in to an obsidian-tc server as a public OAuth client (PKCE S256, dynamic
+A static page that signs in to a reliquary-tc server as a public OAuth client (PKCE S256, dynamic
 client registration), then runs `list_vaults`, a text search, and `read_note` on a clicked result.
 There is no build step and no framework: `index.html` loads `app.mjs`, which imports the MCP client
 from a pinned CDN URL (`https://esm.sh/@modelcontextprotocol/client@2.3.1`, the version that matches
@@ -28,9 +28,9 @@ redirect-check code with no DOM, and `oauth.test.mjs` runs it under `node --test
 
    `allowedOrigins` takes exact origins (no path, no wildcard). The AS accepts a loopback redirect
    (`http://localhost:<port>/`) from dynamic registration. See the
-   [authorization server](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/configuration/config-yaml.md)
+   [authorization server](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/src/content/docs/configuration/config-yaml.md)
    options in `configuration/config-yaml.md` (`auth.as`), and the
-   [From a web page](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/security/auth-model.md#from-a-web-page)
+   [From a web page](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/src/content/docs/security/auth-model.md#from-a-web-page)
    section of the auth model for the CORS rules.
 
 2. Serve the directory on the port you allowed. The redirect URI is the page URL, so use the same

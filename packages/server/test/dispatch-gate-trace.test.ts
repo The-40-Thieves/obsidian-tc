@@ -30,7 +30,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult, VaultKind } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult, VaultKind } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";

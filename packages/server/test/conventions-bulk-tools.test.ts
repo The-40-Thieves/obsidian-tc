@@ -4,7 +4,7 @@
 // the check is advisory.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerM6Tools } from "../src/tools/m6";
 import { contentHash } from "../src/vault/paths";

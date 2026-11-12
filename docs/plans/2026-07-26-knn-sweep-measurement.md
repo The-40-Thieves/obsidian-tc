@@ -8,7 +8,7 @@ carries vault content.
 
 ## Corpus and setup
 
-- `~/obsidian-tc-eval/multi-hop-golden-set.yaml`, **250 queries**, asserted from the parse before
+- `~/reliquary-tc-eval/multi-hop-golden-set.yaml`, **250 queries**, asserted from the parse before
   the run started.
 - Index settled once before the control arm: **12,698 chunks, all embedded**, recorded in
   `index-state.json` alongside the results. Every cell measured the same corpus.
@@ -106,4 +106,4 @@ packages/server/eval/sweep-knn.sh          # ~75 min; resumes, skips completed c
 ```
 
 Per-cell artifacts (per-query metrics, edge counts, densify timings, corpus path, chunk count) are
-written to `~/obsidian-tc-eval/the532-sweep/` and are not committed.
+written to `~/reliquary-tc-eval/the532-sweep/` and are not committed.

@@ -2,7 +2,7 @@ import {
   CloudEventSchema,
   MORGIANA_EVENT_TYPES,
   MorgianaEventDataSchema,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("MORGIANA CloudEvents schema (G2.4)", () => {
@@ -17,7 +17,7 @@ describe("MORGIANA CloudEvents schema (G2.4)", () => {
     const ev = CloudEventSchema.parse({
       specversion: "1.0",
       id: "11111111-1111-1111-1111-111111111111",
-      source: "obsidian-tc/main",
+      source: "reliquary-tc/main",
       type: "tc.tool.call.completed",
       time: "2026-06-18T12:00:00.000Z",
       data: {
@@ -52,7 +52,7 @@ describe("MORGIANA CloudEvents schema (G2.4)", () => {
       CloudEventSchema.safeParse({
         specversion: "1.0",
         id: "x",
-        source: "obsidian-tc/main",
+        source: "reliquary-tc/main",
         type: "tc.not.real",
         time: "t",
         data: { vault_id: "main" },
@@ -62,7 +62,7 @@ describe("MORGIANA CloudEvents schema (G2.4)", () => {
       CloudEventSchema.safeParse({
         specversion: "0.3",
         id: "x",
-        source: "obsidian-tc/main",
+        source: "reliquary-tc/main",
         type: "tc.server.start",
         time: "t",
         data: { vault_id: "main" },

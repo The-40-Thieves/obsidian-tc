@@ -8,10 +8,10 @@
 import {
   err,
   grantsAll,
-  ObsidianTcError,
+  ReliquaryTcError,
   VaultId,
   VaultPath,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
@@ -619,7 +619,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             // touches the Dataview bridge, so enforce read:dataview inline
             // (deny-by-default) rather than weakening every other mode's scope.
             if (!grantsAll(ctx.grantedScopes, ["read:dataview"]))
-              throw new ObsidianTcError(
+              throw new ReliquaryTcError(
                 "forbidden",
                 "search mode 'dql' requires the read:dataview scope",
                 { required: ["read:dataview"] },

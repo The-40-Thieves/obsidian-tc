@@ -1,7 +1,7 @@
 // The real HTTP app with the authorization-server routes mounted by createHttpApp itself — the
 // fixture for tests whose subject IS createHttpApp's wiring (the client-ip policy, the GH #1477
 // family-revocation sink), which the mount-level as-flow harness cannot cover.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { FolderAcl } from "../src/acl";
 import "../src/auth/as-issuing";
 import { claimOperator } from "../src/auth/as-operator-store";
@@ -69,7 +69,7 @@ export async function asHttpFixture(opts: {
   const cacheDb = openMemoryDb();
   provisionCacheDb(cacheDb);
   const handle: HttpApp = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,

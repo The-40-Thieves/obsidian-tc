@@ -50,7 +50,7 @@ interface AuthShape {
  * `auth.mode: none`), and none of that should stand between an operator and a token. What matters
  * here is only what the verifier will actually check.
  *
- * The env overlay is NOT optional, though: the project's own docs recommend `OBSIDIAN_TC_JWT_SECRET`
+ * The env overlay is NOT optional, though: the project's own docs recommend `RELIQUARY_TC_JWT_SECRET`
  * over a file-resident secret ("keeps it off disk"), and `applyEnvOverlays` is the only code that
  * injects it into `auth.jwtSecret` — skip it and mint fails on the recommended deployment shape
  * with a misleading "no jwtSecret" error even though the secret is right there in the environment.
@@ -178,9 +178,9 @@ export async function signAndRecord(
 }
 
 export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
-  const configPath = cmd.configPath ?? process.env.OBSIDIAN_TC_CONFIG;
+  const configPath = cmd.configPath ?? process.env.RELIQUARY_TC_CONFIG;
   if (!configPath) {
-    throw new CliError("token mint needs a config path (or OBSIDIAN_TC_CONFIG) to read auth from");
+    throw new CliError("token mint needs a config path (or RELIQUARY_TC_CONFIG) to read auth from");
   }
   const auth = readAuthBlock(configPath);
   const { claims, ttlSeconds } = planMint(auth, cmd, Math.floor(Date.now() / 1000));
@@ -217,7 +217,7 @@ export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
     process.stdout.write(`${JSON.stringify({ token, claims, ttlSeconds }, null, 2)}\n`);
     return;
   }
-  // Bare token on stdout so it composes: `OBSIDIAN_TC_TOKEN=$(obsidian-tc token mint …)`.
+  // Bare token on stdout so it composes: `RELIQUARY_TC_TOKEN=$(reliquary-tc token mint …)`.
   // Everything human-facing goes to stderr, which is why that redirect stays clean.
   process.stderr.write(
     `minted jti=${claims.jti} sub=${claims.sub} aud=${claims.aud ?? "(none)"} vault=${claims.vault ?? "(unbound)"} ` +

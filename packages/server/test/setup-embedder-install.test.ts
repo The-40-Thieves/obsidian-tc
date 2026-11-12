@@ -1,5 +1,5 @@
-// `obsidian-tc setup` offers to install the local embedder package. It is no longer an
-// optionalDependency of obsidian-tc, so a plain `npm i obsidian-tc` leaves it out and setup is the
+// `reliquary-tc setup` offers to install the local embedder package. It is no longer an
+// optionalDependency of reliquary-tc, so a plain `npm i reliquary-tc` leaves it out and setup is the
 // place that asks. Every install is injected (run_setup's second argument), so no test runs a real
 // npm/bun; the planner, the argv builder and the runner's spawn are pure or take an injected spawn.
 
@@ -102,9 +102,9 @@ function sandbox(): { configPath: string; vaultPath: string } {
   const vaultPath = makeTempDir("otc-setup-embedder-vault-");
   tmpDirs.push(home, vaultPath);
   restoreHome = stubHomedir(home);
-  mkdirSync(join(home, ".obsidian-tc"), { recursive: true });
-  writeFileSync(join(home, ".obsidian-tc", "placeholder"), "");
-  return { configPath: join(home, ".obsidian-tc", "config.json"), vaultPath };
+  mkdirSync(join(home, ".reliquary-tc"), { recursive: true });
+  writeFileSync(join(home, ".reliquary-tc", "placeholder"), "");
+  return { configPath: join(home, ".reliquary-tc", "config.json"), vaultPath };
 }
 
 function cmd(vaultPath: string, configPath: string) {
@@ -123,7 +123,7 @@ const err = () => stderr.join("");
 
 describe("planEmbedderInstall — which package manager and prefix", () => {
   const proj = join("/home/u/proj");
-  const pkgDir = join(proj, "node_modules", "obsidian-tc");
+  const pkgDir = join(proj, "node_modules", "reliquary-tc");
   const inProject = (name: string) => (p: string) => p === join(proj, name);
   const npmGlobal = join("/usr", "lib", "node_modules");
 
@@ -178,7 +178,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
   it("a global npm install, where npm reports this directory as its global root, installs globally", () => {
     const plan = planEmbedderInstall({
       version,
-      pkgDir: join(npmGlobal, "obsidian-tc"),
+      pkgDir: join(npmGlobal, "reliquary-tc"),
       globalRoot: npmGlobal,
       userAgent: "npm/10.8.0 node/v24.1.0",
       exists: () => false,
@@ -191,7 +191,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: join("/opt", "tools", "node_modules", "obsidian-tc"),
+        pkgDir: join("/opt", "tools", "node_modules", "reliquary-tc"),
         globalRoot: npmGlobal,
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: () => false,
@@ -203,7 +203,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: join(npmGlobal, "obsidian-tc"),
+        pkgDir: join(npmGlobal, "reliquary-tc"),
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: () => false,
       }),
@@ -214,7 +214,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: join(npmGlobal, "obsidian-tc"),
+        pkgDir: join(npmGlobal, "reliquary-tc"),
         globalRoot: npmGlobal,
         userAgent: "pnpm/9.12.0 npm/? node/v24.1.0",
         exists: () => false,
@@ -234,12 +234,12 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
   });
 
   it("a pnpm store path is never planned, even with a project and a matching npm root", () => {
-    const store = join(proj, "node_modules", ".pnpm", "obsidian-tc@1.33.1", "node_modules");
+    const store = join(proj, "node_modules", ".pnpm", "reliquary-tc@1.33.1", "node_modules");
     for (const globalRoot of [undefined, store, join(proj, "node_modules")]) {
       expect(
         planEmbedderInstall({
           version,
-          pkgDir: join(store, "obsidian-tc"),
+          pkgDir: join(store, "reliquary-tc"),
           globalRoot,
           userAgent: "pnpm/9.12.0 npm/? node/v24.1.0",
           exists: () => true,
@@ -252,7 +252,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: join("/home/u/.local/share/pnpm/global/5/node_modules", "obsidian-tc"),
+        pkgDir: join("/home/u/.local/share/pnpm/global/5/node_modules", "reliquary-tc"),
         globalRoot: npmGlobal,
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: () => false,
@@ -261,11 +261,11 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
   });
 
   it("a Volta tool image is never planned: npm -g would install into Volta's image, not the PATH", () => {
-    const image = join("/home/u/.volta/tools/image/packages/obsidian-tc/lib/node_modules");
+    const image = join("/home/u/.volta/tools/image/packages/reliquary-tc/lib/node_modules");
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: join(image, "obsidian-tc"),
+        pkgDir: join(image, "reliquary-tc"),
         globalRoot: image,
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: () => false,
@@ -277,7 +277,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: join(proj, "node_modules", "wrapper", "node_modules", "obsidian-tc"),
+        pkgDir: join(proj, "node_modules", "wrapper", "node_modules", "reliquary-tc"),
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: () => true,
       }),
@@ -289,7 +289,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: `${root}\\obsidian-tc`,
+        pkgDir: `${root}\\reliquary-tc`,
         globalRoot: root,
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: () => false,
@@ -302,7 +302,7 @@ describe("planEmbedderInstall — which package manager and prefix", () => {
     expect(
       planEmbedderInstall({
         version,
-        pkgDir: `${winProj}\\node_modules\\obsidian-tc`,
+        pkgDir: `${winProj}\\node_modules\\reliquary-tc`,
         userAgent: "npm/10.8.0 node/v24.1.0",
         exists: (p) => p === `${winProj}\\package.json`,
       }),
@@ -416,16 +416,16 @@ describe("isYesAnswer — only an explicit yes (or Enter) installs", () => {
   });
 });
 
-describe("ownPackageDir — obsidian-tc's own package directory", () => {
-  it("walks up from a nested compiled location to the package named obsidian-tc", () => {
+describe("ownPackageDir — reliquary-tc's own package directory", () => {
+  it("walks up from a nested compiled location to the package named reliquary-tc", () => {
     const root = makeTempDir("otc-own-pkg-");
     tmpDirs.push(root);
     mkdirSync(join(root, "dist", "cli"), { recursive: true });
-    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "obsidian-tc" }));
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "reliquary-tc" }));
     expect(ownPackageDir(pathToFileURL(join(root, "dist", "cli", "x.js")).href)).toBe(root);
   });
 
-  it("skips a package.json that is not obsidian-tc's", () => {
+  it("skips a package.json that is not reliquary-tc's", () => {
     const root = makeTempDir("otc-own-pkg-other-");
     tmpDirs.push(root);
     mkdirSync(join(root, "dist"), { recursive: true });
@@ -434,7 +434,7 @@ describe("ownPackageDir — obsidian-tc's own package directory", () => {
   });
 });
 
-describe("obsidian-tc setup offers to install the local embedder", () => {
+describe("reliquary-tc setup offers to install the local embedder", () => {
   it("accepted: installs once with the planned argv, and the verified install is trusted without a second in-process probe", async () => {
     const { configPath, vaultPath } = sandbox();
     vi.mocked(probeLocalEmbedderResolution).mockResolvedValue(missing);
@@ -561,7 +561,7 @@ describe("obsidian-tc setup offers to install the local embedder", () => {
 
     expect(ask).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
-    expect(out()).toContain(`obsidian-tc setup: ${EMBEDDER_PACKAGE} is not installed.`);
+    expect(out()).toContain(`reliquary-tc setup: ${EMBEDDER_PACKAGE} is not installed.`);
     expect(out()).toContain(`Install it with: npm install --save-exact ${SPEC} in /home/u/proj`);
   });
 

@@ -1,1 +1,1 @@
-**obsidian-tc** — Obsidian Turbocharged · Apache-2.0 · [Repo](https://github.com/The-40-Thieves/obsidian-tc) · [Releases](https://github.com/The-40-Thieves/obsidian-tc/releases) · [Issues](https://github.com/The-40-Thieves/obsidian-tc/issues). Not affiliated with Obsidian.md.
+**reliquary-tc** — Reliquary-TC · Apache-2.0 · [Repo](https://github.com/The-40-Thieves/reliquary-tc) · [Releases](https://github.com/The-40-Thieves/reliquary-tc/releases) · [Issues](https://github.com/The-40-Thieves/reliquary-tc/issues). Not affiliated with Obsidian.md.

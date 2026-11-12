@@ -57,7 +57,7 @@ test("every published package ships the root LICENSE and NOTICE byte for byte", 
 test("the crate, bundle and plugin manifests declare Apache-2.0", () => {
   assert.match(read("packages/native/Cargo.toml"), /^license = "Apache-2\.0"$/m);
   assert.equal(readJson("mcpb/manifest.json").license, SPDX);
-  assert.equal(readJson("plugins/obsidian-tc/.claude-plugin/plugin.json").license, SPDX);
+  assert.equal(readJson("plugins/reliquary-tc/.claude-plugin/plugin.json").license, SPDX);
 });
 
 test("no workflow labels a published image with the old licence", () => {

@@ -67,7 +67,7 @@ export const ServerConfigObject = z.object({
     .min(1, "cacheDir must be a non-empty directory path")
     .default(".reliquary-tc")
     .describe(
-      'Directory holding both derived indexes and durable server state. `cache.db` includes write provenance and the source-of-truth memory entity graph, so deleting the database loses data that reindexing cannot restore. `experiential.db` holds captured retrieval and episode history that reindexing does not reproduce. Back up the databases, `auth-keys/` (signing keys and registry markers), and `server-secrets/` (wiki seals and HITL confirmation keys); `auth.db` contains revocations and key retirements. Use the confirmed, table-scoped `reset_vault_cache` tool for an index reset, with explicit include flags to preserve idempotency keys and history; never delete the database files or whole directory as an index-reset procedure. This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you.',
+      'Directory holding both derived indexes and durable server state. `cache.db` includes write provenance and the source-of-truth memory entity graph, so deleting the database loses data that reindexing cannot restore. `experiential.db` holds captured retrieval and episode history that reindexing does not reproduce. Back up the databases, `auth-keys/` (signing keys and registry markers), and `server-secrets/` (wiki seals and HITL confirmation keys); `auth.db` contains revocations and key retirements. Use the confirmed, table-scoped `reset_vault_cache` tool for an index reset, with explicit include flags to preserve idempotency keys and history; never delete the database files or whole directory as an index-reset procedure. This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `reliquary-tc <vault>` form (no config file) sets it for you.',
     ),
   // THE-935 (GH #878): the first config surface over db/pragmas.ts — no `db` block existed before
   // this, so it is introduced here, beside cacheDir, rather than nested under it.
@@ -79,7 +79,7 @@ export const ServerConfigObject = z.object({
         .min(1)
         .default(5000)
         .describe(
-          "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault, not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
+          "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising reliquary_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault, not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
         ),
     })
     .prefault({})
@@ -98,7 +98,7 @@ export const ServerConfigObject = z.object({
         ),
     })
     .prefault({})
-    .describe("Note resources: which vaults the obsidian-tc:// resource surfaces serve."),
+    .describe("Note resources: which vaults the reliquary-tc:// resource surfaces serve."),
   vaults: z
     .array(VaultConfigSchema)
     .min(1)
@@ -106,13 +106,13 @@ export const ServerConfigObject = z.object({
   plur: PlurConfigSchema.optional().describe(
     "plur engram-store read proxy. Global rather than per-vault, since the plur store is global.",
   ),
-  // THE-650: Readwise adapter config for `obsidian-tc import-highlights`. Global rather than
+  // THE-650: Readwise adapter config for `reliquary-tc import-highlights`. Global rather than
   // per-vault, matching `plur` just above — the Readwise account is one external source, and
   // which vault its highlights land in is chosen per invocation (--vault), not per config block.
   readwise: ReadwiseConfigSchema.optional().describe(
     "Readwise highlight-import adapter. ABSENT (no token) means `import-highlights` no-ops with NO network call.",
   ),
-  // THE-175: Pensieve ambient-capture adapter config for `obsidian-tc import-ambient`. Global
+  // THE-175: Pensieve ambient-capture adapter config for `reliquary-tc import-ambient`. Global
   // rather than per-vault, matching `readwise`/`plur` above — which vault an observation lands in
   // is chosen per invocation (--vault), and which machine's Pensieve instance to poll is
   // per-invocation too (--machine), so this block is just the one connection detail (baseUrl).
@@ -129,13 +129,13 @@ export const ServerConfigObject = z.object({
     "Embedding provider and indexing throughput.",
   ),
   reranker: RerankerConfigSchema.optional().describe(
-    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
+    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/reliquary-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
   ),
   // THE-832: connection config for the inference gateway itself (extract/synthesize/judge/rerank).
-  // ABSENT preserves today's behaviour exactly: falls through to OBSIDIAN_TC_GATEWAY_URL /
-  // OBSIDIAN_TC_GATEWAY_TOKEN, then to every generative seam degrading gracefully.
+  // ABSENT preserves today's behaviour exactly: falls through to RELIQUARY_TC_GATEWAY_URL /
+  // RELIQUARY_TC_GATEWAY_TOKEN, then to every generative seam degrading gracefully.
   gateway: GatewayConfigSchema.optional().describe(
-    "Inference gateway connection. ABSENT falls through to OBSIDIAN_TC_GATEWAY_URL / OBSIDIAN_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
+    "Inference gateway connection. ABSENT falls through to RELIQUARY_TC_GATEWAY_URL / RELIQUARY_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
   ),
   network: NetworkConfigSchema.prefault({}).describe(
     "Connection policy shared by every outbound provider client: which plain-http hosts may be named. https:// and loopback need no entry.",
@@ -235,17 +235,17 @@ export const ServerConfigObject = z.object({
     .describe(
       "Seconds a pending elicitation (human-in-the-loop prompt) stays valid before it expires.",
     ),
-  // PR B of GH #995's two-part follow-up (PR A: #1001, `obsidian-tc setup`): set ONLY by `serve`'s
+  // PR B of GH #995's two-part follow-up (PR A: #1001, `reliquary-tc setup`): set ONLY by `serve`'s
   // own first-run fallback (cli/setup/first-run-fallback.ts) when it auto-wrote this exact file
   // because no config existed and exactly one vault was found — never set by an interactive
-  // `obsidian-tc setup` run, and never re-derived at boot. `doctor` reads it to tell an operator
-  // the config was auto-generated (not hand-reviewed) and point them at `obsidian-tc setup` to
+  // `reliquary-tc setup` run, and never re-derived at boot. `doctor` reads it to tell an operator
+  // the config was auto-generated (not hand-reviewed) and point them at `reliquary-tc setup` to
   // review or change it.
   setupOrigin: z
     .enum(["first-run-fallback"])
     .optional()
     .describe(
-      "Set only by `obsidian-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `obsidian-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one.",
+      "Set only by `reliquary-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `reliquary-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one.",
     ),
 });
 
@@ -377,7 +377,7 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 
 /**
- * Render this schema as JSON Schema, for editors to consume on obsidian-tc.config.json.
+ * Render this schema as JSON Schema, for editors to consume on reliquary-tc.config.json.
  *
  * Lives here rather than in the generator script because THIS is the module that owns the schema
  * and can resolve `zod` — a script under scripts/ resolves imports from its own directory upward,

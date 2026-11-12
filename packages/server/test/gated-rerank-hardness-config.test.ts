@@ -13,7 +13,7 @@
 // change yet: the shipped default still reproduces the old production behaviour byte for byte.
 // Flipping the default is a ranking change and owes the n=250 paired permutation gate.
 
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { gatedRerankOptionsFromConfig } from "../src/search/graph_search_stages/rerank_stage";
 

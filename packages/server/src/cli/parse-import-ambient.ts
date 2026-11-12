@@ -1,4 +1,4 @@
-// THE-175 — `obsidian-tc import-ambient` argv parsing. Split out of args.ts rather than inlined
+// THE-175 — `reliquary-tc import-ambient` argv parsing. Split out of args.ts rather than inlined
 // there, the same reasoning THE-650's parse-import-highlights.ts documents (args.ts sits at
 // CLAUDE.md's noExcessiveLinesPerFile floor — biome's 700-line cap — and a new command's parse
 // branch does not fit under it). This file depends on nothing from args.ts (not even CliCommand —

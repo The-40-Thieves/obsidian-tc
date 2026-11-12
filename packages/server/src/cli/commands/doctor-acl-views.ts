@@ -4,7 +4,7 @@
 // and the runtime can never disagree about what a vault's ACL was compiled with — and doctor.ts
 // stays under biome's 700-line ceiling.
 
-import { DEFAULT_MEMORY_FOLDER, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { DEFAULT_MEMORY_FOLDER, type ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { DeadPathGlobsView } from "../../doctor/dead-path-globs";
 import { deadPathGlobsView } from "../../doctor/dead-path-globs";
 import type { MemoryReadAclView } from "../../doctor/memory-read-acl";

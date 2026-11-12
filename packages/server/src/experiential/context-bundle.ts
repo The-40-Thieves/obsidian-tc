@@ -85,7 +85,7 @@ const GOAL_COLS = "id, vault_id, text, status, source, created_at, target_date, 
  *  learned state that CROSSES caller partitions within the vault(s) it covers, unfiltered — human-
  *  scoped and caller-scoped rows alike. Deliberate, not a gap: this is the same admin/operator-only,
  *  CLI-only, `registry.dispatch`-bypassing surface the module header establishes, reachable only by
- *  an operator running `obsidian-tc context-export` on the box — never through the MCP tool surface
+ *  an operator running `reliquary-tc context-export` on the box — never through the MCP tool surface
  *  `preferenceProfile`'s own `admin:workspace` gate protects. No second, redundant scope check here. */
 export function exportContextBundle(edb: Database, opts: ExportOptions): ContextBundle {
   const v = opts.vaultId;

@@ -108,7 +108,7 @@ export async function ensureOnnxBackend(opts: OnnxBackendOptions = {}): Promise<
     };
     cache[resolved] = record;
     (opts.log ?? console.error)(
-      `obsidian-tc: ${reason}; the local model runs on onnxruntime-web (WASM) instead.`,
+      `reliquary-tc: ${reason}; the local model runs on onnxruntime-web (WASM) instead.`,
     );
     return { backend: "wasm", reason };
   }

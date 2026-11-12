@@ -1,6 +1,6 @@
-// THE-941: proves the zero-config front door (`obsidian-tc <vault>`, no config file) actually
+// THE-941: proves the zero-config front door (`reliquary-tc <vault>`, no config file) actually
 // works over the real MCP stdio transport against the real built CLI. Spawns via literal `node`,
-// not `bun` — that is exactly what `npx obsidian-tc <vault>` resolves to and runs (package.json's
+// not `bun` — that is exactly what `npx reliquary-tc <vault>` resolves to and runs (package.json's
 // `bin` field points at this same dist/cli.js).
 //
 // Generates a small fixture vault (five notes, wikilinks, one frontmatter field) and asserts, over
@@ -18,7 +18,7 @@
 // "degraded" — now for "the optional local embedder isn't built/available in this environment"
 // (the same degrade path an npm/Docker install hits today per embeddings.md's Known Gaps), not
 // "Ollama is absent". Still a real, worth-having assertion: embeddings unavailable must degrade
-// the index, never error boot — see reference_obsidian_tc_has_no_embeddings_off_switch.
+// the index, never error boot — see reference_reliquary_tc_has_no_embeddings_off_switch.
 //
 // --expect-local-embeddings (THE-1122 item 8) is the OTHER half: a clean install where
 // packages/embedder-local IS built and its pinned weights ARE available expects reconcile to
@@ -39,10 +39,10 @@
 //     [--model-cache <dir>]
 //
 // The child runs under an isolated HOME/XDG/APPDATA (scripts/lib/isolated-home.mjs), never the
-// operator's real home: a smoke must not read or write `~/.obsidian-tc`, and re-runs must be
+// operator's real home: a smoke must not read or write `~/.reliquary-tc`, and re-runs must be
 // independent. The default-state modes assert the child's state dir landed under that temp root.
 // --model-cache <dir> copies model weights into the isolated home before the run and back after,
-// so CI can cache the download without pointing the child at a real `~/.obsidian-tc`.
+// so CI can cache the download without pointing the child at a real `~/.reliquary-tc`.
 
 import { cpSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
   const vaultDir = makeFixtureVault();
   const target = requireOllamaConfig ? makeRequiresOllamaConfig(vaultDir) : vaultDir;
   const isolated = createIsolatedHome("obtc-zero-config-smoke-home-");
-  const isolatedModels = join(isolated.home, ".obsidian-tc", "models");
+  const isolatedModels = join(isolated.home, ".reliquary-tc", "models");
   if (modelCache && existsSync(modelCache)) cpSync(modelCache, isolatedModels, { recursive: true });
 
   const transport = new StdioClientTransport({
@@ -257,7 +257,7 @@ async function main(): Promise<void> {
   process.stderr.write("ok: process exited cleanly on SIGTERM\n");
 
   // The explicit-config mode pins cacheDir itself, so only the no-config modes resolve the
-  // default `~/.obsidian-tc` and can prove it landed under the isolated home.
+  // default `~/.reliquary-tc` and can prove it landed under the isolated home.
   if (!requireOllamaConfig) {
     try {
       assertStateUnderHome(isolated.home);

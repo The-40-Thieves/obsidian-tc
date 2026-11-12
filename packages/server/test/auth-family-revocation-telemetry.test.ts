@@ -63,7 +63,7 @@ const event = (over: Partial<FamilyRevocationEvent> = {}): FamilyRevocationEvent
 });
 
 describe("familyRevocationSink: the counter and the audit row", () => {
-  it("increments obsidian_tc_auth_family_revocations_total by reason", async () => {
+  it("increments reliquary_tc_auth_family_revocations_total by reason", async () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const metrics = new MetricsRecorder();
@@ -72,10 +72,10 @@ describe("familyRevocationSink: the counter and the audit row", () => {
     sink(event({ reason: "authorization_code_reuse", clientId: "client-2", accessTokens: 1 }));
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_auth_family_revocations_total{reason="refresh_token_reuse"} 1',
+      'reliquary_tc_auth_family_revocations_total{reason="refresh_token_reuse"} 1',
     );
     expect(text).toContain(
-      'obsidian_tc_auth_family_revocations_total{reason="authorization_code_reuse"} 1',
+      'reliquary_tc_auth_family_revocations_total{reason="authorization_code_reuse"} 1',
     );
   });
 
@@ -123,10 +123,10 @@ describe("familyRevocationSink: the counter and the audit row", () => {
     const text = await metrics.metrics();
     // The revocation itself is still counted...
     expect(text).toContain(
-      'obsidian_tc_auth_family_revocations_total{reason="refresh_token_reuse"} 1',
+      'reliquary_tc_auth_family_revocations_total{reason="refresh_token_reuse"} 1',
     );
     // ...and the lost audit row has its own signal, the same one dispatch uses.
-    expect(text).toContain("obsidian_tc_audit_write_failed_total");
+    expect(text).toContain("reliquary_tc_audit_write_failed_total");
   });
 });
 
@@ -205,7 +205,7 @@ describe("createHttpApp wires the sink into the AS routes", () => {
       expect(replay.res.status).toBe(400);
       const text = await metrics.metrics();
       expect(text).toContain(
-        'obsidian_tc_auth_family_revocations_total{reason="authorization_code_reuse"} 1',
+        'reliquary_tc_auth_family_revocations_total{reason="authorization_code_reuse"} 1',
       );
       const row = fx.cacheDb
         .prepare("SELECT caller, error_code, result_size FROM event_log WHERE event_type = ?")

@@ -5,7 +5,7 @@
 // The secret is assembled at runtime (same house rule as memory-defense-remaining-writers.test.ts),
 // so no literal in source matches a SECRET_PATTERNS regex.
 
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { makeM3Vault } from "./m3-helpers";
 

@@ -5,7 +5,7 @@
 // query_canvas root/paths/filter/pagination branches that suite doesn't exercise.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { makeM3Vault } from "./m3-helpers";
 

@@ -2,7 +2,7 @@
 // working under its old spelling; these tests pin that for every server surface that reads one.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { LEGACY_NAMES } from "@the-40-thieves/obsidian-tc-shared";
+import { LEGACY_NAMES } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { ADVISORY_SUBSCRIPTION_KEY, requestedAdvisoryKey } from "../src/mcp/advisories";
 import {

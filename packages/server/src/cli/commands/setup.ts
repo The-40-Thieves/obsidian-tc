@@ -1,4 +1,4 @@
-// `obsidian-tc setup` (PR A of GH #995's two-part follow-up — PR B, later, adds first-run fallback
+// `reliquary-tc setup` (PR A of GH #995's two-part follow-up — PR B, later, adds first-run fallback
 // + MCP-client config install; NOT here). GH #995's root cause was an implicit default
 // (`embeddings.provider` unset) changing meaning under an existing install when 1.31.4 shipped.
 // This command is the fix's other half: detect the environment ONCE, print every decision with its
@@ -14,7 +14,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
-import { ObsidianTcError, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError, type ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { baselineOnlyEnrichment } from "../../capability/hardware";
 import { resolveCapabilityProfile } from "../../capability/profile";
@@ -88,10 +88,10 @@ function isExistingDirectory(path: string): boolean {
 }
 
 /** Finding 2 (HIGH, fix round 2): when a config already exists at the write target (or `--config`
- *  names one), load it through the REAL loader, never a hard-coded `~/.obsidian-tc` guess. Returns
+ *  names one), load it through the REAL loader, never a hard-coded `~/.reliquary-tc` guess. Returns
  *  the raw (pre-default) object whenever the file at least PARSES as JSON, and the finalized config
  *  too when it validates. The two diverge for the pre-1.31.4 / GH #995 victim shape (vaults, no
- *  `embeddings`, no `cacheDir`): it fails `finalizeConfig` with a named `ObsidianTcError`, but it is
+ *  `embeddings`, no `cacheDir`): it fails `finalizeConfig` with a named `ReliquaryTcError`, but it is
  *  a real config, and dropping its `raw` made `--force` discard every key setup does not own
  *  (`auth`, `acl`, ...). `undefined` ONLY when the file cannot be parsed as JSON at all.
  *  A file that parses but fails schema validation (a raw `ZodError`) comes back with `invalid` set
@@ -111,15 +111,15 @@ function loadExistingConfig(
   try {
     // finalizeConfig mutates its argument (applyEnvOverlays) — clone so the RAW object handed
     // back to buildSetupConfig for merging is untouched by env overlays that must never be
-    // written back to disk (e.g. a JWT secret pulled from OBSIDIAN_TC_JWT_SECRET).
+    // written back to disk (e.g. a JWT secret pulled from RELIQUARY_TC_JWT_SECRET).
     const config = finalizeConfig(JSON.parse(JSON.stringify(raw)));
     return { raw, config };
   } catch (e) {
-    // A deliberate, named `ObsidianTcError` (config/load.ts's own `err.invalidInput` throws — the
+    // A deliberate, named `ReliquaryTcError` (config/load.ts's own `err.invalidInput` throws — the
     // local-provider-needs-cacheDir case this command exists to repair, or a dimensions mismatch)
     // still means the file IS a real, mergeable config that merely fails one explicit rule after
     // schema validation — return `raw` so buildSetupConfig can merge into it.
-    if (e instanceof ObsidianTcError) return { raw };
+    if (e instanceof ReliquaryTcError) return { raw };
     // Was `undefined` ("no existing config"): `--force` then rebuilt from `{}` and replaced a
     // restrictive acl/auth/egress with defaults. Refused, not merged: see `run_setup`.
     if (e instanceof z.ZodError) return { raw, invalid: configIssueLines(e) };
@@ -202,7 +202,7 @@ function missingExistingVaultWarnings(existingVaults: SetupVaultInput[]): string
     .filter((v) => !isExistingDirectory(v.path))
     .map(
       (v) =>
-        `obsidian-tc setup: existing config vault "${v.id}" path no longer exists: ${v.path} — ` +
+        `reliquary-tc setup: existing config vault "${v.id}" path no longer exists: ${v.path} — ` +
         "kept as-is (not deleted); fix or remove it by hand if this is stale.",
     );
 }
@@ -279,7 +279,7 @@ export async function detect(
       registryVaults.push({ id: v.id, path: v.path });
     } else {
       process.stderr.write(
-        `obsidian-tc setup: skipping registry vault "${v.id}" — path no longer exists: ${v.path}\n`,
+        `reliquary-tc setup: skipping registry vault "${v.id}" — path no longer exists: ${v.path}\n`,
       );
     }
   }
@@ -372,7 +372,7 @@ function printDecisions(
   },
 ): void {
   const out: string[] = [];
-  out.push(`obsidian-tc setup — target: ${decision.targetPath}`, "");
+  out.push(`reliquary-tc setup — target: ${decision.targetPath}`, "");
   if (decision.vaults.length === 0) {
     out.push("vaults: NONE FOUND — no Obsidian registry and no --vault given.");
   } else {
@@ -404,7 +404,7 @@ function printDecisions(
     out.push(
       "",
       "hosted embeddings API keys detected in your environment (NOT chosen automatically — " +
-        "obsidian-tc never sends note content to a third party without an explicit opt-in):",
+        "reliquary-tc never sends note content to a third party without an explicit opt-in):",
     );
     for (const s of decision.hostedSuggestions) {
       out.push(
@@ -435,7 +435,7 @@ export async function run_setup(
 ): Promise<void> {
   // PR B of GH #995's two-part follow-up: `--install-client` is a SEPARATE action from the normal
   // detect/decide/write flow below — it never runs vault detection at all, only wires an
-  // `obsidian-tc` entry into the named client's own MCP config. See
+  // `reliquary-tc` entry into the named client's own MCP config. See
   // cli/commands/setup-install-client.ts.
   if (cmd.installClient !== undefined) {
     try {
@@ -452,7 +452,7 @@ export async function run_setup(
   // schema-valid config whose vault path only turns out to be wrong at serve/indexing time.
   if (cmd.vaultPath !== undefined && !isExistingDirectory(resolve(cmd.vaultPath))) {
     process.stderr.write(
-      `obsidian-tc setup: --vault ${cmd.vaultPath} does not exist or is not a directory.\n`,
+      `reliquary-tc setup: --vault ${cmd.vaultPath} does not exist or is not a directory.\n`,
     );
     process.exitCode = 2;
     return;
@@ -464,19 +464,19 @@ export async function run_setup(
   if (decision.existingInvalid) {
     if (!cmd.replaceInvalidConfig) {
       process.stderr.write(
-        `obsidian-tc setup: refusing to touch ${decision.targetPath} — it is not a valid config, ` +
+        `reliquary-tc setup: refusing to touch ${decision.targetPath} — it is not a valid config, ` +
           "and setup will not rewrite a config it cannot read back, since that could replace your " +
           "restrictive acl/auth/egress settings with defaults. Nothing was written.\n" +
           `  ${decision.existingInvalid.join("\n  ")}\n` +
           "Fix the problem above by hand (a backup is not needed: the file is untouched), then " +
-          "re-run `obsidian-tc setup`. To throw the old file away on purpose and write a fresh " +
+          "re-run `reliquary-tc setup`. To throw the old file away on purpose and write a fresh " +
           "default one (the old file is backed up first), pass `--replace-invalid-config`.\n",
       );
       process.exitCode = 1;
       return;
     }
     process.stderr.write(
-      `obsidian-tc setup: WARNING: --replace-invalid-config: ${decision.targetPath} is not a ` +
+      `reliquary-tc setup: WARNING: --replace-invalid-config: ${decision.targetPath} is not a ` +
         "valid config and will be REPLACED. Its acl, auth and egress settings, and every other " +
         "setting in it, are DISCARDED and rebuilt from defaults; the old file is kept as a " +
         "backup (<path>.bak-<timestamp>) when this run writes. Problems found:\n" +
@@ -496,7 +496,7 @@ export async function run_setup(
 
   if (decision.vaults.length === 0) {
     process.stderr.write(
-      "obsidian-tc setup: no vault found — no Obsidian registry on this machine, and no --vault given. Pass --vault <path>.\n",
+      "reliquary-tc setup: no vault found — no Obsidian registry on this machine, and no --vault given. Pass --vault <path>.\n",
     );
     process.exitCode = 2;
     return;
@@ -532,13 +532,13 @@ export async function run_setup(
   if (!cmd.yes) {
     if (!process.stdin.isTTY) {
       process.stdout.write(
-        "obsidian-tc setup: no TTY and --yes not given — nothing written. Re-run with --yes to write non-interactively.\n",
+        "reliquary-tc setup: no TTY and --yes not given — nothing written. Re-run with --yes to write non-interactively.\n",
       );
       return;
     }
     const confirmed = await confirmWrite(decision.targetPath);
     if (!confirmed) {
-      process.stdout.write("obsidian-tc setup: aborted — nothing written.\n");
+      process.stdout.write("reliquary-tc setup: aborted — nothing written.\n");
       return;
     }
   }
@@ -549,9 +549,9 @@ export async function run_setup(
       existingRaw,
     });
     process.stdout.write(
-      `obsidian-tc setup: wrote ${result.path}` +
+      `reliquary-tc setup: wrote ${result.path}` +
         (result.backupPath ? ` (existing config backed up to ${result.backupPath})` : "") +
-        `\nPoint obsidian-tc at it: pass it as --config, or set OBSIDIAN_TC_CONFIG=${result.path}.\n`,
+        `\nPoint reliquary-tc at it: pass it as --config, or set RELIQUARY_TC_CONFIG=${result.path}.\n`,
     );
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);

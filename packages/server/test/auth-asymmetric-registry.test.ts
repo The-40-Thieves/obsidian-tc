@@ -306,7 +306,7 @@ describe("JWKS document", () => {
     const cacheDb = openMemoryDb();
     provisionCacheDb(cacheDb);
     const handle = await startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "t",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: { mode: "jwt", jwtSecret: SECRET, tokenTtlSeconds: 86400, requireJti: false } as never,

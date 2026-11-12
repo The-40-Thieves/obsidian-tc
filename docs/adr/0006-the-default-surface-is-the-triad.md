@@ -1,6 +1,6 @@
 # The default tool surface is the triad, and stays that way until something measures otherwise
 
-obsidian-tc registers 150 capabilities and advertises **three** by default. `toolFacade.mode`
+reliquary-tc registers 150 capabilities and advertises **three** by default. `toolFacade.mode`
 defaults to `triad`, so a fresh install hands a client `find_capability`, `describe_capability` and
 `call_capability`, and nothing else. Every capability remains callable; only the advertised surface
 is collapsed.
@@ -14,7 +14,7 @@ three or four. We are keeping the triad.
 The competitive read is the part worth writing down, because it inverts the intuition. Across the
 four Obsidian MCP servers anyone actually uses, the default surface runs from 6 to 15 tools, median
 about 9 or 10, and **not one of them ships a progressive-disclosure mechanism**. They do not need
-one: nobody else has a surface large enough to require it. So obsidian-tc is simultaneously the
+one: nobody else has a surface large enough to require it. So reliquary-tc is simultaneously the
 largest total surface in the category by an order of magnitude, and the *smallest default*. The
 familiar complaint — too many tools — is true of the total and false of the thing a new user is
 handed.

@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { searchRegex, searchText } from "../src/search/text";
 import { ReadRefusals } from "../src/tools/read-refusals";
@@ -89,7 +89,7 @@ describe("searchRegex", () => {
       pattern: "(unclosed",
       limit: 10,
     });
-    await expect(p).rejects.toBeInstanceOf(ObsidianTcError);
+    await expect(p).rejects.toBeInstanceOf(ReliquaryTcError);
     await expect(p).rejects.toMatchObject({ code: "invalid_input" });
     v.cleanup();
   });

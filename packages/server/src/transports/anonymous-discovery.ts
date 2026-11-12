@@ -6,7 +6,7 @@
 // Default (`none`) never reaches this file: every request without a token is a 401 with the
 // WWW-Authenticate challenge, which is what grok.com needs to start its sign-in (it does so only
 // when `tools/list` answers 401).
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { resolveScopes } from "../auth/as-clients";
 import { isPrmConfigured, wwwAuthenticateToolChallenge } from "../auth/protected-resource";
 import { MODERN_PROTOCOL_VERSION } from "../mcp/tasks";

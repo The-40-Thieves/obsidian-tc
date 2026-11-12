@@ -14,7 +14,7 @@ Recommendation for Codex under the pre-registered rule: **`domain`**. `flat` is 
 recommendation for Claude Code (unchanged).
 
 Codex CLI 0.159.2, default model `gpt-6.1-sol` (probed before the run and after every cell: identical each
-time), plan `prolite` (weekly limit 0 to 9% used over the whole run), obsidian-tc 1.31.8 built from `eb637ce3`,
+time), plan `prolite` (weekly limit 0 to 9% used over the whole run), reliquary-tc 1.31.8 built from `eb637ce3`,
 16 tasks x 4 reps = 64 trials per mode, 192 trials, every one confirmed complete.
 
 | Codex CLI | trials | success | median calls-to-success | tool-not-found trials (events) | trials with an error (errors) | median billable tokens |
@@ -196,7 +196,7 @@ proxy logs, archived vaults, 192 trial directories) stay on the maintainer's hos
 
 sha256 `f7d8ba368d8c8b302aba176d8e58a509108cefbb6c44e9a971e8146fc9853e0d`, recorded 2026-10-02T21:48:19Z.
 
-The first launch of the schedule produced 16 `triad` trials that all failed with zero obsidian-tc calls, and
+The first launch of the schedule produced 16 `triad` trials that all failed with zero reliquary-tc calls, and
 was stopped by hand before its `domain` cell completed. Cause: the template had been byte-copied from
 `../20261002-discovery/template`, but its warm index records the absolute path of the vault it was built
 under, so the server refused to start ("vault id "main" is already recorded against a different path"); Codex
@@ -208,10 +208,10 @@ Fix, before the relaunch: the template was rebuilt in this directory with the ha
 `template.ts <root> --omit "Inbox/Messy frontmatter.md"` against the same public corpus. Its vault is the
 same 1,379 files as the discovery template, byte-identical except one random entity id in
 `memory/person/Maya Chen.md` (`diff -rq`). One single-trial smoke run (`dx-backlinks`, triad, PASS, only the
-`obsidian-tc` MCP server used) is in `diag-runs/probe-trial-triad/`; it is not counted.
+`reliquary-tc` MCP server used) is in `diag-runs/probe-trial-triad/`; it is not counted.
 
 `verify-complete.py` additionally flags any trial whose transcript names an MCP server other than
-`obsidian-tc` and does not count such a trial as complete. Nothing else in the registration changes. The
+`reliquary-tc` and does not count such a trial as complete. Nothing else in the registration changes. The
 preregistration's statement that the template is a byte-copy of the discovery template is superseded by
 this addendum (same corpus and seeded notes, rebuilt in place).
 
@@ -221,12 +221,12 @@ sha256 `87dde7849dae17f030d978042a974ab7b627b2d09ac541f892d969db78666e02`, recor
 
 The schedule stopped after `domain` rep 1 because `verify-complete.py` flagged one trial
 (`rename-fix-backlinks`, PASS) as having used another MCP server. The transcript shows the model called
-`list_mcp_resources` with the made-up server name `obsidian_tc`, which Codex rejected client-side
+`list_mcp_resources` with the made-up server name `reliquary_tc`, which Codex rejected client-side
 ("unknown MCP server"); no foreign server was reached. The guard was too coarse, not the trial. The
-guard now flags a trial only when a call to a server other than `obsidian-tc` SUCCEEDED. The trial is
+guard now flags a trial only when a call to a server other than `reliquary-tc` SUCCEEDED. The trial is
 counted as complete and in its cell; the guard change does not alter any metric or the decision rule. The
 failed `list_mcp_resources` call is model friction and is visible in the transcript but is not an
-obsidian-tc server error. The schedule was resumed with the remaining cells in the registered order
+reliquary-tc server error. The schedule was resumed with the remaining cells in the registered order
 (`flat` rep 1, then rep 2 reversed: `flat`, `domain`, `triad`).
 
 ### Addendum 3
@@ -236,7 +236,7 @@ sha256 `c0974ae9b628ab0daae510286283683f11901a7554872a61930f885ddec54e96`, recor
 The schedule stopped once more after the last cell (`triad` rep 2): `verify-complete.py` flagged
 `triad/dx-by-property__r2` (PASS) for a successful call to server `codex`. That is Codex's own built-in
 `list_mcp_resources` tool (server name `codex`), which the model called with no arguments; it returned the
-account's connector list (resource names only). No connector tool was called and the obsidian-tc calls
+account's connector list (resource names only). No connector tool was called and the reliquary-tc calls
 are intact. The guard now treats the built-in `list_mcp_resources` / `list_mcp_resource_templates` tools
 as client behaviour, not a foreign server. The trial counts. All six cells (96 trials) had completed
 before this addendum; no result depended on it. Observed for the record: this account has Codex

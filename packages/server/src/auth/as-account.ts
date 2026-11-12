@@ -3,7 +3,7 @@
 // blank value is an empty list, which allows nothing). They are read from the
 // row at the moment of every decision (consent approval, a remembered consent, the token exchange), never
 // copied into a grant or a code, so narrowing an account takes effect on everything not yet issued.
-import { grantsScope } from "@the-40-thieves/obsidian-tc-shared";
+import { grantsScope } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 
 export interface AccountBounds {

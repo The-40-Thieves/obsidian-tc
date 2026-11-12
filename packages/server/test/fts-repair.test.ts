@@ -33,12 +33,12 @@ const count = (db: any, sql: string): number =>
 
 describe("notes/notes_fts divergence repair", () => {
   beforeEach(() => {
-    process.env.OBSIDIAN_TC_DISABLE_FTS = "";
+    process.env.RELIQUARY_TC_DISABLE_FTS = "";
   });
 
   it("does NOT delete note rows when the FTS index is empty — it marks them stale instead", () => {
     const db = dbWithNotes();
-    // Exactly the state a prior OBSIDIAN_TC_DISABLE_FTS=1 run leaves behind: notes written, FTS not.
+    // Exactly the state a prior RELIQUARY_TC_DISABLE_FTS=1 run leaves behind: notes written, FTS not.
     for (let i = 0; i < 20; i++) upsertNoteRow(db, "main", rec(`n${i}.md`), false, 1);
     expect(count(db, "notes")).toBe(20);
 

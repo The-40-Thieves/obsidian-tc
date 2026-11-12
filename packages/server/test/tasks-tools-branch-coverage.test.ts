@@ -4,7 +4,7 @@
 // filter, update_task's CRLF/out-of-range/omitted-set legs, and tasks_filter's
 // optional sort_by/limit/cursor + a bridge response missing `items`). Every
 // assertion checks real output, not just that a branch executed.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 

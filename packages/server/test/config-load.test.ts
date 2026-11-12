@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmTemp(dir);
-  process.env.OBSIDIAN_TC_JWT_SECRET = "";
+  process.env.RELIQUARY_TC_JWT_SECRET = "";
 });
 
 // THE-1122 review round 3: cacheDir is now REQUIRED whenever the resolved embeddings.provider is
@@ -190,7 +190,7 @@ describe("loadConfig", () => {
   });
 
   it("overlays the JWT secret from the environment", () => {
-    process.env.OBSIDIAN_TC_JWT_SECRET = "x".repeat(40);
+    process.env.RELIQUARY_TC_JWT_SECRET = "x".repeat(40);
     const cfg = loadConfig(
       writeConfig({ vaults: [{ id: "v1", path: "/tmp/v1" }], auth: { mode: "jwt" } }),
     );
@@ -258,7 +258,7 @@ describe("cacheDir requirement for provider 'local' (THE-1122 review round 3)", 
 // THE-825: `isPlaneEnabledExplicit` is the signal that distinguishes "the raw config never
 // mentioned plane.enabled" (defaulted) from "the raw config set plane.enabled: false on purpose"
 // (deliberate opt-out) -- the two are indistinguishable once ServerConfigSchema.parse has run.
-// Deployment overlays (PORT, OBSIDIAN_TC_PUBLIC_URL, ...). Each one is a single env->path mapping in
+// Deployment overlays (PORT, RELIQUARY_TC_PUBLIC_URL, ...). Each one is a single env->path mapping in
 // applyEnvOverlays, the one overlay both boot and `config explain` run. Precedence is env > file >
 // default: the overlay writes into the raw file object before the schema defaults apply.
 describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
@@ -283,10 +283,10 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     const before = structuredClone(raw);
     applyEnvOverlays(raw, {
       PORT: "",
-      OBSIDIAN_TC_PUBLIC_URL: "",
-      OBSIDIAN_TC_JWKS_URI: "",
-      OBSIDIAN_TC_VAULT_PATH: "",
-      OBSIDIAN_TC_CACHE_DIR: "",
+      RELIQUARY_TC_PUBLIC_URL: "",
+      RELIQUARY_TC_JWKS_URI: "",
+      RELIQUARY_TC_VAULT_PATH: "",
+      RELIQUARY_TC_CACHE_DIR: "",
     });
     expect(raw).toEqual(before);
   });
@@ -298,20 +298,20 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     },
   );
 
-  it("OBSIDIAN_TC_PUBLIC_URL sets auth.resource to the /mcp URL and allows its host", () => {
+  it("RELIQUARY_TC_PUBLIC_URL sets auth.resource to the /mcp URL and allows its host", () => {
     expect(
-      applyEnvOverlays({}, { OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com" }),
+      applyEnvOverlays({}, { RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com" }),
     ).toMatchObject({
       auth: { resource: "https://vault.example.com/mcp" },
       transports: { http: { allowedHosts: ["vault.example.com"] } },
     });
   });
 
-  it("OBSIDIAN_TC_PUBLIC_URL keeps an explicit port in the allowed host and never duplicates one", () => {
+  it("RELIQUARY_TC_PUBLIC_URL keeps an explicit port in the allowed host and never duplicates one", () => {
     expect(
       applyEnvOverlays(
         { transports: { http: { allowedHosts: ["vault.example.com"] } } },
-        { OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com:8443/" },
+        { RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com:8443/" },
       ),
     ).toMatchObject({
       auth: { resource: "https://vault.example.com:8443/mcp" },
@@ -319,7 +319,7 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     });
     const again = applyEnvOverlays(
       { transports: { http: { allowedHosts: ["vault.example.com"] } } },
-      { OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com" },
+      { RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com" },
     ) as Http;
     expect(again.transports.http.allowedHosts).toEqual(["vault.example.com"]);
   });
@@ -330,34 +330,34 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     "https://vault.example.com/mcp",
     "https://vault.example.com?x=1",
     "not a url",
-  ])("refuses OBSIDIAN_TC_PUBLIC_URL=%s with an error naming the variable", (url) => {
-    expect(() => applyEnvOverlays({}, { OBSIDIAN_TC_PUBLIC_URL: url })).toThrow(
-      /OBSIDIAN_TC_PUBLIC_URL/,
+  ])("refuses RELIQUARY_TC_PUBLIC_URL=%s with an error naming the variable", (url) => {
+    expect(() => applyEnvOverlays({}, { RELIQUARY_TC_PUBLIC_URL: url })).toThrow(
+      /RELIQUARY_TC_PUBLIC_URL/,
     );
   });
 
-  it("OBSIDIAN_TC_JWKS_URI sets auth.jwksUri", () => {
+  it("RELIQUARY_TC_JWKS_URI sets auth.jwksUri", () => {
     expect(
-      applyEnvOverlays({}, { OBSIDIAN_TC_JWKS_URI: "https://as.example.com/jwks" }),
+      applyEnvOverlays({}, { RELIQUARY_TC_JWKS_URI: "https://as.example.com/jwks" }),
     ).toMatchObject({ auth: { jwksUri: "https://as.example.com/jwks" } });
   });
 
-  it("OBSIDIAN_TC_VAULT_PATH creates the one vault when the config has none", () => {
-    expect(applyEnvOverlays({}, { OBSIDIAN_TC_VAULT_PATH: "/data/vault" })).toMatchObject({
+  it("RELIQUARY_TC_VAULT_PATH creates the one vault when the config has none", () => {
+    expect(applyEnvOverlays({}, { RELIQUARY_TC_VAULT_PATH: "/data/vault" })).toMatchObject({
       vaults: [{ id: "main", path: "/data/vault" }],
     });
   });
 
-  it("OBSIDIAN_TC_VAULT_PATH replaces the path of the one configured vault and keeps its id", () => {
+  it("RELIQUARY_TC_VAULT_PATH replaces the path of the one configured vault and keeps its id", () => {
     expect(
       applyEnvOverlays(
         { vaults: [{ id: "notes", path: "/old", name: "Notes" }] },
-        { OBSIDIAN_TC_VAULT_PATH: "/data/vault" },
+        { RELIQUARY_TC_VAULT_PATH: "/data/vault" },
       ),
     ).toMatchObject({ vaults: [{ id: "notes", path: "/data/vault", name: "Notes" }] });
   });
 
-  it("OBSIDIAN_TC_VAULT_PATH refuses a config with several vaults rather than guessing", () => {
+  it("RELIQUARY_TC_VAULT_PATH refuses a config with several vaults rather than guessing", () => {
     expect(() =>
       applyEnvOverlays(
         {
@@ -366,14 +366,14 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
             { id: "b", path: "/b" },
           ],
         },
-        { OBSIDIAN_TC_VAULT_PATH: "/data/vault" },
+        { RELIQUARY_TC_VAULT_PATH: "/data/vault" },
       ),
-    ).toThrow(/OBSIDIAN_TC_VAULT_PATH/);
+    ).toThrow(/RELIQUARY_TC_VAULT_PATH/);
   });
 
-  it("OBSIDIAN_TC_CACHE_DIR sets cacheDir", () => {
+  it("RELIQUARY_TC_CACHE_DIR sets cacheDir", () => {
     expect(
-      applyEnvOverlays({ cacheDir: "/old" }, { OBSIDIAN_TC_CACHE_DIR: "/data/cache" }),
+      applyEnvOverlays({ cacheDir: "/old" }, { RELIQUARY_TC_CACHE_DIR: "/data/cache" }),
     ).toMatchObject({ cacheDir: "/data/cache" });
   });
 
@@ -384,7 +384,7 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
         cacheDir: "/file/cache",
         transports: { http: { port: 9000, host: "127.0.0.1" } },
       },
-      { OBSIDIAN_TC_VAULT_PATH: "/env/vault", OBSIDIAN_TC_CACHE_DIR: "/env/cache", PORT: "9100" },
+      { RELIQUARY_TC_VAULT_PATH: "/env/vault", RELIQUARY_TC_CACHE_DIR: "/env/cache", PORT: "9100" },
     );
     expect(cfg.vaults[0]?.path).toBe("/env/vault");
     expect(cfg.cacheDir).toBe("/env/cache");
@@ -410,20 +410,20 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
       },
       {
         PORT: "8080",
-        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
-        OBSIDIAN_TC_JWT_SECRET: SECRET,
+        RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com",
+        RELIQUARY_TC_JWT_SECRET: SECRET,
       },
     );
     expect(cfg.transports.http).toMatchObject({ enabled: true, port: 8080, host: "0.0.0.0" });
     expect(cfg.auth.resource).toBe("https://vault.example.com/mcp");
   });
 
-  it("OBSIDIAN_TC_ALLOWED_HOSTS merges with the file list and PUBLIC_URL's host, de-duplicated, existing first", () => {
+  it("RELIQUARY_TC_ALLOWED_HOSTS merges with the file list and PUBLIC_URL's host, de-duplicated, existing first", () => {
     const raw = applyEnvOverlays(
       { transports: { http: { allowedHosts: ["nas.local", "umbrel.local:8765"] } } },
       {
-        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
-        OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765, 192.168.1.20:8765,nas.local",
+        RELIQUARY_TC_PUBLIC_URL: "https://vault.example.com",
+        RELIQUARY_TC_ALLOWED_HOSTS: "umbrel.local:8765, 192.168.1.20:8765,nas.local",
       },
     ) as Http;
     expect(raw.transports.http.allowedHosts).toEqual([
@@ -434,32 +434,32 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     ]);
   });
 
-  it("OBSIDIAN_TC_ALLOWED_HOSTS accepts host, host:port, IPv4 and bracketed IPv6 entries", () => {
+  it("RELIQUARY_TC_ALLOWED_HOSTS accepts host, host:port, IPv4 and bracketed IPv6 entries", () => {
     expect(
       (
         applyEnvOverlays(
           {},
-          { OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765,192.168.1.20:8765,[fd00::1]:8765,nas" },
+          { RELIQUARY_TC_ALLOWED_HOSTS: "umbrel.local:8765,192.168.1.20:8765,[fd00::1]:8765,nas" },
         ) as Http
       ).transports.http.allowedHosts,
     ).toEqual(["umbrel.local:8765", "192.168.1.20:8765", "[fd00::1]:8765", "nas"]);
   });
 
   it.each(["*", "*.local", "a,,b", "a,", "http://x", "x/y", "u@x", "x:0", "x:70000", "a b"])(
-    "refuses OBSIDIAN_TC_ALLOWED_HOSTS=%s with an error naming the variable, not the value",
+    "refuses RELIQUARY_TC_ALLOWED_HOSTS=%s with an error naming the variable, not the value",
     (hosts) => {
       let message = "";
       try {
-        applyEnvOverlays({}, { OBSIDIAN_TC_ALLOWED_HOSTS: hosts });
+        applyEnvOverlays({}, { RELIQUARY_TC_ALLOWED_HOSTS: hosts });
       } catch (e) {
         message = (e as Error).message;
       }
-      expect(message).toMatch(/OBSIDIAN_TC_ALLOWED_HOSTS/);
+      expect(message).toMatch(/RELIQUARY_TC_ALLOWED_HOSTS/);
       expect(message).not.toContain(hosts);
     },
   );
 
-  it("an empty OBSIDIAN_TC_ALLOWED_HOSTS or OBSIDIAN_TC_AUDIENCE changes nothing", () => {
+  it("an empty RELIQUARY_TC_ALLOWED_HOSTS or RELIQUARY_TC_AUDIENCE changes nothing", () => {
     const raw = {
       vaults: [VAULT],
       cacheDir: "/c",
@@ -467,44 +467,44 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
       transports: { http: { allowedHosts: ["nas"] } },
     };
     const before = structuredClone(raw);
-    applyEnvOverlays(raw, { OBSIDIAN_TC_ALLOWED_HOSTS: "", OBSIDIAN_TC_AUDIENCE: "" });
+    applyEnvOverlays(raw, { RELIQUARY_TC_ALLOWED_HOSTS: "", RELIQUARY_TC_AUDIENCE: "" });
     expect(raw).toEqual(before);
   });
 
-  it("OBSIDIAN_TC_AUDIENCE sets auth.audience and overrides a file value", () => {
-    expect(applyEnvOverlays({}, { OBSIDIAN_TC_AUDIENCE: "nas-vault" })).toMatchObject({
+  it("RELIQUARY_TC_AUDIENCE sets auth.audience and overrides a file value", () => {
+    expect(applyEnvOverlays({}, { RELIQUARY_TC_AUDIENCE: "nas-vault" })).toMatchObject({
       auth: { audience: "nas-vault" },
     });
     expect(
       applyEnvOverlays(
         { auth: { audience: "file-audience" } },
-        { OBSIDIAN_TC_AUDIENCE: "nas-vault" },
+        { RELIQUARY_TC_AUDIENCE: "nas-vault" },
       ),
     ).toMatchObject({ auth: { audience: "nas-vault" } });
   });
 
-  it("a non-loopback JWT server needs an audience, and OBSIDIAN_TC_AUDIENCE supplies it (THE-456)", () => {
+  it("a non-loopback JWT server needs an audience, and RELIQUARY_TC_AUDIENCE supplies it (THE-456)", () => {
     const file = {
       vaults: [VAULT],
       cacheDir: "/c",
       auth: { mode: "jwt" },
       transports: { http: { host: "0.0.0.0", enabled: true } },
     };
-    expect(() => finalizeConfig(structuredClone(file), { OBSIDIAN_TC_JWT_SECRET: SECRET })).toThrow(
-      /audience/,
-    );
+    expect(() =>
+      finalizeConfig(structuredClone(file), { RELIQUARY_TC_JWT_SECRET: SECRET }),
+    ).toThrow(/audience/);
     const cfg = finalizeConfig(structuredClone(file), {
-      OBSIDIAN_TC_JWT_SECRET: SECRET,
-      OBSIDIAN_TC_AUDIENCE: "nas-vault",
+      RELIQUARY_TC_JWT_SECRET: SECRET,
+      RELIQUARY_TC_AUDIENCE: "nas-vault",
     });
     expect(cfg.auth.audience).toBe("nas-vault");
   });
 
-  it("OBSIDIAN_TC_ALLOWED_HOSTS stores the canonical host, which is the form the guard compares", () => {
+  it("RELIQUARY_TC_ALLOWED_HOSTS stores the canonical host, which is the form the guard compares", () => {
     const allowed = (
       applyEnvOverlays(
         {},
-        { OBSIDIAN_TC_ALLOWED_HOSTS: "Bücher.example,192.168.1,[FD00::1]:8765" },
+        { RELIQUARY_TC_ALLOWED_HOSTS: "Bücher.example,192.168.1,[FD00::1]:8765" },
       ) as Http
     ).transports.http.allowedHosts as string[];
     expect(allowed).toEqual(["xn--bcher-kva.example", "192.168.0.1", "[fd00::1]:8765"]);
@@ -515,7 +515,7 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     const allowed = (
       applyEnvOverlays(
         {},
-        { OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765,192.168.1.20:8765" },
+        { RELIQUARY_TC_ALLOWED_HOSTS: "umbrel.local:8765,192.168.1.20:8765" },
       ) as Http
     ).transports.http.allowedHosts as string[];
     expect(isHostAllowed("umbrel.local:8765", allowed)).toBe(true);

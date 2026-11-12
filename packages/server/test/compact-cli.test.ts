@@ -1,4 +1,4 @@
-// THE-1039 (GH #930) — `obsidian-tc compact` end to end.
+// THE-1039 (GH #930) — `reliquary-tc compact` end to end.
 //
 // SUBPROCESS, not an import — same rationale as session-rerun-sandbox-e2e.test.ts's own header:
 // `run_compact` calls `process.exit` on a busy/integrity failure, and `main()` does too on a usage
@@ -122,7 +122,7 @@ function setupConfig(): { cacheDir: string; configPath: string } {
   return { cacheDir, configPath };
 }
 
-describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
+describe("THE-1039 (GH #930) — reliquary-tc compact (end to end)", () => {
   it(
     "shrinks cache.db in place: FTS5 optimize + VACUUM reclaim real bytes",
     async () => {
@@ -244,7 +244,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
   // created `destPath` throwing used to report only the LIVE database's path; the copy actually
   // left on disk was invisible from both stdout and --json, so an operator had no way to find it.
   //
-  // Fix round 4 (M1): the failure injection is now `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE`
+  // Fix round 4 (M1): the failure injection is now `RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE`
   // (compact.ts's `forcedPostCopyFailure`), not sqlite3-CLI corruption of the source. The old
   // fixture dropped `notes_fts_config` and relied on `VACUUM INTO` still producing a copy that
   // `'optimize'` then choked on — a premise that does NOT hold on macOS's SQLite build, where
@@ -263,7 +263,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         const r = runCli(
           ["compact", "--config", configPath, "--into", destDir, "--json", jsonPath],
           {
-            OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "1",
+            RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE: "1",
           },
         );
 
@@ -282,7 +282,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
           retainedCopy?: boolean;
         }>;
         const cacheReport = report.find((x) => x.db === "cache.db");
-        expect(cacheReport?.error).toMatch(/OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE/);
+        expect(cacheReport?.error).toMatch(/RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE/);
         expect(cacheReport?.destination).toBe(destPath);
         expect(cacheReport?.retainedCopy).toBe(true);
       },
@@ -306,7 +306,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         const r = runCli(
           ["compact", "--config", configPath, "--into", destDir, "--json", jsonPath],
           {
-            OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "busy",
+            RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE: "busy",
           },
         );
 
@@ -504,7 +504,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         await seedInflatedCacheDb(cacheDir);
         const jsonPath = join(cacheDir, "report.json");
         const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath], {
-          OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK: "1",
+          RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK: "1",
         });
 
         expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
@@ -624,7 +624,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       dirs.push(destDir);
       const jsonPath = join(cacheDir, "report.json");
       const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
-        OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "delete:notes_fts",
+        RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE: "delete:notes_fts",
       });
 
       expect(r.code).toBe(1);
@@ -658,7 +658,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       dirs.push(destDir);
       const jsonPath = join(cacheDir, "report.json");
       const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
-        OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "count-error:idempotency_keys",
+        RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE: "count-error:idempotency_keys",
       });
 
       expect(r.code).toBe(1);
@@ -832,7 +832,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
 
       const jsonPath = join(cacheDir, "report.json");
       const r = runCli(["compact", "--config", configPath, "--json", jsonPath], {
-        OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW: "1",
+        RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW: "1",
       });
 
       expect(r.code).toBe(1);
@@ -845,14 +845,14 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         ftsOptimized: string[];
       }>;
       const cacheReport = report.find((x) => x.db === "cache.db");
-      expect(cacheReport?.error).toMatch(/OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW/);
+      expect(cacheReport?.error).toMatch(/RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW/);
       expect(cacheReport?.ftsOptimized).toEqual(["notes_fts"]);
     },
     TEST_BUDGET_MS,
   );
 
   // THE-1039 breaker ruling (#2) — the CLI-level proof that a native readonly failure reaches the
-  // fallback and the command still works. `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW=1` throws at the
+  // fallback and the command still works. `RELIQUARY_TC_FORCE_READONLY_OPEN_THROW=1` throws at the
   // probe step inside the adapter, where macOS's deferred "unable to open database file" lands, so
   // this runs the real attempt -> refusal check -> writable-open path on Linux. Rounds 4 and 5 had
   // no test that could do this: FORCE_FALLBACK skips the native attempt instead of failing it.
@@ -864,7 +864,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         await seedInflatedCacheDb(cacheDir);
         const jsonPath = join(cacheDir, "report.json");
         const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath], {
-          OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW: "1",
+          RELIQUARY_TC_FORCE_READONLY_OPEN_THROW: "1",
         });
 
         expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
@@ -889,7 +889,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         const r = runCli(
           ["compact", "--config", configPath, "--into", destDir, "--json", jsonPath],
           {
-            OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW: "1",
+            RELIQUARY_TC_FORCE_READONLY_OPEN_THROW: "1",
           },
         );
 
@@ -912,7 +912,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         const { cacheDir, configPath } = setupConfig();
         await seedInflatedCacheDb(cacheDir);
         const r = runCli(["doctor", "--config", configPath], {
-          OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW: "1",
+          RELIQUARY_TC_FORCE_READONLY_OPEN_THROW: "1",
         });
 
         // I1: the one-line row carries the WORD; the consequence sentence moved into details.

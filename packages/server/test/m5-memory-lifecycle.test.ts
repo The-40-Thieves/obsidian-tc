@@ -221,7 +221,7 @@ describe("rename_entity", () => {
       const after = v.read("memory/person/Ada Lovelace.md");
       expect(after).toContain("# Ada Lovelace");
       expect(after).toContain("- mathematician");
-      expect(after).toContain("obsidian_tc_id:");
+      expect(after).toContain("reliquary_tc_id:");
       expect(after).toContain("aliases:");
       expect(after).toContain("Countess");
     } finally {

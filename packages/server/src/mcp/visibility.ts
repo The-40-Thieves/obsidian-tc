@@ -2,7 +2,7 @@ import {
   grantsScope,
   isMutatingScope,
   type ToolVisibilityConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 
 // Tool-visibility scoping. A pure verdict layer over the Registry.listVisible() / dispatch
 // chokepoints: it never mutates the registry, it only classifies a tool. Two layers compose over

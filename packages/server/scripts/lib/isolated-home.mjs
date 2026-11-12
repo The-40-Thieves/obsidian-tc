@@ -1,6 +1,6 @@
 // One isolated "operator home" for any script that spawns the built CLI outside vitest (vitest
 // pins HOME per worker in test/home-isolation-setup.ts; plain `bun scripts/*.ts` runs do not).
-// Without it a child resolves `~/.obsidian-tc` against the REAL home, so a smoke run leaks state
+// Without it a child resolves `~/.reliquary-tc` against the REAL home, so a smoke run leaks state
 // into the operator's cache and the next run trips the vault-identity conflict.
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 /** One repo-local cache shared by every Bun child in a server Vitest run and its CI warm-up. */
 export function sharedBunRuntimeTranspilerCachePath() {
   const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url));
-  return join(repoRoot, "node_modules", ".cache", "obsidian-tc-bun-transpiler");
+  return join(repoRoot, "node_modules", ".cache", "reliquary-tc-bun-transpiler");
 }
 
 /** Env overrides that point every home-derived location at `home` (POSIX, XDG and Windows). */
@@ -73,10 +73,10 @@ export function createIsolatedHome(prefix) {
   return { root, home, env, cleanup };
 }
 
-/** Throws unless the child put its default state dir (`<home>/.obsidian-tc/cache.db`) under
+/** Throws unless the child put its default state dir (`<home>/.reliquary-tc/cache.db`) under
  *  `home`: proof the run resolved its state dir inside the isolated root, not the real home. */
 export function assertStateUnderHome(home) {
-  const db = join(home, ".obsidian-tc", "cache.db");
+  const db = join(home, ".reliquary-tc", "cache.db");
   if (!existsSync(db)) {
     throw new Error(
       `child did not create ${db}: its state dir did not resolve under the isolated home`,

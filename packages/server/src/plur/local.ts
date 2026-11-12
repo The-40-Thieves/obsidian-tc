@@ -7,7 +7,7 @@
 // BridgeClient, so the M5 plur tools stay transport-agnostic. No write verb (learn/forget/capture)
 // is ever invoked.
 import { execFile } from "node:child_process";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { BridgeClient, BridgeRequest } from "../bridge/transport";
 
 export interface PlurExecResult {
@@ -79,7 +79,7 @@ export function createLocalPlurClient(cfg: LocalPlurConfig): Pick<BridgeClient, 
   const exec = cfg.exec ?? createDefaultExec(cfg.command, timeoutMs);
 
   // plur recall: default is hybrid (recallHybrid); --fast selects pure BM25 (recall). That maps
-  // obsidian-tc's plur_recall (BM25) -> --fast and plur_recall_hybrid -> default exactly.
+  // reliquary-tc's plur_recall (BM25) -> --fast and plur_recall_hybrid -> default exactly.
   const recall = async (body: Obj, hybrid: boolean): Promise<Obj> => {
     const query = requireStr(body, "query");
     const k = numOr(body, "k", 10);

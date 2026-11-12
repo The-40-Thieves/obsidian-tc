@@ -106,7 +106,7 @@ describe("reconcile_state (leader-persisted reconcile outcome)", () => {
   });
 
   it("a write that hits a locked cache.db is swallowed, never thrown (GH #995 review)", async () => {
-    // A concurrent writer (obsidian-tc compact, a large follower index flush) holds the write lock
+    // A concurrent writer (reliquary-tc compact, a large follower index flush) holds the write lock
     // past busy_timeout. The reconcile runner and the notes pass must survive it: a throw here
     // rejects the whole runner, or cuts a vault's pass short.
     const dir = mkdtempSync(join(tmpdir(), "reconcile-state-"));

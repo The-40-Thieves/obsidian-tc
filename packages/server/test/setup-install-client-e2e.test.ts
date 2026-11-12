@@ -1,4 +1,4 @@
-// PR B of GH #995's two-part follow-up: end-to-end tests for `obsidian-tc setup --install-client`
+// PR B of GH #995's two-part follow-up: end-to-end tests for `reliquary-tc setup --install-client`
 // — the real filesystem writer (cli/commands/setup-install-client.ts's `runInstallClient`), with
 // platform/env/home injected (never the real host's) and `runCli` stubbed (never actually
 // shells out to a `claude` binary in CI). See test/setup-client-install.test.ts for the pure
@@ -50,7 +50,7 @@ afterEach(() => {
 describe("runInstallClient — claude-code", () => {
   it("prints and runs the documented `claude mcp add` command", async () => {
     captureOutput();
-    const runCli = vi.fn(() => "Added obsidian-tc\n");
+    const runCli = vi.fn(() => "Added reliquary-tc\n");
 
     await runInstallClient(
       { kind: "setup", installClient: "claude-code", yes: false, dryRun: false, force: false },
@@ -62,14 +62,14 @@ describe("runInstallClient — claude-code", () => {
       "add",
       "--scope",
       "user",
-      "obsidian-tc",
+      "reliquary-tc",
       "--",
-      "obsidian-tc",
+      "reliquary-tc",
       "--config",
       expect.stringContaining("config.json"),
     ]);
-    expect(stdout.join("")).toContain("claude mcp add --scope user obsidian-tc");
-    expect(stdout.join("")).toContain("Added obsidian-tc");
+    expect(stdout.join("")).toContain("claude mcp add --scope user reliquary-tc");
+    expect(stdout.join("")).toContain("Added reliquary-tc");
     expect(process.exitCode).toBeUndefined();
   });
 
@@ -103,8 +103,8 @@ describe("runInstallClient — claude-code", () => {
 
   it("finding 6: the printed command quotes a config path containing a space", async () => {
     captureOutput();
-    const runCli = vi.fn(() => "Added obsidian-tc\n");
-    const configPath = "/home/op user/.obsidian-tc/config.json";
+    const runCli = vi.fn(() => "Added reliquary-tc\n");
+    const configPath = "/home/op user/.reliquary-tc/config.json";
 
     await runInstallClient(
       {
@@ -129,7 +129,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
   it("writes a fresh claude_desktop_config.json when none exists", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -146,8 +146,8 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
     const target = join(home, ".config", "Claude", "claude_desktop_config.json");
     expect(existsSync(target)).toBe(true);
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.mcpServers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
     });
   });
@@ -155,7 +155,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
   it("merges into an existing cursor mcp.json without dropping other servers, and backs it up", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const cursorDir = join(home, ".cursor");
     const cursorPath = join(cursorDir, "mcp.json");
     mkdirSync(cursorDir, { recursive: true });
@@ -178,22 +178,22 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
 
     const onDisk = JSON.parse(readFileSync(cursorPath, "utf8"));
     expect(onDisk.mcpServers.github).toEqual({ command: "gh-mcp", args: [] });
-    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.mcpServers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
     });
     expect(stdout.join("")).toMatch(/backed up/);
   });
 
-  it("refuses a duplicate obsidian-tc entry without --force, and does not touch the file", async () => {
+  it("refuses a duplicate reliquary-tc entry without --force, and does not touch the file", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const cursorDir = join(home, ".cursor");
     const cursorPath = join(cursorDir, "mcp.json");
     mkdirSync(cursorDir, { recursive: true });
     const original = JSON.stringify({
-      mcpServers: { "obsidian-tc": { command: "obsidian-tc", args: ["--config", "/old.json"] } },
+      mcpServers: { "reliquary-tc": { command: "reliquary-tc", args: ["--config", "/old.json"] } },
     });
     writeFileSync(cursorPath, original);
 
@@ -210,21 +210,23 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
     );
 
     expect(readFileSync(cursorPath, "utf8")).toBe(original);
-    expect(stderr.join("")).toMatch(/already has an "obsidian-tc"/);
+    expect(stderr.join("")).toMatch(/already has a "reliquary-tc"/);
     expect(process.exitCode).toBe(1);
   });
 
   it("--force overwrites the duplicate entry", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const cursorDir = join(home, ".cursor");
     const cursorPath = join(cursorDir, "mcp.json");
     mkdirSync(cursorDir, { recursive: true });
     writeFileSync(
       cursorPath,
       JSON.stringify({
-        mcpServers: { "obsidian-tc": { command: "obsidian-tc", args: ["--config", "/old.json"] } },
+        mcpServers: {
+          "reliquary-tc": { command: "reliquary-tc", args: ["--config", "/old.json"] },
+        },
       }),
     );
 
@@ -241,13 +243,13 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
     );
 
     const onDisk = JSON.parse(readFileSync(cursorPath, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"].args).toEqual(["--config", configPath]);
+    expect(onDisk.mcpServers["reliquary-tc"].args).toEqual(["--config", configPath]);
   });
 
   it("--dry-run writes nothing", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -295,7 +297,7 @@ describe.each([
     const [calledBinary, calledArgs] = runCli.mock.calls[0] ?? ["", []];
     expect(calledBinary).toBe(binary);
     expect(calledArgs[0]).toBe(first);
-    expect(calledArgs).toContain("obsidian-tc");
+    expect(calledArgs).toContain("reliquary-tc");
     expect(stdout.join("")).toContain(binary);
     expect(process.exitCode).toBeUndefined();
   });
@@ -331,7 +333,7 @@ describe.each([
   it("the printed command quotes a config path containing a space", async () => {
     captureOutput();
     const runCli = vi.fn(() => "ok\n");
-    const configPath = "/home/op user/.obsidian-tc/config.json";
+    const configPath = "/home/op user/.reliquary-tc/config.json";
 
     await runInstallClient(
       { kind: "setup", installClient: client, configPath, yes: false, dryRun: false, force: false },
@@ -393,7 +395,7 @@ describe("runInstallClient — vscode (CLI, name embedded in JSON payload)", () 
     const [calledBinary, calledArgs] = runCli.mock.calls[0] ?? ["", []];
     expect(calledBinary).toBe("code");
     expect(calledArgs[0]).toBe("--add-mcp");
-    expect(JSON.parse(calledArgs[1] as string)).toMatchObject({ name: "obsidian-tc" });
+    expect(JSON.parse(calledArgs[1] as string)).toMatchObject({ name: "reliquary-tc" });
     expect(process.exitCode).toBeUndefined();
   });
 
@@ -425,7 +427,7 @@ describe("runInstallClient — gemini (CLI)", () => {
 
     expect(runCli).toHaveBeenCalledWith(
       "gemini",
-      expect.arrayContaining(["mcp", "add", "obsidian-tc"]),
+      expect.arrayContaining(["mcp", "add", "reliquary-tc"]),
     );
     expect(process.exitCode).toBeUndefined();
   });
@@ -448,7 +450,7 @@ describe("runInstallClient — opencode (jsonc-merge)", () => {
   it("writes a fresh opencode.json when none exists", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -465,9 +467,9 @@ describe("runInstallClient — opencode (jsonc-merge)", () => {
     const target = join(home, ".config", "opencode", "opencode.json");
     expect(existsSync(target)).toBe(true);
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcp["obsidian-tc"]).toEqual({
+    expect(onDisk.mcp["reliquary-tc"]).toEqual({
       type: "local",
-      command: ["obsidian-tc", "--config", configPath],
+      command: ["reliquary-tc", "--config", configPath],
       enabled: true,
       environment: {},
     });
@@ -476,7 +478,7 @@ describe("runInstallClient — opencode (jsonc-merge)", () => {
   it("merges into an existing opencode.json WITHOUT dropping a comment or another server", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".config", "opencode");
     const target = join(dir, "opencode.json");
     mkdirSync(dir, { recursive: true });
@@ -508,18 +510,18 @@ describe("runInstallClient — opencode (jsonc-merge)", () => {
     expect(text).toContain("// keep this comment");
     const parsed = JSON.parse(text.replace(/\/\/.*$/gm, ""));
     expect(parsed.mcp.fs).toEqual({ type: "local", command: ["x"] });
-    expect(parsed.mcp["obsidian-tc"].type).toBe("local");
+    expect(parsed.mcp["reliquary-tc"].type).toBe("local");
   });
 
-  it("refuses a duplicate obsidian-tc entry without --force", async () => {
+  it("refuses a duplicate reliquary-tc entry without --force", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".config", "opencode");
     const target = join(dir, "opencode.json");
     mkdirSync(dir, { recursive: true });
     const original = JSON.stringify({
-      mcp: { "obsidian-tc": { type: "local", command: ["old"] } },
+      mcp: { "reliquary-tc": { type: "local", command: ["old"] } },
     });
     writeFileSync(target, original);
 
@@ -536,14 +538,14 @@ describe("runInstallClient — opencode (jsonc-merge)", () => {
     );
 
     expect(readFileSync(target, "utf8")).toBe(original);
-    expect(stderr.join("")).toMatch(/already has an "obsidian-tc"/);
+    expect(stderr.join("")).toMatch(/already has a "reliquary-tc"/);
     expect(process.exitCode).toBe(1);
   });
 
   it("--dry-run writes nothing", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -566,7 +568,7 @@ describe("runInstallClient — windsurf (json-merge, legacy-path preference)", (
   it("writes the CURRENT devin path when no legacy install exists", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -583,8 +585,8 @@ describe("runInstallClient — windsurf (json-merge, legacy-path preference)", (
     const target = join(home, ".config", "devin", "mcp_config.json");
     expect(existsSync(target)).toBe(true);
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.mcpServers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
     });
   });
@@ -592,7 +594,7 @@ describe("runInstallClient — windsurf (json-merge, legacy-path preference)", (
   it("prefers the LEGACY Codeium path when it already exists on disk", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const legacyDir = join(home, ".codeium", "windsurf");
     const legacyPath = join(legacyDir, "mcp_config.json");
     mkdirSync(legacyDir, { recursive: true });
@@ -611,8 +613,8 @@ describe("runInstallClient — windsurf (json-merge, legacy-path preference)", (
     );
 
     const onDisk = JSON.parse(readFileSync(legacyPath, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.mcpServers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
     });
     expect(existsSync(join(home, ".config", "devin", "mcp_config.json"))).toBe(false);
@@ -621,7 +623,7 @@ describe("runInstallClient — windsurf (json-merge, legacy-path preference)", (
   it("--install-client devin-desktop (the alias) writes to the same place as windsurf", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -643,7 +645,7 @@ describe("runInstallClient — zed (jsonc-merge, no source:custom field)", () =>
   it("writes a fresh settings.json with the three-field entry", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       { kind: "setup", installClient: "zed", configPath, yes: false, dryRun: false, force: false },
@@ -652,12 +654,12 @@ describe("runInstallClient — zed (jsonc-merge, no source:custom field)", () =>
 
     const target = join(home, ".config", "zed", "settings.json");
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.context_servers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.context_servers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
       env: {},
     });
-    expect(onDisk.context_servers["obsidian-tc"].source).toBeUndefined();
+    expect(onDisk.context_servers["reliquary-tc"].source).toBeUndefined();
   });
 });
 
@@ -697,7 +699,7 @@ describe("runInstallClient — cline (json-merge, VS Code globalStorage)", () =>
   it("writes a fresh cline_mcp_settings.json", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -722,8 +724,8 @@ describe("runInstallClient — cline (json-merge, VS Code globalStorage)", () =>
       "cline_mcp_settings.json",
     );
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.mcpServers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
       env: {},
       disabled: false,
@@ -734,7 +736,7 @@ describe("runInstallClient — cline (json-merge, VS Code globalStorage)", () =>
   it("refuses a duplicate without --force, overwrites with --force", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(
       home,
       ".config",
@@ -746,7 +748,7 @@ describe("runInstallClient — cline (json-merge, VS Code globalStorage)", () =>
     );
     const target = join(dir, "cline_mcp_settings.json");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(target, JSON.stringify({ mcpServers: { "obsidian-tc": { command: "old" } } }));
+    writeFileSync(target, JSON.stringify({ mcpServers: { "reliquary-tc": { command: "old" } } }));
 
     await runInstallClient(
       {
@@ -759,7 +761,7 @@ describe("runInstallClient — cline (json-merge, VS Code globalStorage)", () =>
       },
       { platform: "linux", env: {}, home, runCli: () => "" },
     );
-    expect(stderr.join("")).toMatch(/already has an "obsidian-tc"/);
+    expect(stderr.join("")).toMatch(/already has a "reliquary-tc"/);
     expect(process.exitCode).toBe(1);
 
     captureOutput();
@@ -768,7 +770,7 @@ describe("runInstallClient — cline (json-merge, VS Code globalStorage)", () =>
       { platform: "linux", env: {}, home, runCli: () => "" },
     );
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"].command).toBe("obsidian-tc");
+    expect(onDisk.mcpServers["reliquary-tc"].command).toBe("reliquary-tc");
   });
 });
 
@@ -776,7 +778,7 @@ describe("runInstallClient — roo (json-merge, mcp_settings.json filename)", ()
   it("writes a fresh mcp_settings.json under rooveterinaryinc.roo-cline", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       { kind: "setup", installClient: "roo", configPath, yes: false, dryRun: false, force: false },
@@ -794,15 +796,15 @@ describe("runInstallClient — roo (json-merge, mcp_settings.json filename)", ()
       "mcp_settings.json",
     );
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"].alwaysAllow).toEqual([]);
+    expect(onDisk.mcpServers["reliquary-tc"].alwaysAllow).toEqual([]);
   });
 });
 
 describe("runInstallClient — continue (yaml-merge, standalone per-server file)", () => {
-  it("writes a fresh .continue/mcpServers/obsidian-tc.yaml", async () => {
+  it("writes a fresh .continue/mcpServers/reliquary-tc.yaml", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -816,20 +818,20 @@ describe("runInstallClient — continue (yaml-merge, standalone per-server file)
       { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
-    const target = join(home, ".continue", "mcpServers", "obsidian-tc.yaml");
+    const target = join(home, ".continue", "mcpServers", "reliquary-tc.yaml");
     expect(existsSync(target)).toBe(true);
     const text = readFileSync(target, "utf8");
     expect(text).toContain("schema: v1");
-    expect(text).toContain("obsidian-tc");
+    expect(text).toContain("reliquary-tc");
   });
 
   it("refuses when the file already exists without --force", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".continue", "mcpServers");
     mkdirSync(dir, { recursive: true });
-    const target = join(dir, "obsidian-tc.yaml");
+    const target = join(dir, "reliquary-tc.yaml");
     writeFileSync(target, "name: stale\n");
 
     await runInstallClient(
@@ -850,7 +852,7 @@ describe("runInstallClient — continue (yaml-merge, standalone per-server file)
   it("--dry-run writes nothing", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       {
@@ -864,7 +866,7 @@ describe("runInstallClient — continue (yaml-merge, standalone per-server file)
       { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
-    expect(existsSync(join(home, ".continue", "mcpServers", "obsidian-tc.yaml"))).toBe(false);
+    expect(existsSync(join(home, ".continue", "mcpServers", "reliquary-tc.yaml"))).toBe(false);
     expect(stdout.join("")).toMatch(/dry-run/);
   });
 });
@@ -873,7 +875,7 @@ describe("runInstallClient — goose (yaml-merge, nested extensions key, comment
   it("merges into an existing config.yaml WITHOUT dropping a comment or another extension", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".config", "goose");
     const target = join(dir, "config.yaml");
     mkdirSync(dir, { recursive: true });
@@ -897,18 +899,18 @@ describe("runInstallClient — goose (yaml-merge, nested extensions key, comment
     const text = readFileSync(target, "utf8");
     expect(text).toContain("# keep this comment");
     expect(text).toContain("fs:");
-    expect(text).toContain("obsidian-tc:");
+    expect(text).toContain("reliquary-tc:");
     expect(text).toContain("type: stdio");
   });
 
-  it("refuses a duplicate obsidian-tc extension without --force", async () => {
+  it("refuses a duplicate reliquary-tc extension without --force", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".config", "goose");
     const target = join(dir, "config.yaml");
     mkdirSync(dir, { recursive: true });
-    const original = "extensions:\n  obsidian-tc:\n    cmd: old\n";
+    const original = "extensions:\n  reliquary-tc:\n    cmd: old\n";
     writeFileSync(target, original);
 
     await runInstallClient(
@@ -947,7 +949,7 @@ describe("runInstallClient — kiro (json-merge)", () => {
   it("writes a fresh ~/.kiro/settings/mcp.json", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       { kind: "setup", installClient: "kiro", configPath, yes: false, dryRun: false, force: false },
@@ -956,8 +958,8 @@ describe("runInstallClient — kiro (json-merge)", () => {
 
     const target = join(home, ".kiro", "settings", "mcp.json");
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk.mcpServers["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
       env: {},
       disabled: false,
@@ -986,7 +988,7 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
   it("writes a fresh ~/.warp/.mcp.json with the entry at the TOP LEVEL", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       { kind: "setup", installClient: "warp", configPath, yes: false, dryRun: false, force: false },
@@ -995,8 +997,8 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
 
     const target = join(home, ".warp", ".mcp.json");
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
-    expect(onDisk["obsidian-tc"]).toEqual({
-      command: "obsidian-tc",
+    expect(onDisk["reliquary-tc"]).toEqual({
+      command: "reliquary-tc",
       args: ["--config", configPath],
       env: {},
     });
@@ -1006,7 +1008,7 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
   it("merges alongside an existing server at root level without dropping it", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".warp");
     const target = join(dir, ".mcp.json");
     mkdirSync(dir, { recursive: true });
@@ -1019,17 +1021,17 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
 
     const onDisk = JSON.parse(readFileSync(target, "utf8"));
     expect(onDisk.github).toEqual({ command: "gh-mcp" });
-    expect(onDisk["obsidian-tc"].command).toBe("obsidian-tc");
+    expect(onDisk["reliquary-tc"].command).toBe("reliquary-tc");
   });
 
-  it("refuses a duplicate obsidian-tc entry at root level without --force", async () => {
+  it("refuses a duplicate reliquary-tc entry at root level without --force", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const dir = join(home, ".warp");
     const target = join(dir, ".mcp.json");
     mkdirSync(dir, { recursive: true });
-    const original = JSON.stringify({ "obsidian-tc": { command: "old" } });
+    const original = JSON.stringify({ "reliquary-tc": { command: "old" } });
     writeFileSync(target, original);
 
     await runInstallClient(
@@ -1043,7 +1045,7 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
   it("--dry-run prints the entry WITHOUT a wrapping key and writes nothing", async () => {
     captureOutput();
     const home = tmpDir("otc-install-client-home-");
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await runInstallClient(
       { kind: "setup", installClient: "warp", configPath, yes: false, dryRun: true, force: false },
@@ -1052,7 +1054,7 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
 
     expect(existsSync(join(home, ".warp", ".mcp.json"))).toBe(false);
     const printed = JSON.parse(stdout.join("").split("\n(--dry-run")[0] ?? "{}");
-    expect(printed["obsidian-tc"]).toBeDefined();
+    expect(printed["reliquary-tc"]).toBeDefined();
     expect(printed.mcpServers).toBeUndefined();
   });
 });
@@ -1060,7 +1062,7 @@ describe("runInstallClient — warp (json-merge, root-level, no wrapping key)", 
 describe("runInstallClient — augment (cli, auggie's single --args string token)", () => {
   it("prints and runs the documented `auggie mcp add` command", async () => {
     captureOutput();
-    const runCli = vi.fn(() => "Added obsidian-tc\n");
+    const runCli = vi.fn(() => "Added reliquary-tc\n");
 
     await runInstallClient(
       { kind: "setup", installClient: "augment", yes: false, dryRun: false, force: false },
@@ -1070,9 +1072,9 @@ describe("runInstallClient — augment (cli, auggie's single --args string token
     expect(runCli).toHaveBeenCalledWith("auggie", [
       "mcp",
       "add",
-      "obsidian-tc",
+      "reliquary-tc",
       "--command",
-      "obsidian-tc",
+      "reliquary-tc",
       "--args",
       expect.stringContaining("--config"),
     ]);

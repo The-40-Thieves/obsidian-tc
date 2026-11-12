@@ -330,7 +330,7 @@ describe("THE-1039 FTS5 merge in the sweep", () => {
   it("is a no-op (fts_merged: []) on a store with no FTS tables, and never throws", () => {
     const db = freshDb();
     // freshDb() never calls ensureNotesFts/ensureChunkFts, so neither table exists — the same
-    // shape as OBSIDIAN_TC_DISABLE_FTS=1.
+    // shape as RELIQUARY_TC_DISABLE_FTS=1.
     let counts: ReturnType<typeof runMaintenanceSweep> | undefined;
     expect(() => {
       counts = sweep(db);

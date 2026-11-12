@@ -69,7 +69,7 @@ export function authOidcCheck(view: AuthOidcView): Check {
       }
       if (view.requireJti !== true) {
         issues.push(
-          "auth.requireJti is off: an IdP token with no jti cannot be revoked individually (`obsidian-tc auth revoke <jti>`)",
+          "auth.requireJti is off: an IdP token with no jti cannot be revoked individually (`reliquary-tc auth revoke <jti>`)",
         );
       }
       return {

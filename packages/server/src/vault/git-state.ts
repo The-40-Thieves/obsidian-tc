@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { fingerprintTargets } from "../elicit-drift";
 import { argsHash } from "../hash";
 import { vaultDetailPath } from "./folder-links";

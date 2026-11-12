@@ -1,4 +1,4 @@
-# gitleaks configuration for obsidian-tc.
+# gitleaks configuration for reliquary-tc.
 #
 # Extends the upstream default ruleset and allowlists known benign secret-shaped content:
 # the secret-scanner's OWN detection regexes, test fixtures that deliberately embed fake

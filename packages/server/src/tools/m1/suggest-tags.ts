@@ -17,7 +17,7 @@
 // A client that did not advertise `sampling` (no `ctx.sample`), declined, or sent a bad reply still
 // gets an answer: a deterministic heuristic over the vault's own vocabulary. `source` and
 // `sampling.status` say which path produced it, so a caller never mistakes one for the other.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";

@@ -9,7 +9,7 @@
 // Deliberately narrower than a full hot-config reload: it re-reads DISCOVERED state (the probe), not
 // DECLARED state, so it sidesteps the hard part (rebinding transports/ACLs/storage) while covering
 // the case that actually changes during a session.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { CapabilitySnapshot } from "../../bridge/capabilities";
 import type { ToolDefinition } from "../../mcp/registry";

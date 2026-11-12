@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -161,7 +161,7 @@ describe("dispatch precheck (D5)", () => {
       destructive: true,
       confirmationTargets: "none",
       precheck: () => {
-        throw new ObsidianTcError("forbidden", "blocked by precheck");
+        throw new ReliquaryTcError("forbidden", "blocked by precheck");
       },
       handler: () => ({ done: true }),
     });

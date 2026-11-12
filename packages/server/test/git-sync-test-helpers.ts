@@ -87,13 +87,13 @@ export function syncEnv(
   extra: Record<string, string | undefined> = {},
 ): NodeJS.ProcessEnv {
   return {
-    OBSIDIAN_TC_VAULT_GIT_URL: fixture.url,
-    OBSIDIAN_TC_VAULT_GIT_BRANCH: "main",
-    OBSIDIAN_TC_VAULT_GIT_AUTHOR: "Vault Bot <vault@example.test>",
-    OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL: "60",
-    OBSIDIAN_TC_VAULT_GIT_PUSH: "batched",
-    OBSIDIAN_TC_VAULT_PATH: fixture.vault,
-    OBSIDIAN_TC_CACHE_DIR: fixture.cache,
+    RELIQUARY_TC_VAULT_GIT_URL: fixture.url,
+    RELIQUARY_TC_VAULT_GIT_BRANCH: "main",
+    RELIQUARY_TC_VAULT_GIT_AUTHOR: "Vault Bot <vault@example.test>",
+    RELIQUARY_TC_VAULT_GIT_PULL_INTERVAL: "60",
+    RELIQUARY_TC_VAULT_GIT_PUSH: "batched",
+    RELIQUARY_TC_VAULT_PATH: fixture.vault,
+    RELIQUARY_TC_CACHE_DIR: fixture.cache,
     ...extra,
   };
 }

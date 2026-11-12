@@ -1,9 +1,9 @@
-// THE-826: `obsidian-tc elicit` — the CLI mint path for a client that does not implement MCP
+// THE-826: `reliquary-tc elicit` — the CLI mint path for a client that does not implement MCP
 // elicitation. `planElicitMint` is pure (mirrors token-mint.test.ts's planMint split), so every
 // refusal below runs with no filesystem, no db and no clock. `mintElicitAudited` is exercised
 // against a real in-memory cache.db to prove the token it produces actually satisfies
 // verifyAndConsumeElicit — and, symmetrically, is REFUSED when any bound field doesn't match.
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { CliError } from "../src/cli/args";
 import {

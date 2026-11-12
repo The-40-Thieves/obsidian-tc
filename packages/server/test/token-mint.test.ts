@@ -80,7 +80,7 @@ describe("planMint — refusals", () => {
     // no aud claim. Minting one anyway produces a credential refused on first use with
     // missing_claim — which is exactly how the live tokens came to be aud-less.
     expect(() =>
-      planMint(jwtAuth({ audience: "http://obsidian-tc:8765" }), cmd({ aud: "" }), NOW),
+      planMint(jwtAuth({ audience: "http://reliquary-tc:8765" }), cmd({ aud: "" }), NOW),
     ).toThrow(/missing_claim/);
   });
 
@@ -99,8 +99,8 @@ describe("planMint — refusals", () => {
 
 describe("planMint — what it produces", () => {
   it("inherits the configured audience rather than making the operator repeat it", () => {
-    const { claims } = planMint(jwtAuth({ audience: "http://obsidian-tc:8765" }), cmd(), NOW);
-    expect(claims.aud).toBe("http://obsidian-tc:8765");
+    const { claims } = planMint(jwtAuth({ audience: "http://reliquary-tc:8765" }), cmd(), NOW);
+    expect(claims.aud).toBe("http://reliquary-tc:8765");
   });
 
   it("falls back to auth.resource, because createHttpApp defaults the audience to it", () => {
@@ -155,7 +155,7 @@ describe("readAuthBlock", () => {
 
   // Every case here is about what the FILE contains, so each passes an explicit empty env. Letting
   // these default to `process.env` made them pass or fail based on the developer's shell: since
-  // readAuthBlock started applying applyEnvOverlays, a host that exports OBSIDIAN_TC_JWT_SECRET
+  // readAuthBlock started applying applyEnvOverlays, a host that exports RELIQUARY_TC_JWT_SECRET
   // (sourcing a deployment .env is enough) injected a jwtSecret into both expectations below and
   // failed two tests that have nothing to do with the environment.
   it("reads the auth block out of a config file", () => {
@@ -177,8 +177,8 @@ describe("readAuthBlock", () => {
   });
 });
 
-describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-secret)", () => {
-  // The deployment shape the project's own docs recommend — "prefer OBSIDIAN_TC_JWT_SECRET, keeps
+describe("readAuthBlock — RELIQUARY_TC_JWT_SECRET overlay (THE-658 mint-on-env-secret)", () => {
+  // The deployment shape the project's own docs recommend — "prefer RELIQUARY_TC_JWT_SECRET, keeps
   // it off disk" — previously could not mint at all, because readAuthBlock read the raw file and
   // skipped applyEnvOverlays, the only thing that injects the env secret into auth.jwtSecret.
   const write = (body: string): string => {
@@ -190,7 +190,7 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
 
   it("mints from an env-supplied secret alone, when the file has none", () => {
     const p = write(JSON.stringify({ vaults: [], auth: { mode: "jwt" } }));
-    const auth = readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: SECRET });
+    const auth = readAuthBlock(p, { RELIQUARY_TC_JWT_SECRET: SECRET });
     const { claims } = planMint(auth, cmd(), NOW);
     expect(claims.sub).toBe("cave-agents");
   });
@@ -199,7 +199,7 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
     const p = write(
       JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "file-secret" } }),
     );
-    const auth = readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: "env-secret" });
+    const auth = readAuthBlock(p, { RELIQUARY_TC_JWT_SECRET: "env-secret" });
     expect(auth.jwtSecret).toBe("env-secret");
   });
 
@@ -218,7 +218,7 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
     const p = write(
       JSON.stringify({ vaults: [], auth: { mode: "jwt", jwtSecret: "file-secret" } }),
     );
-    expect(readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: "" }).jwtSecret).toBe("file-secret");
+    expect(readAuthBlock(p, { RELIQUARY_TC_JWT_SECRET: "" }).jwtSecret).toBe("file-secret");
   });
 
   it("still refuses to mint when there is no secret AND no registry key, naming both ways out", async () => {
@@ -236,14 +236,14 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
         auth: { mode: "jwt" },
       }),
     );
-    const saved = process.env.OBSIDIAN_TC_JWT_SECRET;
-    delete process.env.OBSIDIAN_TC_JWT_SECRET;
+    const saved = process.env.RELIQUARY_TC_JWT_SECRET;
+    delete process.env.RELIQUARY_TC_JWT_SECRET;
     try {
       await expect(run_token_mint({ kind: "token-mint", configPath, sub: "a" })).rejects.toThrow(
-        /OBSIDIAN_TC_JWT_SECRET.*auth rotate-key/,
+        /RELIQUARY_TC_JWT_SECRET.*auth rotate-key/,
       );
     } finally {
-      if (saved !== undefined) process.env.OBSIDIAN_TC_JWT_SECRET = saved;
+      if (saved !== undefined) process.env.RELIQUARY_TC_JWT_SECRET = saved;
     }
   });
 });
@@ -251,7 +251,7 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
 describe("the planned claims are what actually gets signed", () => {
   // The planner agreeing with itself proves nothing if the signer disagrees with it.
   it("produces a token jose verifies under the same secret, audience and max age", async () => {
-    const auth = jwtAuth({ audience: "http://obsidian-tc:8765", tokenTtlSeconds: 3600 });
+    const auth = jwtAuth({ audience: "http://reliquary-tc:8765", tokenTtlSeconds: 3600 });
     const { claims } = planMint(auth, cmd({ vault: "main", scopes: "read:notes" }), NOW);
     const { SignJWT } = await import("jose");
     const token = await new SignJWT(claims)
@@ -259,7 +259,7 @@ describe("the planned claims are what actually gets signed", () => {
       .sign(new TextEncoder().encode(SECRET));
 
     const { payload } = await jwtVerify(token, new TextEncoder().encode(SECRET), {
-      audience: "http://obsidian-tc:8765",
+      audience: "http://reliquary-tc:8765",
     });
     expect(payload.sub).toBe("cave-agents");
     expect(payload.vault).toBe("main");
@@ -269,7 +269,7 @@ describe("the planned claims are what actually gets signed", () => {
   it("produces a token the verifier REJECTS under a different audience", async () => {
     // The whole point of binding: a token minted for this resource must not be replayable against
     // another service sharing the secret.
-    const { claims } = planMint(jwtAuth({ audience: "http://obsidian-tc:8765" }), cmd(), NOW);
+    const { claims } = planMint(jwtAuth({ audience: "http://reliquary-tc:8765" }), cmd(), NOW);
     const { SignJWT } = await import("jose");
     const token = await new SignJWT(claims)
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })

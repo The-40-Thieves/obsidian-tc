@@ -1,7 +1,7 @@
 // `vaults[].wiki.rawFolder`: where a vault's immutable raw sources live. Validated with the same
 // rules as `wiki.folder` (schema AND a registry built in code), defaulted to `raw` BESIDE the wiki
 // folder, and never allowed to overlap it. buildAcls turns it into the vault's immutable paths.
-import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { aclFingerprint, type FolderAcl } from "../src/acl";
 import { buildAcls } from "../src/runtime/acl-build";

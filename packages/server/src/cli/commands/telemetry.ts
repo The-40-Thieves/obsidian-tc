@@ -1,4 +1,4 @@
-// THE-1125 — `obsidian-tc telemetry preview|status|reset-id`. Opens cache.db directly (like
+// THE-1125 — `reliquary-tc telemetry preview|status|reset-id`. Opens cache.db directly (like
 // metrics.ts/consolidate.ts) rather than booting a full server: none of the three subcommands need
 // a running MCP server, only the config + the durable telemetry_state row.
 import { randomUUID } from "node:crypto";

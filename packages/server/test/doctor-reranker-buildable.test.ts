@@ -57,7 +57,7 @@ describe("reranker.buildable (THE-679)", () => {
       probeLocalReranker: async () => ({
         ok: false,
         attempts: [
-          "bare-specifier: @the-40-thieves/obsidian-tc-reranker-local — Cannot find module",
+          "bare-specifier: @the-40-thieves/reliquary-tc-reranker-local — Cannot find module",
           "source-checkout: /x/reranker-local/dist/index.js — not built",
         ],
       }),
@@ -66,7 +66,7 @@ describe("reranker.buildable (THE-679)", () => {
     expect(r.summary).toMatch(/could not be resolved/);
     expect(r.summary).toMatch(/does NOT fail to boot/);
     expect(r.details?.attempts).toEqual([
-      "bare-specifier: @the-40-thieves/obsidian-tc-reranker-local — Cannot find module",
+      "bare-specifier: @the-40-thieves/reliquary-tc-reranker-local — Cannot find module",
       "source-checkout: /x/reranker-local/dist/index.js — not built",
     ]);
     expect(String(r.remediation)).toMatch(/localModulePath/);

@@ -22,7 +22,7 @@ export interface ClientOut {
   costUsd?: number;
   exit: number | null;
   timedOut: boolean;
-  /** Tool uses the client attempted outside the obsidian-tc server (shell, patch, ...). */
+  /** Tool uses the client attempted outside the reliquary-tc server (shell, patch, ...). */
   otherTools: string[];
   model?: string;
   /** Client-side tool-discovery calls (Claude Code `ToolSearch`, Codex `tool_search`). */
@@ -44,7 +44,7 @@ export interface ClientCtx {
   serverCmd: string[];
   tapEnv: Record<string, string>;
   prompt: string;
-  /** Allow the client a shell that may run `obsidian-tc elicit` (a human approving a HITL prompt). */
+  /** Allow the client a shell that may run `reliquary-tc elicit` (a human approving a HITL prompt). */
   elicit: boolean;
   binDir: string;
   config: string;
@@ -60,7 +60,7 @@ const zero = (): Usage => ({ billable: 0, input: 0, cacheRead: 0, cacheWrite: 0,
 export function writeMcpConfig(c: ClientCtx): void {
   const conf = {
     mcpServers: {
-      "obsidian-tc": {
+      "reliquary-tc": {
         command: process.execPath,
         args: [join(import.meta.dirname, "tap-proxy.ts")],
         env: c.tapEnv,
@@ -107,7 +107,7 @@ export function parseClaudeStream(stdout: string, out: ClientOut): Record<string
 
 export function runClaude(c: ClientCtx): ClientOut {
   writeMcpConfig(c);
-  const allowed = ["mcp__obsidian-tc__*", ...(c.elicit ? ["Bash(obsidian-tc elicit:*)"] : [])];
+  const allowed = ["mcp__reliquary-tc__*", ...(c.elicit ? ["Bash(reliquary-tc elicit:*)"] : [])];
   const args = [
     "-p",
     c.prompt,
@@ -136,7 +136,7 @@ export function runClaude(c: ClientCtx): ClientOut {
     env: {
       ...process.env,
       PATH: `${c.binDir}:${process.env.PATH ?? ""}`,
-      OBSIDIAN_TC_CONFIG: c.config,
+      RELIQUARY_TC_CONFIG: c.config,
     },
   });
   const timedOut = r.error !== undefined && String(r.error).includes("ETIMEDOUT");
@@ -189,14 +189,14 @@ export function codexHome(dir: string, c: ClientCtx): string {
     "[features]",
     `shell_tool = ${c.elicit}`,
     `unified_exec = ${c.elicit}`,
-    "[mcp_servers.obsidian-tc]",
+    "[mcp_servers.reliquary-tc]",
     `command = ${JSON.stringify(process.execPath)}`,
     `args = [${JSON.stringify(join(import.meta.dirname, "tap-proxy.ts"))}]`,
     "tool_timeout_sec = 120",
     // headless exec runs with approval_policy never, which rejects every MCP tool call that asks for a
     // client-side prompt; this is wiring, the server's own confirmation gate (HITL) is untouched.
     'default_tools_approval_mode = "approve"',
-    "[mcp_servers.obsidian-tc.env]",
+    "[mcp_servers.reliquary-tc.env]",
     ...Object.entries(c.tapEnv).map(([k, v]) => `${k} = ${JSON.stringify(v)}`),
     "",
   ].join("\n");
@@ -243,7 +243,7 @@ function runCodexIn(c: ClientCtx, addDir: string, home: string): ClientOut {
       ...process.env,
       CODEX_HOME: home,
       PATH: `${c.binDir}:${process.env.PATH ?? ""}`,
-      OBSIDIAN_TC_CONFIG: c.config,
+      RELIQUARY_TC_CONFIG: c.config,
     },
   });
   const timedOut = r.error !== undefined && String(r.error).includes("ETIMEDOUT");

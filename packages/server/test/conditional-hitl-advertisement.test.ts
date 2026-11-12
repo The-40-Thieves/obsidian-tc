@@ -39,7 +39,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { isMutatingScope } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { issueElicitToken } from "../src/elicit";

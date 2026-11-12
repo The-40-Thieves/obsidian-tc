@@ -95,7 +95,7 @@ entities' observations and data stay hidden. To keep a name private, do not link
 entity.
 
 A vault with a restricted `readPaths` that does not list the memory folder therefore hides its
-memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `obsidian-tc doctor
+memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `reliquary-tc doctor
 --probe` reports `memory.read-acl` when existing entities are hidden this way.
 
 ### Capture queue follows the read ACL
@@ -153,7 +153,7 @@ and, optionally, a per-vault `acl` that overrides it. Both share the same shape:
 `egress.excludePaths`, `index.excludePaths`) is read as a separator when the config loads, so
 `"notes\\private\\**"` (JSON for `notes\private\**`) is `notes/private/**`. Checked vault paths are always forward-slash, so before
 this a backslash glob matched nothing: harmless for a whitelist (it failed closed) but a silent
-**fail-open** for a rule or an exclusion, which then protected nothing. `obsidian-tc doctor` also warns
+**fail-open** for a rule or an exclusion, which then protected nothing. `reliquary-tc doctor` also warns
 (`config.path-globs`) about any glob that matches no file in its vault.
 
 **Patterns must be vault-relative.** ACL globs are matched against paths relative to the vault root
@@ -163,7 +163,7 @@ trailing separator (`notes/private/`) can never match a note. The same goes for 
 config load **rejects** these in `rules[].glob` and the three `*Paths` whitelists with the vault-relative
 spelling to use (`Private/**`, `notes/private/**`). The separator is not stripped for you: doing so could
 turn a whitelist entry that granted nothing into a grant. A config with such a pattern fails to start
-until it is rewritten; `obsidian-tc doctor` prints the same error.
+until it is rewritten; `reliquary-tc doctor` prints the same error.
 
 Root ACL:
 

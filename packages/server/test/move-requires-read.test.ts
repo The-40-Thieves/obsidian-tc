@@ -3,7 +3,7 @@
 // note into a folder it can read, and read it there (the read ACL and read:notes are bypassed).
 import { linkSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { registerM3Tools } from "../src/tools/m3";

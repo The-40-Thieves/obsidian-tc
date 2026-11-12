@@ -17,7 +17,7 @@
 // Mutating derivation mirrors acl-extraction-coverage.test.ts exactly (destructive === true, or
 // any required scope in the write|delete|bulk|execute families) — this is deliberately not a
 // second definition of "mutating".
-import { isMutatingScope, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { isMutatingScope, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { fieldIs, topLevelShape } from "./schema-introspect";

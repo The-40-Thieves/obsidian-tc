@@ -1,10 +1,10 @@
 // Verify the provenance chain of an installation from its config: open cache.db read-only, read the
 // auth registry's keys (every state: a retired key still vouches for the records it signed), and run
-// verifyProvenance. Shared by `obsidian-tc provenance verify` and `doctor`, so the two cannot
+// verifyProvenance. Shared by `reliquary-tc provenance verify` and `doctor`, so the two cannot
 // disagree about what "intact" means. Creates and changes nothing.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { probeAuthRegistry } from "../auth/registry-open";
 import { openConfiguredDatabase } from "../db/open";
 import type { Database } from "../db/types";

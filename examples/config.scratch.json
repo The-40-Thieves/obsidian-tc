@@ -1,5 +1,5 @@
 {
-  "vaults": [{ "id": "scratch", "path": "/absolute/path/to/obsidian-tc/examples/scratch-vault" }],
+  "vaults": [{ "id": "scratch", "path": "/absolute/path/to/reliquary-tc/examples/scratch-vault" }],
   "acl": {
     "readOnly": false,
     "strictReadDefault": false,

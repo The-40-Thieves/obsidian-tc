@@ -1,4 +1,4 @@
-// `obsidian-tc auth rotate-key|list|revoke` (and `auth as set-password|reset-credentials|grants`, in auth-as*.ts): operator control over the signing-key and issued-token
+// `reliquary-tc auth rotate-key|list|revoke` (and `auth as set-password|reset-credentials|grants`, in auth-as*.ts): operator control over the signing-key and issued-token
 // registry (auth/registry.ts), which lives in `<cacheDir>/auth.db`, NOT cache.db. Same authorization
 // boundary as `token mint` and `elicit`: filesystem access to the cache directory is the credential,
 // since whoever can write auth.db and the key files can already mint any token.

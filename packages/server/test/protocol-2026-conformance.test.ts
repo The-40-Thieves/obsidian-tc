@@ -10,7 +10,7 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -37,7 +37,7 @@ let jwt: string;
 let vaultRoot: string;
 
 beforeAll(async () => {
-  vaultRoot = makeTempDir("obsidian-tc-conf-");
+  vaultRoot = makeTempDir("reliquary-tc-conf-");
   writeFileSync(join(vaultRoot, "note.md"), "---\ntitle: X\n---\n\nbody\n");
   const db = openMemoryDb();
   provisionCacheDb(db);
@@ -56,7 +56,7 @@ beforeAll(async () => {
     auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
   }).auth;
   handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,
@@ -198,7 +198,7 @@ describe("SEP-2549 — cacheable results carry ttlMs and cacheScope", () => {
     ["prompts/list", {}, undefined],
     ["resources/list", {}, undefined],
     ["resources/templates/list", {}, undefined],
-    ["resources/read", { uri: "obsidian-tc://v1/note.md" }, "obsidian-tc://v1/note.md"],
+    ["resources/read", { uri: "reliquary-tc://v1/note.md" }, "reliquary-tc://v1/note.md"],
   ];
   for (const [method, params, name] of cases) {
     it(

@@ -10,7 +10,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
-import { err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import type { ElicitCodec } from "../elicit-request-state";
 import { recordHitlAnswer } from "../hitl-telemetry";
 import { extractTraceCarrier } from "../otel/propagation";
@@ -444,7 +444,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (typeof overflow === "number" && overflow > 0) {
       void emitLog(log, {
         level: "warning",
-        logger: "obsidian-tc/governor",
+        logger: "reliquary-tc/governor",
         data: {
           tool: name,
           overflow_bytes: overflow,

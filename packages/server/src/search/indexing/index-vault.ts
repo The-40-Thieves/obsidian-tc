@@ -664,7 +664,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.sql,
     );
   }
-  // THE-499: one aggregate dedup line per pass; per-path lines behind OBSIDIAN_TC_DEBUG_DEDUP.
+  // THE-499: one aggregate dedup line per pass; per-path lines behind RELIQUARY_TC_DEBUG_DEDUP.
   if (stats.chunks_dedup_reused > 0) {
     process.stderr.write(
       `[index] vault "${args.vaultId}": dedup reused ${stats.chunks_dedup_reused} chunk embedding(s) from identical-body siblings (copied, not recomputed)\n`,

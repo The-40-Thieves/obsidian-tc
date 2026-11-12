@@ -12,8 +12,8 @@
 //
 // usage:
 //   OPENAI_API_KEY=$LITELLM_AGENT_KEY bun eval/gen-fanout-variants.ts \
-//     --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml \
-//     --out    ~/obsidian-tc-eval/fanout-variants.json \
+//     --golden ~/reliquary-tc-eval/multi-hop-golden-set.yaml \
+//     --out    ~/reliquary-tc-eval/fanout-variants.json \
 //     [--base-url http://localhost:4001/v1] [--model openai/gpt-5.4-nano] [--n 3]
 import { readFileSync, writeFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";

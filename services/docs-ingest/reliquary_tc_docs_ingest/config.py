@@ -1,7 +1,7 @@
 """Endpoint settings for live runs: the environment first, then the setup file.
 
-``docs-ingest setup`` writes ``$XDG_CONFIG_HOME/obsidian-tc/docs-ingest.env`` (default
-``~/.config/obsidian-tc/docs-ingest.env``), dotenv-style: one ``KEY=VALUE`` per line, ``#``
+``docs-ingest setup`` writes ``$XDG_CONFIG_HOME/reliquary-tc/docs-ingest.env`` (default
+``~/.config/reliquary-tc/docs-ingest.env``), dotenv-style: one ``KEY=VALUE`` per line, ``#``
 comments on their own line, optional single or double quotes. ``DOCS_INGEST_CONFIG`` overrides
 the location.
 """
@@ -37,7 +37,7 @@ def path() -> Path:
     if override:
         return Path(override)
     base = os.environ.get("XDG_CONFIG_HOME", "").strip() or str(Path.home() / ".config")
-    return Path(base) / "obsidian-tc" / "docs-ingest.env"
+    return Path(base) / "reliquary-tc" / "docs-ingest.env"
 
 
 def env_names(name: str) -> tuple[str, ...]:

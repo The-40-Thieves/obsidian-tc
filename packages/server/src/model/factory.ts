@@ -5,7 +5,7 @@
 // the sparse/ColBERT streams. The two are SEPARATE vector spaces: embedFull's dense slot is Qwen (the
 // required dense stream), NOT BGE's dense (eval-only, discarded here); sparse + ColBERT come from BGE.
 // RRF fuses them downstream on ranks, never by adding a Qwen cosine to a BGE score.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { FetchFn } from "../embeddings/http";
 import type { EmbeddingProvider, EmbedOptions, MultiVectorEmbedding } from "../embeddings/provider";
 import type { Reranker } from "../search/rerank";

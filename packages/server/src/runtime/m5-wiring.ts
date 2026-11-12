@@ -1,7 +1,7 @@
 // M5 (capture, memory, workspace, session, plur) registration, split out of tool-wiring.ts to keep
 // that file under the 700-line cap. The index hooks are the coordinator-backed reindex/deindex the
 // other domains share; test/m5-wiring-deindex.test.ts drives this directly.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { ToolRegistry } from "../mcp/registry";
 import type { MetricsRecorder } from "../metrics/registry";
 import { createPlurBackend } from "../plur/client";

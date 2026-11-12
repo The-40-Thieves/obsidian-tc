@@ -1,6 +1,6 @@
-# CUTOVER: obsidian-tc as the sole Obsidian agent interface
+# CUTOVER: reliquary-tc as the sole Obsidian agent interface
 
-This document is the cutover plan that makes **obsidian-tc** the only MCP surface an
+This document is the cutover plan that makes **reliquary-tc** the only MCP surface an
 agent uses against Obsidian vaults. It retires:
 
 - the **obsidian-local-rest-api MCP surface** (LRA 4.1.3 "with-MCP") as an agent interface,
@@ -8,15 +8,15 @@ agent uses against Obsidian vaults. It retires:
 - the **obsidian-headless / CLI-wrapper** MCP entries.
 
 The Local REST API plugin itself is **not** retired: it stays installed and enabled as the
-HTTP transport the obsidian-tc **companion plugin** rides (the companion registers its
+HTTP transport the reliquary-tc **companion plugin** rides (the companion registers its
 bridge routes onto LRA's server; without LRA the bridge routes are not registered).
 
 ## 1. Why
 
-obsidian-tc is a capability superset of the retired servers with governance none of them
+reliquary-tc is a capability superset of the retired servers with governance none of them
 have. Every capability the old surfaces offered — vault CRUD and section-targeted patch,
 text/DQL/semantic search, tags and frontmatter, Templater execution, command dispatch —
-exists as a first-class obsidian-tc tool, plus a large surface they never had (canvas,
+exists as a first-class reliquary-tc tool, plus a large surface they never had (canvas,
 Bases with a real expression-DSL evaluator, attachments, bookmarks, workspaces, periodic
 notes, Excalidraw, OCR, Tasks, bulk ops, capture queue, memory entities, GraphRAG
 `vault_graph_search`, `knowledge_challenge`). Critically, every call runs through one
@@ -29,20 +29,20 @@ response governor → audit, with OTel/Prometheus/CloudEvents observability and 
 budgets (regex worker timeout, JSONLogic op budget). The retired servers
 authenticate with a single LRA bearer key that is equivalent to full vault admin
 (documented trust boundary) and offer no path scoping, no HITL, no audit, and no
-index health signal. Consolidating on obsidian-tc removes three ungoverned write paths
+index health signal. Consolidating on reliquary-tc removes three ungoverned write paths
 into the vault and leaves exactly one.
 
 ## 2. Capability map
 
-Every obsidian-tc tool named below exists in `packages/server/src/tools/` (verified
+Every reliquary-tc tool named below exists in `packages/server/src/tools/` (verified
 against source).
 
-### 2a. LRA-MCP surface → obsidian-tc
+### 2a. LRA-MCP surface → reliquary-tc
 
 The LRA MCP surface is a thin projection of the REST endpoints (vault file CRUD/patch,
 search, active file, commands, periodic notes). Mapping by capability:
 
-| LRA-MCP capability | obsidian-tc equivalent |
+| LRA-MCP capability | reliquary-tc equivalent |
 |---|---|
 | Read a note / batch read | `read_note`, `read_notes` |
 | List vault files / folders | `list_notes` |
@@ -60,7 +60,7 @@ search, active file, commands, periodic notes). Mapping by capability:
 | Active file get / update / append / patch / delete | `get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file`, `delete_active_file` (companion-backed) — see §2c |
 | Server info | `server_health`, `get_server_config` |
 
-Beyond parity, obsidian-tc adds links (`get_outgoing_links`, `get_backlinks`,
+Beyond parity, reliquary-tc adds links (`get_outgoing_links`, `get_backlinks`,
 `find_orphans`, `find_unresolved_links`, `rewrite_link`, `prune_hub_links`), attachments
 (`list_attachments`, `get_attachment`, `write_attachment`, `move_attachment`, `delete_attachment`), canvas
 (`read_canvas`, `create_canvas`, `update_canvas`, `query_canvas`), Bases (`read_base`,
@@ -73,9 +73,9 @@ and deprecation notices for the old aliases), bookmarks, workspaces, bulk ops
 `tasks_filter`), capture (`enqueue_capture`, `commit_capture`), and admin
 (`inspect_acl`, `get_metrics`, `index_vault`).
 
-### 2b. mcp-tools 0.2.33 → obsidian-tc
+### 2b. mcp-tools 0.2.33 → reliquary-tc
 
-| mcp-tools capability | obsidian-tc equivalent |
+| mcp-tools capability | reliquary-tc equivalent |
 |---|---|
 | Vault file CRUD (`get/create/append/patch/delete_vault_file`, `list_vault_files`) | `read_note`, `write_note`, `append_note`, `patch_note`, `delete_note`, `list_notes` |
 | Dataview DQL (`search_vault`) | `search_dql` / `search_vault(mode: dql)` — read-only by contract, companion-bridged, fail-closed under a read whitelist |
@@ -91,7 +91,7 @@ and deprecation notices for the old aliases), bookmarks, workspaces, bulk ops
 ### 2c. UI-coupled gaps (honest notes)
 
 These LRA-MCP / mcp-tools capabilities depend on the Obsidian **UI session** and have no
-full obsidian-tc equivalent today:
+full reliquary-tc equivalent today:
 
 - **Active file (get / update / append / patch / delete the currently-open note).** Covered by
   `get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file` and
@@ -126,11 +126,11 @@ server keep using the path-addressed tools.
 ### 2d. From the Local REST API's built-in MCP (v5.0+, 2026-07-24)
 
 Since v5.0, the Local REST API plugin itself ships an MCP server exposing 18 tools at
-`https://127.0.0.1:27124/mcp/` — the same plugin the obsidian-tc companion rides as a
+`https://127.0.0.1:27124/mcp/` — the same plugin the reliquary-tc companion rides as a
 transport (step 7 below), now with its own agent surface layered on top. This is a different,
 newer surface than the "LRA-MCP" projection retired in §2a above.
 
-| LRA built-in MCP tool | obsidian-tc equivalent |
+| LRA built-in MCP tool | reliquary-tc equivalent |
 |---|---|
 | `command_execute` | `execute_command` (companion-backed, policy-gated) |
 | `command_list` | `list_commands` |
@@ -148,7 +148,7 @@ newer surface than the "LRA-MCP" projection retired in §2a above.
 | `vault_write_binary` | `write_attachment` (base64 payload, size-capped, extension allowlist; overwrite is HITL-gated) |
 | `vault_write` | `write_note` (CAS via `prev_hash`) |
 
-No obsidian-tc equivalent:
+No reliquary-tc equivalent:
 
 - **`active_file_get_path`.** No path-only tool; `get_active_file` returns the active note's
   `path` together with its content (see §2c above).
@@ -158,7 +158,7 @@ No obsidian-tc equivalent:
   `patch_note` targets a heading, block, or frontmatter path directly instead of requiring a
   prior structure lookup.
 
-Beyond this list, §2a and §2b above still apply in full: obsidian-tc adds links, canvas,
+Beyond this list, §2a and §2b above still apply in full: reliquary-tc adds links, canvas,
 Bases, bookmarks, workspaces, bulk ops, a multi-vault registry, OCR, Tasks, capture, and the
 governed dispatch pipeline none of the LRA built-in MCP tools run through.
 
@@ -166,13 +166,13 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
 
 1. **Install the server.**
    ```bash
-   npm install -g obsidian-tc     # Node >= 24, or Bun >= 1.1 (runtime auto-detected)
+   npm install -g reliquary-tc     # Node >= 24, or Bun >= 1.1 (runtime auto-detected)
    ollama pull nomic-embed-text   # default local embeddings model
    ```
-   (Alternatives: `npx -y obsidian-tc`, the `.mcpb` one-click bundle, or the standalone
+   (Alternatives: `npx -y reliquary-tc`, the `.mcpb` one-click bundle, or the standalone
    per-platform binaries attached to each GitHub release.)
 
-2. **Configure vault(s) + ACL.** Zero-config works (`obsidian-tc /path/to/vault` boots a
+2. **Configure vault(s) + ACL.** Zero-config works (`reliquary-tc /path/to/vault` boots a
    single vault `main`); for the cutover, write a config so ACLs are explicit. Per-vault
    ACL is supported: each `vaults[]` entry may carry its own `acl` block, and
    the root `acl` is the inherited default — "write vault A, read-only vault B" works in
@@ -195,20 +195,20 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    ACL fields: `readOnly`, `readPaths`/`writePaths`/`deletePaths` glob whitelists,
    `rules`, `strictReadDefault`. `.obsidian/**`, `.git/**`, `.trash/**` are hard-denied
    regardless; matching is symlink-canonical and NFC-normalized.
-   Validate: `obsidian-tc config validate ./obsidian-tc.config.json` and inspect with
-   `obsidian-tc config show` (secrets redacted).
+   Validate: `reliquary-tc config validate ./reliquary-tc.config.json` and inspect with
+   `reliquary-tc config show` (secrets redacted).
 
 3. **Install the companion plugin** (bridge for commands, Templater, Dataview DQL,
    Excalidraw, QuickAdd, make.md, Tasks DSL, OCR):
    ```bash
-   obsidian-tc plugin install --vault "C:/path/to/your/vault"
+   reliquary-tc plugin install --vault "C:/path/to/your/vault"
    ```
    This copies the vendored `manifest.json` + `main.js` into
    `<vault>/.obsidian/plugins/tc-bridge/` (plugin id `tc-bridge`, name "TC Bridge" — renamed
-   from `obsidian-tc` / "Obsidian Turbocharged" so it can list in Obsidian's community
+   from `reliquary-tc` / "Reliquary-TC" so it can list in Obsidian's community
    directory; re-running is an in-place upgrade). Existing installs migrate
-   automatically: on first load TC Bridge copies `.obsidian/plugins/obsidian-tc/data.json` to
-   its own `data.json` if present, and refuses to start if the old `obsidian-tc` plugin is
+   automatically: on first load TC Bridge copies `.obsidian/plugins/reliquary-tc/data.json` to
+   its own `data.json` if present, and refuses to start if the old `reliquary-tc` plugin is
    still enabled. Then enable it in Obsidian's Community Plugins. It requires the **Local
    REST API** plugin installed and enabled — the companion extends LRA's HTTP server;
    without LRA it logs a warning and registers no bridge routes. The server enforces a
@@ -221,11 +221,11 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    BRAT once). Direct/zip installs: download the new release's `main.js`, `manifest.json`,
    `styles.css`, create a `tc-bridge` folder under `<vault>/.obsidian/plugins/` (Obsidian
    requires the folder name to match the manifest `id`), place the three files there, remove
-   the old `obsidian-tc` folder (or just disable it — see the conflict guard above), and
+   the old `reliquary-tc` folder (or just disable it — see the conflict guard above), and
    enable "TC Bridge" in Community Plugins. Settings carry over automatically the first time
-   TC Bridge loads, as long as the old `obsidian-tc/data.json` is still present at that point.
+   TC Bridge loads, as long as the old `reliquary-tc/data.json` is still present at that point.
 
-4. **Verify `server_health`.** Start the server (`obsidian-tc ./obsidian-tc.config.json`)
+4. **Verify `server_health`.** Start the server (`reliquary-tc ./reliquary-tc.config.json`)
    and call `server_health`. Expect:
    - `status: "ok"`, `version`, `vault_count` (and `vaults` when authenticated);
    - `native_loaded` — compiled Rust search primitives (pure-JS fallback otherwise);
@@ -238,19 +238,19 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    reconcile or growing `write_failures` should be investigated before retiring the old
    surface.
 
-5. **Point Claude (and other MCP clients) at obsidian-tc over stdio.**
+5. **Point Claude (and other MCP clients) at reliquary-tc over stdio.**
    ```json
    {
      "mcpServers": {
-       "obsidian-tc": {
+       "reliquary-tc": {
          "command": "npx",
-         "args": ["-y", "obsidian-tc"],
-         "env": { "OBSIDIAN_TC_CONFIG": "/ABSOLUTE/PATH/TO/obsidian-tc.config.json" }
+         "args": ["-y", "reliquary-tc"],
+         "env": { "RELIQUARY_TC_CONFIG": "/ABSOLUTE/PATH/TO/reliquary-tc.config.json" }
        }
      }
    }
    ```
-   (Claude Code: `claude mcp add obsidian-tc -e OBSIDIAN_TC_CONFIG=... -- npx -y obsidian-tc`.
+   (Claude Code: `claude mcp add reliquary-tc -e RELIQUARY_TC_CONFIG=... -- npx -y reliquary-tc`.
    Cursor uses `mcpServers`, VS Code uses `servers`; `.mcpb` for Claude Desktop.)
    The stdio transport is the trusted local transport with full multi-vault access;
    HTTP is opt-in and, when used, tokens are vault-bound.
@@ -263,13 +263,13 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    plugin settings, disable its bundled MCP exposure if present — its **REST** endpoints
    stay on.
 
-7. **Keep LRA enabled — it is now transport only.** The companion rides it; obsidian-tc
+7. **Keep LRA enabled — it is now transport only.** The companion rides it; reliquary-tc
    reaches it via each vault's `restApiUrl`/`restApiKey`. Trust boundary (see
    SECURITY.md): possession of the LRA bearer key is equivalent to full vault admin —
    LRA's own endpoints grant full read/write/delete, and the companion routes add no new
    authority and deliberately do not re-implement the server's ACL/HITL gates (those
    protect the MCP surface). So: keep LRA bound to loopback, guard the key like a vault
-   password, and hand agents the obsidian-tc surface, never the LRA key.
+   password, and hand agents the reliquary-tc surface, never the LRA key.
 
 ## 4. Rollback
 
@@ -278,11 +278,11 @@ Nothing in the cutover is destructive; rollback is configuration-only:
 1. Re-add the removed MCP client entries (LRA-MCP, mcp-tools, obsidian-headless) — the
    plugins/servers were disabled/uninstalled, not data-modified, and LRA itself was never
    disabled.
-2. Optionally remove the obsidian-tc entry from client configs and stop the server.
-3. Vault content is untouched by rollback: obsidian-tc writes notes atomically
+2. Optionally remove the reliquary-tc entry from client configs and stop the server.
+3. Vault content is untouched by rollback: reliquary-tc writes notes atomically
    (temp+rename) to the same Markdown files the old servers used, so both directions read
    the same source of truth. Its own state lives outside note content in the cache dir
-   (default `.obsidian-tc/` — `cache.db` holding the index, embeddings, and event log,
+   (default `.reliquary-tc/` — `cache.db` holding the index, embeddings, and event log,
    plus per-vault MORGIANA audit-spool JSONL); it can be left in place (inert) or deleted
    (the index is rebuilt by the boot reconcile on the next start).
 4. The companion plugin can stay installed and enabled during rollback — it only adds
@@ -290,16 +290,16 @@ Nothing in the cutover is destructive; rollback is configuration-only:
 
 ## 5. The Sync story
 
-**obsidian-tc does not do Obsidian Sync — keep your existing sync mechanism.** The server
+**reliquary-tc does not do Obsidian Sync — keep your existing sync mechanism.** The server
 operates on the local vault filesystem directly (atomic writes via `writeNoteAtomic`; the
 companion/LRA are Tier-3 bridge-only). It neither replaces nor interferes with Obsidian Sync,
-Syncthing, iCloud, or Git-based sync: those keep replicating the same files obsidian-tc
+Syncthing, iCloud, or Git-based sync: those keep replicating the same files reliquary-tc
 reads and writes. Two coherence notes (`docs/COHERENCE.md`):
 
-- The sole-agent-writer invariant: obsidian-tc's compare-and-swap gates (`prev_hash` on
+- The sole-agent-writer invariant: reliquary-tc's compare-and-swap gates (`prev_hash` on
   note writes and, since a later change, on bookmark/workspace JSON edits) defend against the
   remaining human-writer concurrency; do not run a second agent writer against the vault.
 - Obsidian's external-change watcher has honest limits: an open pane may not refresh
   until navigated, and change detection degrades on OneDrive/network drives. Sync engines
   that write while a note is open are subject to the same Obsidian-side behavior they
-  always were — obsidian-tc changes nothing here.
+  always were — reliquary-tc changes nothing here.

@@ -1,4 +1,4 @@
-// THE-636 — `obsidian-tc context-import`. Modelled on cli/commands/forget.ts: real writes to the
+// THE-636 — `reliquary-tc context-import`. Modelled on cli/commands/forget.ts: real writes to the
 // experiential store from outside `registry.dispatch`, with the same "audit_events written
 // directly via writeEvent" reasoning that file's header gives in full.
 //

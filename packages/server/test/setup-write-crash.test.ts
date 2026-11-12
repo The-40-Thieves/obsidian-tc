@@ -1,4 +1,4 @@
-// `obsidian-tc setup`'s writer — crash-mid-write proof (fix round, Codex review 1001-verify: "the
+// `reliquary-tc setup`'s writer — crash-mid-write proof (fix round, Codex review 1001-verify: "the
 // 'atomic' test only checks that no temp remains after a successful rename; a direct non-atomic
 // write would also pass"). Own file because `vi.mock` is hoisted per-module — every other
 // setup-write test needs the REAL fs (see perf-collectors-lock-cleanup.test.ts's own header for

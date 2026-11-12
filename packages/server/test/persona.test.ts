@@ -1,7 +1,7 @@
 // THE-647 item 2: persona resolution. A JWT `persona` claim resolves ONLY against the server's
 // configured `personas` map — never a union with the token's own (wider) scopes/vault, and never
 // a silent fallback on an unrecognised name.
-import { PersonasConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { PersonasConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { resolvePersona } from "../src/auth/persona";
 

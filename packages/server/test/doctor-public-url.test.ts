@@ -41,7 +41,7 @@ function healthyRoutes(over: { mcp?: Handler; prm?: Handler; as?: Handler } = {}
             r,
             401,
             { error: "unauthorized" },
-            { "www-authenticate": `Bearer realm="obsidian-tc", resource_metadata="${PRM_URL}"` },
+            { "www-authenticate": `Bearer realm="reliquary-tc", resource_metadata="${PRM_URL}"` },
           ))
       )(req, res);
     }
@@ -276,7 +276,7 @@ describe("doctor: public-url RED cases", () => {
 
   it("challenge: a 401 WITHOUT resource_metadata FAILS", async () => {
     routes = healthyRoutes({
-      mcp: (_q, res) => json(res, 401, {}, { "www-authenticate": 'Bearer realm="obsidian-tc"' }),
+      mcp: (_q, res) => json(res, 401, {}, { "www-authenticate": 'Bearer realm="reliquary-tc"' }),
     });
     const r = await run();
     expect(r["public-url.challenge"]?.status).toBe("fail");

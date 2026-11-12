@@ -2,7 +2,7 @@
 // restic/git: an agent can ask "did the last sync actually succeed" and kick a sync. Status is
 // read:remotely-save; trigger is write:remotely-save (a sync is low-risk and non-destructive —
 // no HITL floor, but the readOnly kill switch applies).
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";

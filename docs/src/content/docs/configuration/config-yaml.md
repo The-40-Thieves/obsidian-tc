@@ -1,13 +1,13 @@
 ---
 title: Configuration reference
-description: Every obsidian-tc option — the complete config schema, all defaults, environment variables, and the CLI.
+description: Every reliquary-tc option — the complete config schema, all defaults, environment variables, and the CLI.
 ---
 
-obsidian-tc reads one **JSON** config file, passed as the first CLI argument or via
-`OBSIDIAN_TC_CONFIG`. Zero-config also works: pass a **vault folder** instead and the
+reliquary-tc reads one **JSON** config file, passed as the first CLI argument or via
+`RELIQUARY_TC_CONFIG`. Zero-config also works: pass a **vault folder** instead and the
 server boots a single vault with id `main` and every default below. Inspect any
-config with `obsidian-tc config show <path>` (secrets redacted) or
-`obsidian-tc config validate <path>`.
+config with `reliquary-tc config show <path>` (secrets redacted) or
+`reliquary-tc config validate <path>`.
 
 This page is the **complete option surface**, derived from `ServerConfigSchema`
 (`packages/shared/src/config.schema.ts`). Fields marked *(optional)* may be omitted
@@ -34,7 +34,7 @@ until this generator existed, by which point five entire defaulted blocks had go
 | `id` | string, required | Vault identifier every tool call names (`vault: "main"`). Lowercase `[a-z0-9_-]`. |
 | `name` | string *(optional)* | Display name. |
 | `path` | string, required | Absolute vault directory. |
-| `caseSensitive` | `auto \| true \| false` *(optional → auto)* | Whether the filesystem holding THIS vault treats names differing only by case as different files: `true` means `README.md` and `readme.md` are two notes, `false` means they are one (the same sense as APFS (Case-sensitive), NTFS `setCaseSensitiveInfo` and Samba's `case sensitive`). `auto` probes the vault root at startup and on each ACL build; `true`/`false` overrides the probe. The vault's folder ACLs, its rename/identity key and its wiki/raw classification match the way this filesystem resolves names rather than the host platform's usual behavior — the fact that matters is the volume's, and a platform can hold both kinds (a case-sensitive APFS volume on macOS, a case-insensitive mount on Linux). Case sensitivity can also differ per folder (NTFS, ext4 casefold), so a match that holds only case-insensitively is settled by the folders the path passes through, and fails closed where they are mixed or cannot be probed. When the root probe cannot decide, `obsidian-tc doctor` (`vaults.case-sensitivity`) warns until the key pins it. |
+| `caseSensitive` | `auto \| true \| false` *(optional → auto)* | Whether the filesystem holding THIS vault treats names differing only by case as different files: `true` means `README.md` and `readme.md` are two notes, `false` means they are one (the same sense as APFS (Case-sensitive), NTFS `setCaseSensitiveInfo` and Samba's `case sensitive`). `auto` probes the vault root at startup and on each ACL build; `true`/`false` overrides the probe. The vault's folder ACLs, its rename/identity key and its wiki/raw classification match the way this filesystem resolves names rather than the host platform's usual behavior — the fact that matters is the volume's, and a platform can hold both kinds (a case-sensitive APFS volume on macOS, a case-insensitive mount on Linux). Case sensitivity can also differ per folder (NTFS, ext4 casefold), so a match that holds only case-insensitively is settled by the folders the path passes through, and fails closed where they are mixed or cannot be probed. When the root probe cannot decide, `reliquary-tc doctor` (`vaults.case-sensitivity`) warns until the key pins it. |
 | `publicUrl` | https url *(optional)* | Opt-in base url where this vault's notes are published (Obsidian Publish, Quartz, ...). When set, the standard `search` and `fetch` tools cite `<publicUrl>/<note path>` (each path segment percent-encoded, `.md` dropped) so ChatGPT deep research and company knowledge render clickable citations. Absent, they cite an `obsidian://open?vault=…&file=…` link. https only; credentials, a query or a fragment are rejected. |
 | `mode` | `live \| headless \| auto` *(optional → auto)* | `auto` probes the Local REST API **at startup** and re-probes it **every 60 s while it is unreachable or missing** (a `headless`-pinned vault is not re-probed): reachable → live (bridge tools work), else headless (bridge tools return `requires_live_obsidian`; filesystem tools unaffected). `refresh_plugin_capabilities` re-probes on demand. Config changes take effect on the next server start. |
 | `restApiUrl` | url *(optional)* | Local REST API base for live mode. Use the plugin's **non-encrypted loopback server** (`http://127.0.0.1:27123`, enable it in LRA settings) — the bridge client does not trust LRA's self-signed HTTPS certificate. Without this the vault is always headless. |
@@ -54,12 +54,12 @@ until this generator existed, by which point five entire defaulted blocks had go
 | `workspace.traceFolder` | string, `".obsidian-tc/traces"` | Vault-relative JSONL session-trace folder (ACL-checked). |
 | `index.excludePaths` | string[], `[]` | Extra Excluded files entries merged with the vault's own Obsidian list. See [Excluded files](#excluded-files) below. |
 | `conventions.protectSchemaFiles` | bool, **false** | When `true`, creating, editing, deleting, moving or renaming any file named `SCHEMA.md` in the vault (the root one included) requires the `admin:conventions` scope (also granted by `admin:*`, `*` or `admin`). Without it the caller gets `acl_denied`, with the path and op in its details. Reads are unchanged: the caller still reads the layer, is still held to its rules, and `get_conventions` still lists it. The key binds only callers whose token lacks `admin:conventions`; a stdio caller or an `auth.mode: none` caller holds `*`, so it does nothing for them. Off by default. See [Vault conventions](/guides/vault-conventions/). |
-| `wiki.folder` | string, unset | Vault-relative folder of this vault's LLM wiki, holding its `SCHEMA.md`. `draft_wiki_page` proposes pages there and `commit_wiki_page` only writes pages inside it (it refuses when this is unset), creating them without a confirmation. The value is a plain relative folder such as `wiki` or `notes/wiki`; `.`, `/`, `""`, an absolute path, `..`, and segments ending in a space or dot are rejected. A folder that is a symlink inside the vault (`wiki -> pages`) works only with the native module loaded: without it (Windows, `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`, an addon-less install) every read, write, move and delete through it, or through the directory it points to by that directory's own name, is refused with `acl_denied`. See [Wiki workflow](/tools/#wiki-workflow-draft-and-commit-a-page). |
+| `wiki.folder` | string, unset | Vault-relative folder of this vault's LLM wiki, holding its `SCHEMA.md`. `draft_wiki_page` proposes pages there and `commit_wiki_page` only writes pages inside it (it refuses when this is unset), creating them without a confirmation. The value is a plain relative folder such as `wiki` or `notes/wiki`; `.`, `/`, `""`, an absolute path, `..`, and segments ending in a space or dot are rejected. A folder that is a symlink inside the vault (`wiki -> pages`) works only with the native module loaded: without it (Windows, `RELIQUARY_TC_FORCE_JS_FALLBACK=1`, an addon-less install) every read, write, move and delete through it, or through the directory it points to by that directory's own name, is refused with `acl_denied`. See [Wiki workflow](/tools/#wiki-workflow-draft-and-commit-a-page). |
 | `wiki.rawFolder` | string, `raw` beside `wiki.folder` | Vault-relative folder of this vault's raw sources, the inputs the wiki is built from (same rules as `wiki.folder`, including no segment ending in a space or dot). Default: `raw` next to the wiki folder (`wiki` gives `raw`, `notes/wiki` gives `notes/raw`); none when that would be the wiki folder itself. It must not be, contain or sit inside `wiki.folder`. Its files are **immutable**: no tool writes, creates, renames or deletes there, whatever the ACL whitelists say (reads follow the read ACL). `draft_wiki_page` `source` ingests one of its notes. Add sources outside the server. A raw folder that is a symlink follows the same native-module requirement as `wiki.folder`. See [Ingesting a raw source](/tools/#ingesting-a-raw-source). |
 
 ## Excluded files
 
-obsidian-tc honors the **Excluded files** list Obsidian keeps for each vault (Settings → Files & links →
+reliquary-tc honors the **Excluded files** list Obsidian keeps for each vault (Settings → Files & links →
 Excluded files, stored as `userIgnoreFilters` in `<vault>/.obsidian/app.json`), and you can add entries
 for a vault with `vaults[].index.excludePaths`. The two lists are merged. Nothing needs configuring when
 the vault already has an Excluded files list.
@@ -77,7 +77,7 @@ Obsidian 1.13.7 app source (`updateUserIgnoreFilters` and `isUserIgnored`):
 
 **What an excluded note is.** Obsidian treats an excluded file as hidden from Search and the Graph view
 but still a file in the vault: links to it resolve, and it still appears in backlinks and outgoing
-links. obsidian-tc does the same.
+links. reliquary-tc does the same.
 
 | | Excluded note |
 | --- | --- |
@@ -104,7 +104,7 @@ entry.
 | Field | Type / default | What it does |
 | --- | --- | --- |
 | `mode` | `none \| jwt`, `none` | `none` is loopback-only (see the interlock below). |
-| `jwtSecret` | string ≥32 *(optional)* | HS256 shared secret; prefer `OBSIDIAN_TC_JWT_SECRET`. |
+| `jwtSecret` | string ≥32 *(optional)* | HS256 shared secret; prefer `RELIQUARY_TC_JWT_SECRET`. |
 | `tokenTtlSeconds` | int, 86400 | Token lifetime. |
 | `jwks` / `jwksFile` / `jwksUri` | object / path / URL *(optional)* | Asymmetric verification (RS256/ES256/EdDSA) from an inline JWKS, a file loaded once at boot, or an authorization server's key set URL (pinned, https and public-only by default; see [Remote key set](/security/auth-model/#remote-key-set-authjwksuri)). Rotation is `kid`-based. HS256 verifies only against the secret and asymmetric algs only against the JWKS, so alg-confusion is structurally impossible. |
 | `algorithms` | string[] *(optional)* | Asymmetric-algorithm allowlist. |
@@ -141,8 +141,8 @@ registration by metadata document and optionally by RFC 7591 (`dynamicRegistrati
 | `auth.as.cimd.allowedHosts` | hostname[], `[]` | Hosts a Client ID Metadata Document may be served from, matched exactly against the `client_id` URL's host. Empty admits any public https host; a document is never fetched from a non-public address either way. |
 | `auth.as.consent.loopback` | `remember \| prompt`, `prompt` | Whether a sign-in that returns to this machine (`127.0.0.0/8`, `::1`, `localhost`) is remembered once you approved the client. `prompt` (default): every such sign-in shows the consent page, even on the same port. Explicit `remember`: reused across ports, so native CLIs (Claude Code, Codex) sign in without a click, but a malicious local process could then start its own sign-in without a prompt. Redirects elsewhere are always remembered. |
 | `auth.as.consent.remembered` | `silent \| confirm`, unset | What a sign-in does when an earlier approval already covers it. `confirm`: a one-click Continue page whose same-origin POST issues the code, so a link opened from another site cannot obtain one unseen. `silent`: the code is issued with no page. Unset: `silent` when the redirect is on this machine (reached only under `auth.as.consent.loopback: remember`, since the default `prompt` shows the full consent page instead), `confirm` for any other redirect. |
-| `auth.as.setupTokenEnv` | env name, `OBSIDIAN_TC_AS_SETUP_TOKEN` | Name of the variable holding the one-time token that claims the operator account on a host with no terminal. The token is never read from the config file. |
-| `auth.as.resetTokenEnv` | env name, `OBSIDIAN_TC_AS_RESET_TOKEN` | Name of the variable holding the one-time token that lets the operator set a new password on a host with no shell. While it is set, a claimed server shows a reset form at `/oauth/setup` until the boot window closes; the token works once. Remove the variable afterwards. The token is never read from the config file. |
+| `auth.as.setupTokenEnv` | env name, `RELIQUARY_TC_AS_SETUP_TOKEN` | Name of the variable holding the one-time token that claims the operator account on a host with no terminal. The token is never read from the config file. |
+| `auth.as.resetTokenEnv` | env name, `RELIQUARY_TC_AS_RESET_TOKEN` | Name of the variable holding the one-time token that lets the operator set a new password on a host with no shell. While it is set, a claimed server shows a reset form at `/oauth/setup` until the boot window closes; the token works once. Remove the variable afterwards. The token is never read from the config file. |
 | `auth.as.login.maxFailuresPerWindow` | int, `5` | Wrong passwords tolerated per account within one window. The next one locks that name for 30 s, doubling with each further failure, never longer than the window. |
 | `auth.as.login.windowSeconds` | int, `900` | Length of the window that `maxFailuresPerWindow` counts within. Counters are in memory and reset at restart. |
 | `auth.as.clients[]` | list, `[]` | Pre-registered clients. Each entry is one client, with the keys below. Only these can be confidential. |
@@ -155,7 +155,7 @@ A minimal example: the bundled server with Dynamic Client Registration turned of
 
 ```json
 {
-  "cacheDir": "/var/lib/obsidian-tc/cache",
+  "cacheDir": "/var/lib/reliquary-tc/cache",
   "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
   "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
   "auth": {
@@ -190,7 +190,7 @@ with `auth.resource`, does that. The tokens the AS issues are always checked aga
 A configured `auth.jwks` or `auth.jwksFile` that contains the public key of the server's own `as` key stops the
 server at boot, naming the kid: a JWKS key is verified under the hand-minted-token rules, which would let a token
 signed by the `as` key skip the stricter `as` rules. A remote `auth.jwksUri` cannot be checked at boot, so keep
-the authorization server's key out of any key set you publish. `obsidian-tc doctor` has an `auth.as` check. See
+the authorization server's key out of any key set you publish. `reliquary-tc doctor` has an `auth.as` check. See
 [the bundled authorization server](/security/auth-model/#the-bundled-authorization-server-authas).
 
 ## `acl` (root, inherited by every vault without its own)
@@ -242,7 +242,7 @@ Before this, a backslash glob compiled to a pattern no vault path could match. F
 (`readPaths` and friends) that failed closed, which is safe. For a restriction (`egress.excludePaths`,
 `acl.rules`, `index.excludePaths`) it failed **open**: the exclusion silently excluded nothing.
 
-`obsidian-tc doctor` runs `config.path-globs`, which warns about any configured glob that matches no
+`reliquary-tc doctor` runs `config.path-globs`, which warns about any configured glob that matches no
 file in its vault (a typo, the wrong case, a renamed folder). A dead restriction is reported as one that
 protects nothing; a dead whitelist entry as one that grants nothing.
 
@@ -280,7 +280,7 @@ protects nothing; a dead whitelist entry as one that grants nothing.
 
 ### `retrieval.densify` — graph densification (experimental)
 
-Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a multi-hop query can reach bridge notes that were never explicitly linked. **All off/conservative by default and unmeasured** — a prior virtual-hop attempt sat at an 80% bridge-recall ceiling, and the champion figure it was judged against has since been withdrawn as unreproducible (see [docs/EVALUATION.md](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/EVALUATION.md#withdrawn-the-headline-retrieval-figures-2026-08-07)), so densification ships dark behind these flags pending a multi-hop golden-set A/B that establishes its own control, exactly like `retrieval.sparse` / `retrieval.colbert`. Derived edges are rebuildable cache and are **never** written back into notes as wikilinks; hub tags and hub nodes emit no edges.
+Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a multi-hop query can reach bridge notes that were never explicitly linked. **All off/conservative by default and unmeasured** — a prior virtual-hop attempt sat at an 80% bridge-recall ceiling, and the champion figure it was judged against has since been withdrawn as unreproducible (see [docs/EVALUATION.md](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/EVALUATION.md#withdrawn-the-headline-retrieval-figures-2026-08-07)), so densification ships dark behind these flags pending a multi-hop golden-set A/B that establishes its own control, exactly like `retrieval.sparse` / `retrieval.colbert`. Derived edges are rebuildable cache and are **never** written back into notes as wikilinks; hub tags and hub nodes emit no edges.
 
 | Field | Default | What it does |
 | --- | --- | --- |
@@ -293,7 +293,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `llmEdges` | false | Build `semantically_similar_to` edges via LLM Pass-3 through the **local** inference gateway. Batch-only via the `densify-llm` CLI — not the inline index pass; sends note content to the model (local by default). |
 | `confidenceFloor` | 0.55 | Minimum discrete-rubric confidence (0.55/0.65/0.75/0.85/0.95) to keep an LLM edge. |
 
-`llmEdges` is produced out-of-band by `obsidian-tc densify-llm` (below), not by indexing; `tagEdges` and `knnEdges` build inline during `index_vault` when set.
+`llmEdges` is produced out-of-band by `reliquary-tc densify-llm` (below), not by indexing; `tagEdges` and `knnEdges` build inline during `index_vault` when set.
 
 ## `transports`
 
@@ -320,7 +320,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `toolFacade.mode` | `triad` | What `tools/list` advertises: `triad` (3 meta-tools plus the standard `search`/`fetch` pair), `domain` (~a dozen domain meta-tools), `flat` (everything), `auto` (**deprecated**: resolves to `triad` for every client, removal planned for the next major; set an explicit mode). All tools stay callable by name in every mode. |
 | `toolFacade.triadHotPath` | `false` | On the `triad` surface, also list `read_note`, `search_vault`, `write_note` and `list_notes` as top-level tools beside `search` and `fetch`, so an everyday read or search is one call. Ignored by the `domain` and `flat` modes and by a flat `advertise` list. Advertisement only: each tool stays callable through `call_capability`. Cost: the triad `tools/list` grows from about 4.5k to about 17.3k JSON characters (measured in memory, no vault registry), and Claude Code loads all of it every session because these tools carry `alwaysLoad`. |
 | `toolFacade.autoClients` | *(optional)* | Deprecated with `auto`. Only used when `mode` is `auto`: substring-of-clientInfo.name -> mode overrides, checked before the built-in table. |
-| `toolFacade.outputSchema` | `full` | Whether `tools/list` advertises each tool's `outputSchema`: `full` (unchanged) or `omit`. Results carry `structuredContent` and a text block either way; `omit` only drops the advertisement, for clients that mishandle it (claude.ai is reported to fail tools that declare one, Claude Desktop with older schema drafts, Cursor when a root is not an object). Applies to the `flat` surface and to the `search`/`fetch` pair on `triad` (and the hot-path tools with `triadHotPath`); the triad's three meta-tools and `domain` advertise no `outputSchema`. See [MCP compatibility](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/MCP-COMPATIBILITY.md). |
+| `toolFacade.outputSchema` | `full` | Whether `tools/list` advertises each tool's `outputSchema`: `full` (unchanged) or `omit`. Results carry `structuredContent` and a text block either way; `omit` only drops the advertisement, for clients that mishandle it (claude.ai is reported to fail tools that declare one, Claude Desktop with older schema drafts, Cursor when a root is not an object). Applies to the `flat` surface and to the `search`/`fetch` pair on `triad` (and the hot-path tools with `triadHotPath`); the triad's three meta-tools and `domain` advertise no `outputSchema`. See [MCP compatibility](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/MCP-COMPATIBILITY.md). |
 | `toolFacade.explainAutoMode` | `false` | Deprecated with `auto`. Only used when `mode` is `auto`: log one structured explain line per resolution and return it as the `explanation` field of `server_health`'s `toolFacade` block. Observability only; the chosen mode is unchanged. |
 | `tools.defaults.responseFormat` | `detailed` | The `response_format` a tool call gets when it sets neither `response_format` nor the legacy `verbosity` alias. `detailed` is the full payload (unchanged output); `concise` returns only the high-signal fields of every tool that supports `response_format` (see [Response format](/tools/#response-format), which lists the covered and exempt tools). It is also the only selector for MCP `resources/read`, which takes no parameters (concise returns the note body without its frontmatter). Errors and safety warnings are never trimmed. |
 | `toolVisibility.allowed` | *(optional)* | Name allowlist for `tools/list` (absent = all; `[]` = none). |
@@ -333,7 +333,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 
 ## `resources` (note resources)
 
-The `obsidian-tc://<vault>/<path>` note resources (`resources/read`, `resources/list` and the
+The `reliquary-tc://<vault>/<path>` note resources (`resources/read`, `resources/list` and the
 `read_resources` tool) read notes in the vault their URI names.
 
 | Key | Default | What it does |
@@ -416,7 +416,7 @@ with the original `Host` header, so a second DNS answer cannot redirect it. A re
 refused rather than followed. Entries are exact hostnames (case-insensitive, internationalized names are
 converted to punycode); wildcards, ports and paths are config errors. A numeric form such as
 `http://0x08080808/` or `http://[::ffff:8.8.8.8]/` is the address it spells, so it needs to be private to
-be sent at all. `obsidian-tc doctor` lists each plain-http host with the addresses it resolves to and warns
+be sent at all. `reliquary-tc doctor` lists each plain-http host with the addresses it resolves to and warns
 about any that are not private.
 
 Every `http://` request, loopback included, is sent directly: `HTTP_PROXY`, `http_proxy` and `ALL_PROXY` are
@@ -434,7 +434,7 @@ loads. Every other provider URL uses the one root list below.
 
 ## Plain-http provider endpoints (`network.plainHttpHosts`)
 
-The same policy covers every other outbound provider client: `gateway.baseUrl` (or `OBSIDIAN_TC_GATEWAY_URL`),
+The same policy covers every other outbound provider client: `gateway.baseUrl` (or `RELIQUARY_TC_GATEWAY_URL`),
 `embeddings.baseUrl`, `embeddings.modelTier.dense.baseUrl` / `.full.baseUrl`, `reranker.baseUrl`,
 `plur.endpoint` and each vault's `restApiUrl`. They share one top-level list, so a host is named once however
 many providers use it (a per-provider list would only repeat the same name; the judge blocks are the one
@@ -465,7 +465,7 @@ What a plain `http://` provider URL does:
 
 A refusal fails the request with the host and the offending address in the error (never the key, a path or a
 query) and is not retried. Every plain-http request, loopback included, connects straight to the address that
-was checked, with the original `Host` header; a redirect is refused. `obsidian-tc doctor` lists every
+was checked, with the original `Host` header; a redirect is refused. `reliquary-tc doctor` lists every
 plaintext provider host with its resolved address and a status (`allowed`, `allowed (listed tailnet/CGNAT)`, `deprecated-unlisted` or
 `refused`). `server_health` (`deprecations`) gives the same advice, resolved once at startup: only a host that
 resolves solely to private addresses is told to be listed, a tailnet/CGNAT host is told to be listed only if it
@@ -503,27 +503,27 @@ https-only, and the optional local embedder and reranker download their model fi
 
 | Variable | Purpose |
 | --- | --- |
-| `OBSIDIAN_TC_CONFIG` | Config path when no CLI argument is given. |
-| `OBSIDIAN_TC_DEFAULT_VAULT` | Default vault id when several are configured. It is also the vault an unbound HTTP/OAuth token (no `vault` claim, no grant vault) is bound to. |
-| `OBSIDIAN_TC_JWT_SECRET` | HS256 signing secret (keeps it off disk). |
+| `RELIQUARY_TC_CONFIG` | Config path when no CLI argument is given. |
+| `RELIQUARY_TC_DEFAULT_VAULT` | Default vault id when several are configured. It is also the vault an unbound HTTP/OAuth token (no `vault` claim, no grant vault) is bound to. |
+| `RELIQUARY_TC_JWT_SECRET` | HS256 signing secret (keeps it off disk). |
 | `PORT` | HTTP port: `transports.http.port`, and turns the HTTP transport on unless the file sets it to `false`. Refused unless an integer from 1 to 65535. See [Railway](/deployment/railway/). |
-| `OBSIDIAN_TC_PUBLIC_URL` | Public `https://host[:port]`: sets `auth.resource` to its `/mcp` URL and adds its host to `transports.http.allowedHosts`. |
-| `OBSIDIAN_TC_ALLOWED_HOSTS` | Comma-separated Host values (`host`, `host:port`, IPv4 or `[ipv6]:port`) added to the DNS-rebinding allow-list, `transports.http.allowedHosts`. Exact entries only: no wildcards, scheme, path or whitespace. Matching is by host name: a port in an entry is accepted but not enforced, since the DNS-rebinding check is about the name. Merged with the file list and the `OBSIDIAN_TC_PUBLIC_URL` host. |
-| `OBSIDIAN_TC_JWKS_URI` | `auth.jwksUri`, the key set of an external authorization server. |
-| `OBSIDIAN_TC_AUDIENCE` | `auth.audience`: the `aud` claim JWT tokens must carry. Required for a non-loopback JWT server when `OBSIDIAN_TC_PUBLIC_URL` is not set. |
-| `OBSIDIAN_TC_VAULT_PATH` | Path of the one vault (`vaults`). Refused when the config names several vaults. When the folder is missing and its parent exists, the server creates it at boot with mode `0750` (or tighter under a stricter umask); a path set only in the config file is never created. A parent that is a symlink is refused. Only server boot creates the root: one-shot commands such as `index` do not. |
-| `OBSIDIAN_TC_VAULT_CASE_SENSITIVE` | `vaults[].caseSensitive` for the one vault: `auto`, `true` or `false`. Refused when the config names several vaults (set each vault's key in the file). See the `caseSensitive` row under [Vault entries](#vault-entries-vaults-min-1). |
-| `OBSIDIAN_TC_CACHE_DIR` | `cacheDir`. |
-| `OBSIDIAN_TC_GATEWAY_URL` | Inference-gateway base URL — enables the generative tier ([setup](/configuration/inference-gateway/)). |
-| `OBSIDIAN_TC_GATEWAY_TOKEN` | Optional gateway bearer (e.g. a LiteLLM key). Never logged. |
-| `OBSIDIAN_TC_PLUR_ENDPOINT` / `OBSIDIAN_TC_PLUR_TOKEN` | plur read-proxy endpoint + bearer. |
-| `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` | Skip the native module; use the numerically identical pure-JS implementations. |
-| `OBSIDIAN_TC_DISABLE_FTS=1` | Disable the FTS5 index; lexical search uses the exhaustive fallback scanner (diagnostic). |
-| `OBSIDIAN_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic). |
-| `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only.** Forces the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback, which no longer guarantees the file's bytes are unchanged. Not for production use. |
-| `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW` | **Test-only.** Makes the NATIVE readonly open attempt fail inside the adapter — `1` at the first statement (where a deferred SQLite open failure lands), `construct` at construction — so the writable-fallback path is exercisable on a platform whose native open succeeds. Not for production use. |
-| `OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` | **Test-only.** Fails `compact`'s in-place path immediately after FTS5 `'optimize'` commits, so the report's partial `ftsOptimized` list is exercisable. Not for production use. |
-| `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only.** Interferes with `compact --into` after its `VACUUM INTO`: `1` = a plain error, `busy` = `SQLITE_BUSY`, `delete:<table>` = drop one row from the copy so verification sees a real mismatch, `count-error:<table>` = make that table's `COUNT(*)` fail on the copy. Not for production use. |
+| `RELIQUARY_TC_PUBLIC_URL` | Public `https://host[:port]`: sets `auth.resource` to its `/mcp` URL and adds its host to `transports.http.allowedHosts`. |
+| `RELIQUARY_TC_ALLOWED_HOSTS` | Comma-separated Host values (`host`, `host:port`, IPv4 or `[ipv6]:port`) added to the DNS-rebinding allow-list, `transports.http.allowedHosts`. Exact entries only: no wildcards, scheme, path or whitespace. Matching is by host name: a port in an entry is accepted but not enforced, since the DNS-rebinding check is about the name. Merged with the file list and the `RELIQUARY_TC_PUBLIC_URL` host. |
+| `RELIQUARY_TC_JWKS_URI` | `auth.jwksUri`, the key set of an external authorization server. |
+| `RELIQUARY_TC_AUDIENCE` | `auth.audience`: the `aud` claim JWT tokens must carry. Required for a non-loopback JWT server when `RELIQUARY_TC_PUBLIC_URL` is not set. |
+| `RELIQUARY_TC_VAULT_PATH` | Path of the one vault (`vaults`). Refused when the config names several vaults. When the folder is missing and its parent exists, the server creates it at boot with mode `0750` (or tighter under a stricter umask); a path set only in the config file is never created. A parent that is a symlink is refused. Only server boot creates the root: one-shot commands such as `index` do not. |
+| `RELIQUARY_TC_VAULT_CASE_SENSITIVE` | `vaults[].caseSensitive` for the one vault: `auto`, `true` or `false`. Refused when the config names several vaults (set each vault's key in the file). See the `caseSensitive` row under [Vault entries](#vault-entries-vaults-min-1). |
+| `RELIQUARY_TC_CACHE_DIR` | `cacheDir`. |
+| `RELIQUARY_TC_GATEWAY_URL` | Inference-gateway base URL — enables the generative tier ([setup](/configuration/inference-gateway/)). |
+| `RELIQUARY_TC_GATEWAY_TOKEN` | Optional gateway bearer (e.g. a LiteLLM key). Never logged. |
+| `RELIQUARY_TC_PLUR_ENDPOINT` / `RELIQUARY_TC_PLUR_TOKEN` | plur read-proxy endpoint + bearer. |
+| `RELIQUARY_TC_FORCE_JS_FALLBACK=1` | Skip the native module; use the numerically identical pure-JS implementations. |
+| `RELIQUARY_TC_DISABLE_FTS=1` | Disable the FTS5 index; lexical search uses the exhaustive fallback scanner (diagnostic). |
+| `RELIQUARY_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic). |
+| `RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only.** Forces the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback, which no longer guarantees the file's bytes are unchanged. Not for production use. |
+| `RELIQUARY_TC_FORCE_READONLY_OPEN_THROW` | **Test-only.** Makes the NATIVE readonly open attempt fail inside the adapter — `1` at the first statement (where a deferred SQLite open failure lands), `construct` at construction — so the writable-fallback path is exercisable on a platform whose native open succeeds. Not for production use. |
+| `RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` | **Test-only.** Fails `compact`'s in-place path immediately after FTS5 `'optimize'` commits, so the report's partial `ftsOptimized` list is exercisable. Not for production use. |
+| `RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only.** Interferes with `compact --into` after its `VACUUM INTO`: `1` = a plain error, `busy` = `SQLITE_BUSY`, `delete:<table>` = drop one row from the copy so verification sees a real mismatch, `count-error:<table>` = make that table's `COUNT(*)` fail on the copy. Not for production use. |
 
 Secrets (`restApiKey`, embedding API keys, the JWT secret, gateway/plur tokens)
 resolve config-then-env and never appear in logs, error details, or audit rows.
@@ -569,7 +569,7 @@ forbids deletes (least privilege), requires `prev_hash` on overwrites (`writes.r
 stale-hash clobbering), and captures snapshots for `restore_note`.
 
 **For a shared or HTTP deployment, additionally set** `transports.http.enabled: true` and
-`auth.mode: "jwt"`, supplying the secret via `OBSIDIAN_TC_JWT_SECRET` (never commit it). A
+`auth.mode: "jwt"`, supplying the secret via `RELIQUARY_TC_JWT_SECRET` (never commit it). A
 non-loopback host with `auth.mode: "none"` is refused by the fail-closed interlock. Consider
 `acl.readOnly: true` initially, then open specific write paths.
 
@@ -577,4 +577,4 @@ non-loopback host with `auth.mode: "none"` is refused by the fail-closed interlo
 
 - [Inference gateway setup](/configuration/inference-gateway/) — the generative tier.
 - [Embedding model migration](/configuration/embedding-model-migration/) — changing models safely.
-- The CLI: `obsidian-tc help` lists the full offline command family (`setup`, `serve`, `config show|validate`, `plugin install`, `cluster`, `activation-recompute`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `version`); each command takes the same config path. `setup` is the odd one out — it takes no config path at all (it WRITES one); see [First Run](/getting-started/first-run/#1-write-a-config).
+- The CLI: `reliquary-tc help` lists the full offline command family (`setup`, `serve`, `config show|validate`, `plugin install`, `cluster`, `activation-recompute`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `version`); each command takes the same config path. `setup` is the odd one out — it takes no config path at all (it WRITES one); see [First Run](/getting-started/first-run/#1-write-a-config).

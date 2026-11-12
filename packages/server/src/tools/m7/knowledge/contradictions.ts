@@ -1,7 +1,7 @@
 // WP2.3: the `list_contradictions` tool factory, extracted verbatim out of buildKnowledgeTools.
 // A table read over the `contradictions` plane table — no query embedding, no graph search — so
 // this factory never touches the shared retrieval runtime and takes only `deps`.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../../db/introspect";
 import type { ToolDefinition } from "../../../mcp/registry";

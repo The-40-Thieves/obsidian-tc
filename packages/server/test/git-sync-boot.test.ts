@@ -76,7 +76,7 @@ describe.skipIf(process.platform === "win32")("git-sync boot", () => {
     commitAll(fixture.laptop, "notes branch");
     git(fixture.laptop, ["push", "-u", "origin", "notes"]);
     const sync = await bootGitSync(
-      loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_BRANCH: "notes" })),
+      loadGitSyncConfig(syncEnv(fixture, { RELIQUARY_TC_VAULT_GIT_BRANCH: "notes" })),
     );
     expect(sync.branch).toBe("notes");
     expect(readFileSync(join(fixture.vault, "notes.md"), "utf8")).toBe("branch fetched first\n");
@@ -98,7 +98,7 @@ describe.skipIf(process.platform === "win32")("git-sync boot", () => {
     const otherBefore = git(fixture.vault, ["rev-parse", "other"]);
 
     await expect(
-      bootGitSync(loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_BRANCH: "other" }))),
+      bootGitSync(loadGitSyncConfig(syncEnv(fixture, { RELIQUARY_TC_VAULT_GIT_BRANCH: "other" }))),
     ).rejects.toThrow(/main.*other/);
 
     expect(git(fixture.vault, ["branch", "--show-current"])).toBe("main");
@@ -134,7 +134,9 @@ describe.skipIf(process.platform === "win32")("git-sync boot", () => {
     git(fixture.root, ["clone", fixture.url, fixture.vault]);
     git(fixture.vault, ["checkout", "--detach"]);
     await expect(
-      bootGitSync(loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_BRANCH: undefined }))),
+      bootGitSync(
+        loadGitSyncConfig(syncEnv(fixture, { RELIQUARY_TC_VAULT_GIT_BRANCH: undefined })),
+      ),
     ).rejects.toThrow("git-sync refuses detached repository");
   });
 
@@ -227,7 +229,7 @@ describe.skipIf(process.platform === "win32")("git-sync boot", () => {
   it("uses the remote HEAD when no branch is configured", async () => {
     const fixture = makeGitFixture();
     const sync = await bootGitSync(
-      loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_BRANCH: undefined })),
+      loadGitSyncConfig(syncEnv(fixture, { RELIQUARY_TC_VAULT_GIT_BRANCH: undefined })),
     );
     expect(sync.branch).toBe("main");
     expect(git(fixture.vault, ["branch", "--show-current"])).toBe("main");

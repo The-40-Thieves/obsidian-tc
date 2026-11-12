@@ -5,12 +5,12 @@
 // a real request, mutate the underlying state, submit the ORIGINAL confirmation and assert the
 // call is refused as `replay_drift` — never a generic failure and never a silent stale apply — on
 // every route a confirmation can arrive by: a token minted directly, a token minted headlessly by
-// `obsidian-tc elicit`, a 2026-era requestState, and the lean facade's call_capability.
+// `reliquary-tc elicit`, a 2026-era requestState, and the lean facade's call_capability.
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import {
@@ -210,7 +210,7 @@ describe("replay_drift: tokens (dispatch-gated and handler-gated tools)", () => 
   });
 });
 
-describe("replay_drift: headless `obsidian-tc elicit` mint", () => {
+describe("replay_drift: headless `reliquary-tc elicit` mint", () => {
   const cfg = (): Pick<ServerConfig, "vaults" | "elicitTtlSeconds"> =>
     ServerConfigSchema.parse({ vaults: [{ id: VAULT, path: "/unused" }] });
   const cmdFor = (hash: string, tool: string): ElicitMintCmd => ({

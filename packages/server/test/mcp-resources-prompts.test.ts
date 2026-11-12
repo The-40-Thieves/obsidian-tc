@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
@@ -96,13 +96,13 @@ function ctx(scopes: string[], acl?: FolderAcl): CallerContext {
 
 describe("resource URIs", () => {
   it("round-trips and rejects foreign / malformed schemes", () => {
-    expect(buildResourceUri("main", "a/b.md")).toBe("obsidian-tc://main/a/b.md");
-    expect(parseResourceUri("obsidian-tc://main/a/b.md")).toEqual({
+    expect(buildResourceUri("main", "a/b.md")).toBe("reliquary-tc://main/a/b.md");
+    expect(parseResourceUri("reliquary-tc://main/a/b.md")).toEqual({
       vaultId: "main",
       relPath: "a/b.md",
     });
     expect(() => parseResourceUri("file:///etc/passwd")).toThrow();
-    expect(() => parseResourceUri("obsidian-tc://main")).toThrow();
+    expect(() => parseResourceUri("reliquary-tc://main")).toThrow();
   });
   it("percent-encodes segments so %, space, and # names round-trip", () => {
     for (const name of ["50% done.md", "50%20done.md", "a/b c#1.md"]) {
@@ -111,15 +111,15 @@ describe("resource URIs", () => {
     }
   });
   it("rejects a malformed percent-escape with a clean error (no raw URIError)", () => {
-    expect(() => parseResourceUri("obsidian-tc://main/50% done.md")).toThrow(/percent-encoding/);
+    expect(() => parseResourceUri("reliquary-tc://main/50% done.md")).toThrow(/percent-encoding/);
   });
 });
 
 describe("listResources", () => {
-  it("lists every readable .md (skipping dot-dirs) with obsidian-tc:// URIs", () => {
+  it("lists every readable .md (skipping dot-dirs) with reliquary-tc:// URIs", () => {
     const res = listResources(tempVault(), ctx(["*"]), () => undefined);
     expect(res.resources.map((r) => r.name).sort()).toEqual(["alpha.md", "sub/beta.md"]);
-    expect(res.resources[0]?.uri.startsWith("obsidian-tc://main/")).toBe(true);
+    expect(res.resources[0]?.uri.startsWith("reliquary-tc://main/")).toBe(true);
     expect(res.resources[0]?.mimeType).toBe("text/markdown");
   });
   it("returns nothing without the read:notes scope", () => {
@@ -134,13 +134,13 @@ describe("readResource", () => {
     const out = readResource(
       tempVault(),
       ctx(["*"]),
-      "obsidian-tc://main/alpha.md",
+      "reliquary-tc://main/alpha.md",
       DEFAULT_TEST_CEILING,
       () => undefined,
       "detailed",
     );
     const c = out.contents[0];
-    expect(c?.uri).toBe("obsidian-tc://main/alpha.md");
+    expect(c?.uri).toBe("reliquary-tc://main/alpha.md");
     if (!c || !("text" in c)) throw new Error("expected text contents");
     expect(c.text).toBe("# Alpha\nhello");
   });
@@ -149,7 +149,7 @@ describe("readResource", () => {
       readResource(
         tempVault(),
         ctx(["*"]),
-        "obsidian-tc://main/../escape.md",
+        "reliquary-tc://main/../escape.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
         "detailed",
@@ -161,7 +161,7 @@ describe("readResource", () => {
       readResource(
         tempVault(),
         ctx([]),
-        "obsidian-tc://main/alpha.md",
+        "reliquary-tc://main/alpha.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
         "detailed",
@@ -207,7 +207,7 @@ describe("readResource", () => {
       readResource(
         tempMultiVault(),
         { ...ctx(["*"]), vaultBound: true },
-        "obsidian-tc://other/secret.md",
+        "reliquary-tc://other/secret.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
         "detailed",
@@ -234,7 +234,7 @@ describe("readResource", () => {
       readResource(
         reg,
         ctx(["*"]),
-        "obsidian-tc://main/big.md",
+        "reliquary-tc://main/big.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
         "detailed",
@@ -249,13 +249,20 @@ describe("readResource", () => {
   it("honors a caller-supplied ceiling below the 1MB default", () => {
     const reg = tempVaultWith({ "small.md": "x".repeat(100) });
     expect(() =>
-      readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 50, () => undefined, "detailed"),
+      readResource(
+        reg,
+        ctx(["*"]),
+        "reliquary-tc://main/small.md",
+        50,
+        () => undefined,
+        "detailed",
+      ),
     ).toThrow(/exceeds 50 bytes/);
     // The identical content passes under a larger explicit ceiling.
     const out = readResource(
       reg,
       ctx(["*"]),
-      "obsidian-tc://main/small.md",
+      "reliquary-tc://main/small.md",
       1000,
       () => undefined,
       "detailed",
@@ -330,18 +337,18 @@ describe("prompts", () => {
 describe("Greptile review fixes", () => {
   it("percent-encodes path segments and round-trips special chars", () => {
     const uri = buildResourceUri("main", "notes/50% done.md");
-    expect(uri).toBe("obsidian-tc://main/notes/50%25%20done.md");
+    expect(uri).toBe("reliquary-tc://main/notes/50%25%20done.md");
     expect(parseResourceUri(uri)).toEqual({ vaultId: "main", relPath: "notes/50% done.md" });
   });
   it("rejects a URI with malformed percent-encoding instead of crashing", () => {
-    expect(() => parseResourceUri("obsidian-tc://main/50% bad.md")).toThrow();
+    expect(() => parseResourceUri("reliquary-tc://main/50% bad.md")).toThrow();
   });
   it("readResource rejects a URI for a vault other than the caller's bound vault", () => {
     expect(() =>
       readResource(
         tempVault(),
         { ...ctx(["*"]), vaultBound: true },
-        "obsidian-tc://main2/alpha.md",
+        "reliquary-tc://main2/alpha.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
         "detailed",

@@ -10,5 +10,5 @@
 # Format, one entry per line: <repo-relative path> TAB <regenerate command>. `#` comments and
 # blank lines are ignored. The separator is a real TAB. Do not change the format: the global hook
 # parses it too.
-docs/obsidian-tc.config.schema.json	bun run config:schema
+docs/reliquary-tc.config.schema.json	bun run config:schema
 packages/server/src/db/migrations-embedded.ts	bun run migrations:embed

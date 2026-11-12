@@ -7,7 +7,7 @@
 // real consumers, so a field that forgets the shared schema fails here.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { resolveServeConfigWithProvenance } from "../src/cli/resolve-config";

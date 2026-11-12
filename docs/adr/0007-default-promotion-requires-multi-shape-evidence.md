@@ -101,7 +101,7 @@ vault, the `rrfK` in effect and which source won.
 
 **Measured** (`eval/run.ts --derived-defaults` against the constant, same index copy, same
 precomputed query vectors, paired by query id; artifacts and `runs.db` under
-`/data/obsidian-tc-eval/stat-defaults/`):
+`/data/reliquary-tc-eval/stat-defaults/`):
 
 | shape | chunks | n | derived k | nDCG@10 constant / derived | recall@10 | MRR@10 | queries that differ |
 | --- | ---: | ---: | ---: | --- | --- | --- | ---: |
@@ -137,7 +137,7 @@ scheduled are in `docs/design/experiential-reflection.md`. Only a stored `search
 
 **Measured** (`eval/search-mode.ts`: the real `search_vault` handler, mode omitted, `auto` against the reader
 wired to a profile of `search_text` at the documented 3.0 threshold; same index copy and query vectors, paired
-by query id; artifacts and `runs.db` under `/data/obsidian-tc-eval/search-mode-reader/`):
+by query id; artifacts and `runs.db` under `/data/reliquary-tc-eval/search-mode-reader/`):
 
 | shape | n | nDCG@10 auto / preference | recall@10 | MRR@10 | queries that change (all worse) | one-sided 95% lower bound on ΔnDCG@10 (floor -0.015) |
 | --- | ---: | --- | --- | --- | ---: | ---: |
@@ -151,7 +151,7 @@ permutation p 0.0001 throughout). The stated minimum detectable effects (0.065, 
 below the observed deltas. The profile is constructed because the eval corpora carry no episodes; to see how
 often a realistic profile makes the reader fire, the production extractor was run over a copy of the live
 store's recorded episodes: one caller partition, `search_text`, weight 1.5 after one run (below the threshold)
-and 5.0 after five, because extraction re-counts unchanged evidence (a cron of `obsidian-tc reflect` would
+and 5.0 after five, because extraction re-counts unchanged evidence (a cron of `reliquary-tc reflect` would
 reach the threshold with no new evidence).
 
 **Verdict: the class (c) evidence bar is not met, and the mechanism loses on the two shapes that exist locally.**
@@ -169,7 +169,7 @@ copy of the same index) every one of the 250 queries falls through to the semant
 search, and the forced-`text` preference arm still scores
 0.0000 (no query is quoted anywhere, so the text leg returns nothing). The direction of the verdict stands; the private
 `auto` figure and the "0.1009 against 0.4005" observation do not. The two public rows are unaffected (evergreen corpus
-carries no such note). Numbers and artifacts: `/data/obsidian-tc-eval/golden-contamination-20261001/`. Eval runs now
+carries no such note). Numbers and artifacts: `/data/reliquary-tc-eval/golden-contamination-20261001/`. Eval runs now
 refuse a vault in this state (`eval/golden-guard.ts`).
 
 ## Status (2026-10-01): class (c) mechanism built, dark; it helps on every local corpus, and the evidence bar is not met
@@ -191,7 +191,7 @@ size: with that note absent the text leg returns nothing on those queries and `a
 
 **Measured** (pre-registered before any candidate arm ran, sha256 `4c24c0dd4ba30b9a37bf62b7321384add980307a034741810a4b6db0b7f2d737`;
 same index copies and query vectors, paired by query id; artifacts, `runs.db` and the per-query breakdown under
-`/data/obsidian-tc-eval/search-auto-fallback/`):
+`/data/reliquary-tc-eval/search-auto-fallback/`):
 
 | shape | n | text-first | weak-text | hybrid (nDCG@10; one-sided 95% lower bound on the delta) | queries changed (hybrid) |
 | --- | ---: | --- | --- | --- | ---: |
@@ -227,7 +227,7 @@ search, with 0 queries changed. The +0.260 for `weak-text` and `hybrid` above, a
 ~~0.4005~~ 0.7504 gap to dense-only, were produced by the contamination and are withdrawn. The private vault is therefore a corpus on which the
 class (c) mechanism is a no-op, not one where it wins, which strengthens the verdict that the evidence bar is unmet
 (the contaminated shape no longer counts as a shape with a measured win). The public evergreen rows are unaffected.
-Artifacts, `runs.db` and the before/after comparison: `/data/obsidian-tc-eval/golden-contamination-20261001/`.
+Artifacts, `runs.db` and the before/after comparison: `/data/reliquary-tc-eval/golden-contamination-20261001/`.
 
 ## Status (2026-10-02): the other private-vault evals re-measured on the decontaminated vault; no conclusion changes
 
@@ -254,7 +254,7 @@ its note):
 | settled (clean, reconciled to today's vault) | 1,493 / 16,790 | absent |
 
 **Measured** (`eval/run.ts`, paired by query id; artifacts, `runs.db` and the scripts under
-`/data/obsidian-tc-eval/private-vault-remeasure-20261002/`; the `old` row reproduces the recorded 0.7471 / 0.7696):
+`/data/reliquary-tc-eval/private-vault-remeasure-20261002/`; the `old` row reproduces the recorded 0.7471 / 0.7696):
 
 | index copy | dense nDCG@10 | fused+graph nDCG@10 | graph minus dense (95% CI, p) | graph recall@10 | graph MRR@10 |
 | --- | ---: | ---: | --- | ---: | ---: |
@@ -334,7 +334,7 @@ catastrophically, so none flips on this alone; the private-shape `search-mode.ts
 keep metrics and a path count, never ranked paths, so the deflated metrics cannot be recomputed from them; the arms
 were re-run on file copies of the same three index copies, with the same query vectors (sha256 `c30edd27e578...`,
 byte-identical to the originals) and the contamination guard on, one run at a time, writing to a new dated directory
-under `/data/obsidian-tc-eval/private-rows-rescore-20261002/`. Pre-registered before any run (sha256
+under `/data/reliquary-tc-eval/private-rows-rescore-20261002/`. Pre-registered before any run (sha256
 `4868c4354d4130ab78f379d29afd6ba1390f845cf937073995231786ac086a82`, 2026-10-02T20:10:27Z), with the original decision
 rules applied unchanged. Nine runs are recorded in that directory's `runs.db` (labels `rescore-*`, each note pointing
 to the original run). Corrected nDCG@10 and where it came from:
@@ -389,7 +389,7 @@ strict and lenient labels, one shape) and the private multi-hop vault (n=250; 10
 pre-drift index copy minus the contaminating note (`golden-guard` passes). Paired by query id, permutation p,
 bootstrap CI, BH q 0.10 across the arms of one family, non-inferiority floor -0.015. Artifacts, per-arm results,
 `runs.db` (128 recorded runs, the index copy in each run's note) and the scripts are under
-`/data/obsidian-tc-eval/reranker-2026-10/`.
+`/data/reliquary-tc-eval/reranker-2026-10/`.
 
 **Privacy handling.** The NVIDIA API trial terms (3.3) allow collecting submitted content to improve NVIDIA products
 and models, and the OpenRouter `:free` nemotron model is served by that same endpoint. Those two arms therefore ran on the
@@ -491,7 +491,7 @@ use what it is sent, and no private-vault text was sent. Pre-registered before a
 earlier Gemini traffic was API-shape probes on throwaway strings and a 5-chunk, 3-query smoke run into a scratch
 directory, none scored. Harness: `eval/embedder-arms.ts` (+ `rerank-arms.ts pools`). Artifacts, per-arm index
 copies, `runs.db` (6 recorded runs, the index state in each run's note) and the scripts are under
-`/data/obsidian-tc-eval/embedder-gemini-2026-10/`.
+`/data/reliquary-tc-eval/embedder-gemini-2026-10/`.
 
 **Setup.** Every arm embeds the same 2,986 chunks of the evergreen corpus (the index copy the reranker study
 scored) and is scored through the brute-force cosine path, so arms differ only in their vectors; pool = top 50
@@ -577,7 +577,7 @@ private phase needs the pre-drift index copy and the 250-query multi-hop set, wi
 written before the first Gemini call, has its own hash `0e9b4e7777f86af257fb00c35268dd59b3b6737c7ad639c44b7108bb6513415f`
 (2026-10-03T00:57:35Z); the original is not edited. Harness: `eval/embedder-arms.ts` (+ `rerank-arms.ts pools`).
 Artifacts, per-arm index copies, `runs.db` (3 recorded runs) and the scripts are under
-`/data/obsidian-tc-eval/embedder-gemini-2026-10/private-20261002/`; nothing in an existing directory was modified.
+`/data/reliquary-tc-eval/embedder-gemini-2026-10/private-20261002/`; nothing in an existing directory was modified.
 
 **Key route.** The harness refuses a private corpus when `GEMINI_API_KEY` equals `GEMINI_API_KEY_PAID`, because the
 public phase treated `GEMINI_API_KEY` as the free-tier key. In the gateway env file both names held the same value, so
@@ -689,7 +689,7 @@ sha256 `c2cc33983692b134a476ccddf6faf484cd025aace581865c6eb0168d356226fb` (writt
 exploratory addendum (sha256 of the pool files and golden sets are in the document), contamination guard on and passing,
 labels normalized at load, K = 30 only, pure rerank order primary, RRF fusion (k = 10) secondary, Benjamini-Hochberg
 q 0.10 across the three arms of each (corpus, label set), one run at a time, 21 rows recorded with `eval/history.ts`.
-Artifacts: `/data/obsidian-tc-eval/reranker-2026-10/title-prefix-20261003/`.
+Artifacts: `/data/reliquary-tc-eval/reranker-2026-10/title-prefix-20261003/`.
 
 **What this run is not.** It is a replication on the same queries, not an independent confirmation: the evergreen queries
 are the set the hypothesis was formed on, and the private set had already been scored with the variant once. Most arms are

@@ -63,7 +63,7 @@ label. Two mechanisms close this:
   target's own `cache.db` `chunks` table: a row whose id the target has never indexed is not
   imported (`skipped_unmatched`), because there is no local evidence it belongs to a vault this
   install actually has. This is best-effort and index-dependent — importing before the target vault
-  has been indexed matches nothing; re-running the import after `index_vault`/`obsidian-tc index`
+  has been indexed matches nothing; re-running the import after `index_vault`/`reliquary-tc index`
   picks up what an earlier pass skipped, since idempotent dedup means a re-run costs nothing.
 
 ## Idempotency

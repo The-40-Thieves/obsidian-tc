@@ -15,7 +15,8 @@ const HELPER = join("vault", "cas.ts");
 const FLOOR = 21;
 
 /** Any mention of the error's name outside the helper, however it is reached. */
-const BYPASS = /\bconcurrentModification\b|new ObsidianTcError\(\s*["']concurrent_modification["']/;
+const BYPASS =
+  /\bconcurrentModification\b|new ReliquaryTcError\(\s*["']concurrent_modification["']/;
 
 function bypassLines(text: string): string[] {
   return text
@@ -56,7 +57,7 @@ describe("CAS source gate", () => {
       "const cm = err.concurrentModification;",
       "const { concurrentModification: cm } = err;",
       "throw err['concurrentModification'](msg);",
-      'throw new ObsidianTcError("concurrent_modification", { path });',
+      'throw new ReliquaryTcError("concurrent_modification", { path });',
     ];
     for (const line of aliases) expect(bypassLines(line), line).toEqual([line]);
   });

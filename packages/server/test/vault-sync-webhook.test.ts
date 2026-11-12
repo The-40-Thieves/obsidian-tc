@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -64,9 +64,12 @@ function app(
   const webhook =
     options.secret === undefined
       ? undefined
-      : vaultSyncWebhookFromEnv({ OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: options.secret }, cacheDir);
+      : vaultSyncWebhookFromEnv(
+          { RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET: options.secret },
+          cacheDir,
+        );
   const handle = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,
@@ -176,25 +179,25 @@ describe.skipIf(process.platform === "win32")(
 
       let message = "";
       try {
-        vaultSyncWebhookFromEnv({ OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: short }, tempCache());
+        vaultSyncWebhookFromEnv({ RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET: short }, tempCache());
       } catch (error) {
         message = (error as Error).message;
       }
 
-      expect(message).toContain("OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET");
+      expect(message).toContain("RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET");
       expect(message).not.toContain(short);
     });
 
     it("derives the trigger path from the same state-dir rule loadGitSyncConfig uses", () => {
       const cacheDir = tempCache();
       const env = {
-        OBSIDIAN_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
-        OBSIDIAN_TC_VAULT_PATH: join(cacheDir, "..", "vault"),
-        OBSIDIAN_TC_CACHE_DIR: cacheDir,
+        RELIQUARY_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
+        RELIQUARY_TC_VAULT_PATH: join(cacheDir, "..", "vault"),
+        RELIQUARY_TC_CACHE_DIR: cacheDir,
       };
 
       const webhook = vaultSyncWebhookFromEnv(
-        { ...env, OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: SECRET },
+        { ...env, RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET: SECRET },
         cacheDir,
       );
 
@@ -682,14 +685,14 @@ describe.skipIf(process.platform === "win32")("vault-sync webhook: secrecy and i
     roots.push(root);
     mkdirSync(join(root, "vault"));
     const env = {
-      OBSIDIAN_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
-      OBSIDIAN_TC_VAULT_PATH: join(root, "vault"),
-      OBSIDIAN_TC_CACHE_DIR: join(root, cacheDir),
+      RELIQUARY_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
+      RELIQUARY_TC_VAULT_PATH: join(root, "vault"),
+      RELIQUARY_TC_CACHE_DIR: join(root, cacheDir),
     };
 
     const webhook = vaultSyncWebhookFromEnv(
-      { ...env, OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: SECRET },
-      env.OBSIDIAN_TC_CACHE_DIR,
+      { ...env, RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET: SECRET },
+      env.RELIQUARY_TC_CACHE_DIR,
     );
 
     expect(webhook?.triggerPath).toBe(join(loadGitSyncConfig(env).stateDir, "trigger"));

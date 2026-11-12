@@ -2,7 +2,7 @@
 // moved verbatim out of indexer.ts. This file performs embedding PROVIDER CALLS ONLY — no DB
 // reads, no DB writes, no transaction. It depends on note-plan.ts (for estimateEmbedTokens) and
 // types.ts; indexer.ts (persistence + orchestration) depends on this file, never the reverse.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { ColbertMatrix } from "../colbert";
 import type { SparseVec } from "../sparse";
@@ -25,7 +25,7 @@ export const EMBED_MAX_BATCH_TOKENS = 2048;
 // whose summed tokens exceed the model's loaded n_ctx (THE-390). Distinct from an outage
 // (timeout / 5xx / network error), which must keep aborting the reconcile.
 function isEmbedRejection(e: unknown): boolean {
-  if (!(e instanceof ObsidianTcError) || e.code !== "embedding_provider_error") return false;
+  if (!(e instanceof ReliquaryTcError) || e.code !== "embedding_provider_error") return false;
   const status = e.details?.status;
   return status === 400 || status === 413;
 }

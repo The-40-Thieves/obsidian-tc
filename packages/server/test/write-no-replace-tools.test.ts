@@ -4,7 +4,7 @@
 // write looks like. Before the fix each of these tools replaced the file; now the commit refuses.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";
 import { makeTestVault } from "./m1-helpers";

@@ -101,7 +101,7 @@ const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
  *  - **Cannot leak.** A hint is a fixed string selected by `code`. No path, query, caller,
  *    vault or argument can reach it, because none of them is in scope. THE-512 asks for hints
  *    that carry no sensitive data; this makes that structural rather than a review promise.
- *  - **Cannot drift per tool.** `ObsidianTcError.toJSON()` is the single serializer for every
+ *  - **Cannot drift per tool.** `ReliquaryTcError.toJSON()` is the single serializer for every
  *    error in the system (dispatch, bulk item outcomes, tool handlers), so the same failure
  *    reads the same way everywhere. THE-512's "consistent across domains" requirement is
  *    satisfied by construction, not by 146 hand-written hints agreeing with each other.
@@ -134,7 +134,7 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // still advertises elicitation (stdio included) gets a server-initiated one instead — only a
   // client with NO elicitation capability, or one that cancels the prompt, takes the CLI mint path.
   elicit_required:
-    "A human must approve this call. A client with MCP elicitation gets a prompt; if it cannot answer it (unsupported, or auto-cancelled) mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token.",
+    "A human must approve this call. A client with MCP elicitation gets a prompt; if it cannot answer it (unsupported, or auto-cancelled) mint one with `reliquary-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token.",
   elicit_invalid:
     "The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt.",
   replay_drift:
@@ -241,18 +241,18 @@ export interface ErrorJSON {
   recovery?: string;
 }
 
-export class ObsidianTcError extends Error {
+export class ReliquaryTcError extends Error {
   readonly code: ErrorCode;
   readonly details?: Record<string, unknown>;
   readonly retryable: boolean;
 
   constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
     super(message);
-    this.name = "ObsidianTcError";
+    this.name = "ReliquaryTcError";
     this.code = code;
     this.details = details;
     this.retryable = RETRYABLE.has(code);
-    Object.setPrototypeOf(this, ObsidianTcError.prototype);
+    Object.setPrototypeOf(this, ReliquaryTcError.prototype);
   }
 
   toJSON(): ErrorJSON {
@@ -280,7 +280,7 @@ export class ObsidianTcError extends Error {
  * exactly the deliberate, permanent refusal this predicate exists to let through: re-running the
  * same query re-hits the same pre-migration table shape and refuses identically every time.
  *
- * So the actual split is: an ObsidianTcError with code `"internal"` (the generic bucket for
+ * So the actual split is: a ReliquaryTcError with code `"internal"` (the generic bucket for
  * "something the caller could not have anticipated went wrong," which in this codebase only ever
  * covers unexpected/structural failures — never a domain-specific transient one, which gets its own
  * code) OR one that is `retryable === false` (a domain-specific permanent refusal — validation,
@@ -289,19 +289,19 @@ export class ObsidianTcError extends Error {
  * `idempotency_in_flight`, `throttled`, `aborted`) describe a genuinely transient per-leg hiccup
  * that a fan-out may swallow and still make forward progress on the other legs.
  *
- * A non-`ObsidianTcError` (a bare `Error`, a rejected promise from something outside this error
+ * A non-`ReliquaryTcError` (a bare `Error`, a rejected promise from something outside this error
  * taxonomy) is never "loud" by this predicate — it is exactly the unmodeled, per-leg transient case
  * the existing swallow-and-continue behavior was built for.
  */
-export function isLoudRefusal(e: unknown): e is ObsidianTcError {
-  return e instanceof ObsidianTcError && (e.code === "internal" || !e.retryable);
+export function isLoudRefusal(e: unknown): e is ReliquaryTcError {
+  return e instanceof ReliquaryTcError && (e.code === "internal" || !e.retryable);
 }
 
-type Mk = (message?: string, details?: Record<string, unknown>) => ObsidianTcError;
+type Mk = (message?: string, details?: Record<string, unknown>) => ReliquaryTcError;
 const mk =
   (code: ErrorCode, fallback: string): Mk =>
   (message = fallback, details?) =>
-    new ObsidianTcError(code, message, details);
+    new ReliquaryTcError(code, message, details);
 
 export const err = {
   // M0

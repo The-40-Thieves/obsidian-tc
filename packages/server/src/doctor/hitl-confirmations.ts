@@ -104,7 +104,7 @@ export function hitlConfirmationsCheck(view: HitlConfirmationsView): Check {
         details,
         issues: clientLines,
         remediation:
-          "Tokens come from `obsidian-tc elicit`, which clears a gate without the on-screen prompt. " +
+          "Tokens come from `reliquary-tc elicit`, which clears a gate without the on-screen prompt. " +
           "Check who runs it for these tools; if the client cannot show the prompt, prefer one that can. " +
           "This report never changes a confirmation requirement.",
       };

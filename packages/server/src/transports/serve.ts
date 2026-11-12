@@ -1,6 +1,6 @@
 import type { ServerOptions } from "node:http";
 import { serve } from "@hono/node-server";
-import { normalizeHostForBind } from "@the-40-thieves/obsidian-tc-shared";
+import { normalizeHostForBind } from "@the-40-thieves/reliquary-tc-shared";
 import type { Hono } from "hono";
 
 /**
@@ -63,7 +63,7 @@ interface BunGlobal {
  *
  * This does NOT make long indexing safe over HTTP, and must not be read as fixing that: a full
  * 13k-chunk reindex runs past any value Bun will accept. The operator path for that is the
- * `obsidian-tc index` CLI command (THE-697), and the composable path is the Tasks extension the
+ * `reliquary-tc index` CLI command (THE-697), and the composable path is the Tasks extension the
  * index_vault tool already opts into via `taskAugmentable`.
  */
 export const BUN_IDLE_TIMEOUT_SECONDS = 120;

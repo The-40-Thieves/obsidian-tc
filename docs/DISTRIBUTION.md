@@ -1,6 +1,6 @@
 # Distribution surfaces
 
-Where obsidian-tc is published or can be listed, what each directory needs, and where it stands.
+Where reliquary-tc is published or can be listed, what each directory needs, and where it stands.
 Written for the maintainer: **nothing in the "not submitted" rows has been submitted**, and none of
 it should be without an explicit go-ahead. Vendor documentation was read on 2026-10-10; the source
 URL is on every row so the next reader can re-check, because these formats move.
@@ -9,12 +9,12 @@ URL is on every row so the next reader can re-check, because these formats move.
 
 | Surface | What it takes | Status |
 |---|---|---|
-| npm (`obsidian-tc`) | `bun run release`, publish workflow | Published (`npm view obsidian-tc version` read 1.32.0) |
-| MCP Registry (`io.github.The-40-Thieves/obsidian-tc`) | `server.json`, `mcpName` in the server package | Published (registry API read 1.32.0 as latest). `server.json` validates against the registry's 2025-12-11 schema in CI (`packages/server/test/server-json-schema.test.ts`) |
+| npm (`reliquary-tc`) | `bun run release`, publish workflow | Published (`npm view reliquary-tc version` read 1.32.0) |
+| MCP Registry (`io.github.The-40-Thieves/reliquary-tc`) | `server.json`, `mcpName` in the server package | Published (registry API read 1.32.0 as latest). `server.json` validates against the registry's 2025-12-11 schema in CI (`packages/server/test/server-json-schema.test.ts`) |
 | Docker image (GHCR) | Release workflow | Shipped per the README; not re-checked here |
 | `.mcpb` bundle | `bun run bundle`, attached to each release | Shipped. **Not accepted by Anthropic's connector directory any more**, see below |
 | glama | `glama.json` | Existing listing; not touched or re-checked by this change |
-| Claude Code plugin marketplace | `.claude-plugin/marketplace.json` + `plugins/obsidian-tc` | **Live as soon as this is merged**: `claude plugin marketplace add The-40-Thieves/obsidian-tc`. No submission needed for this route |
+| Claude Code plugin marketplace | `.claude-plugin/marketplace.json` + `plugins/reliquary-tc` | **Live as soon as this is merged**: `claude plugin marketplace add The-40-Thieves/reliquary-tc`. No submission needed for this route |
 | Muse Code | `.muse-plugin/plugin.json`, same marketplace file | Built; **format not confirmed against Meta docs** (below). No submission route known |
 | Grok Build | reads Claude marketplaces | Documented by xAI as automatic (below). No submission needed |
 | Anthropic plugin directory | Submit the plugin in the developer portal | **Not submitted** |
@@ -25,11 +25,11 @@ URL is on every row so the next reader can re-check, because these formats move.
 ## Claude Code plugin
 
 - Layout: `.claude-plugin/marketplace.json` at the repo root (`name: the-40-thieves`) lists one plugin
-  whose source is `./plugins/obsidian-tc`. The plugin holds `.claude-plugin/plugin.json`,
+  whose source is `./plugins/reliquary-tc`. The plugin holds `.claude-plugin/plugin.json`,
   `.mcp.json` and a README. Sources: [plugins reference](https://code.claude.com/docs/en/plugins-reference),
   [create a marketplace](https://code.claude.com/docs/en/plugin-marketplaces).
-- Launcher: `npx -y obsidian-tc@<version>`, stdio, the launcher the README recommends. The config
-  file path is a required `userConfig` option (`type: file`) substituted into `OBSIDIAN_TC_CONFIG`.
+- Launcher: `npx -y reliquary-tc@<version>`, stdio, the launcher the README recommends. The config
+  file path is a required `userConfig` option (`type: file`) substituted into `RELIQUARY_TC_CONFIG`.
 - The launcher pins the exact package version on purpose. Anthropic's directory **blocks** an
   unpinned `npx` ([pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist)),
   so the pin moves with every release.
@@ -37,7 +37,7 @@ URL is on every row so the next reader can re-check, because these formats move.
   package version, and `release.mjs` writes them from the same list
   (`scripts/lib/plugin-manifest-versions.mjs`). The marketplace entry carries no version, so there
   is no third copy to drift.
-- Validation: `claude plugin validate plugins/obsidian-tc --strict` and
+- Validation: `claude plugin validate plugins/reliquary-tc --strict` and
   `claude plugin validate . --strict` both pass on Claude Code 2.1.295, and
   `scripts/plugin-manifests.test.mjs` runs them when the CLI is present.
 
@@ -61,8 +61,8 @@ The brief asserted that both load Claude-style `.mcp.json`.
   plugin system sits behind `MUSE_EXPERIMENTAL_PLUGINS=1`. The one stdio entry I could find
   (oh-my-musecode) is `{id, transport: "stdio", command: [...]}` with `command` as an array, which is
   the shape used here. A vendor with an HTTP-only generator also states stdio entries must not carry
-  `command`; the two sources disagree, so **run `muse plugins validate plugins/obsidian-tc` before
-  relying on it**. The manifest cannot carry `env`, so `OBSIDIAN_TC_CONFIG` has to be exported in the
+  `command`; the two sources disagree, so **run `muse plugins validate plugins/reliquary-tc` before
+  relying on it**. The manifest cannot carry `env`, so `RELIQUARY_TC_CONFIG` has to be exported in the
   shell that starts Muse.
 
 ## Deep links
@@ -115,14 +115,14 @@ generic executor to enable operations not individually exposed for review."
 ## Owner actions (none done)
 
 1. **Anthropic plugin directory.** Open <https://claude.ai/directory/manage>, Submit new, "Plugin
-   bundle". Repository `The-40-Thieves/obsidian-tc`, plugin path `plugins/obsidian-tc`, branch `main`.
+   bundle". Repository `The-40-Thieves/reliquary-tc`, plugin path `plugins/reliquary-tc`, branch `main`.
    First connect GitHub on claude.ai (the account needs push access) and install the Claude GitHub App
    if the repo is private. Use **Validate** and fix any "Blocks" row before submitting. Open items I
    expect it to raise, from the [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist):
    - `plugin.json` has no `icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl` or
      `termsOfServiceUrl` yet (all optional for validation, used for the listing; URLs must be https).
      Decide the privacy-policy URL and add it; the plugin README has a short privacy section only.
-   - The name `obsidian-tc` contains a brand word ("Obsidian"); the checklist says a name matching a
+   - The name `reliquary-tc` contains a brand word ("Obsidian"); the checklist says a name matching a
      known brand is **held for a reviewer**, not blocked. Same for `displayName`.
    - A pinned `npx` launcher is "held for a reviewer" (Runs a pinned npx package), expected.
    - Choose "How new versions reach the directory": GitHub push webhook or scheduled check.
@@ -138,7 +138,7 @@ generic executor to enable operations not individually exposed for review."
    ([Package your plugin](https://developers.openai.com/plugins/build/plugins)). **That ZIP is not
    built here** and is a separate piece of work.
 4. **Muse Code.** Install Muse 1.4.0 or later, enable experimental plugins, then run
-   `muse plugins validate plugins/obsidian-tc` from a clone and report the output; fix the manifest if
+   `muse plugins validate plugins/reliquary-tc` from a clone and report the output; fix the manifest if
    it disagrees with the shape above. Meta publishes no plugin directory to submit to that I could find.
 5. **MCP Registry, npm, Docker, glama.** Nothing to do for this change; the next release
    publishes the new `server.json` and plugin files together.

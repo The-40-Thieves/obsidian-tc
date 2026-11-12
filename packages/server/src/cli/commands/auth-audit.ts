@@ -2,7 +2,7 @@
 // oauth.db write is authoritative and already done when this runs; the audit row must not turn a
 // completed revocation into an error, so a failure here is reported on stderr and swallowed.
 import { mkdirSync } from "node:fs";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import { writeEvent } from "../../audit";
 import { openConfiguredDatabase } from "../../db/open";

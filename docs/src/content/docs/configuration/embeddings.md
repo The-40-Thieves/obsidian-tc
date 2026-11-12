@@ -6,8 +6,8 @@ description: The embeddings provider — zero-config local by default, or point 
 Semantic search and graph-seeded retrieval both need vectors, produced by an **embeddings
 provider**. `embeddings` is absent from a minimal config on purpose: the default provider is
 `local`, a bundled, fully offline dense embedder — no Ollama, no API key, no network call after
-the first run. **On npm it is an explicit install:** `obsidian-tc` does not install the embedder package,
-so run `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>` (or let `obsidian-tc setup`
+the first run. **On npm it is an explicit install:** `reliquary-tc` does not install the embedder package,
+so run `npm install -g @the-40-thieves/reliquary-tc-embedder-local@<same version>` (or let `reliquary-tc setup`
 offer to). A source checkout and the Docker image need nothing extra; see [Availability by install
 method](#availability-by-install-method) below for the exact current state.
 
@@ -32,7 +32,7 @@ they are not the default.
 
 Runtime: [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers)
 v4 (Transformers.js) running on CPU, via the optional
-`@the-40-thieves/obsidian-tc-embedder-local` package — the same "small optional package, resolved
+`@the-40-thieves/reliquary-tc-embedder-local` package — the same "small optional package, resolved
 at runtime, never a hard dependency of the server" shape as the [local
 reranker](/configuration/config-yaml/#reranker). It is reachable from the npm install (once the embedder is installed), the
 standalone `bun --compile` binary (compiled in) and the one-click `.mcpb` bundle (bundled), with the
@@ -62,7 +62,7 @@ To choose explicitly, or to pick a different catalog model:
 ### Model choice: measured, not assumed
 
 Three candidates were benchmarked against a public, third-party-judged corpus before picking the
-default — see [`docs/EVALUATION.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/EVALUATION.md#local-embedder-model-selection)
+default — see [`docs/EVALUATION.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/EVALUATION.md#local-embedder-model-selection)
 for the full table (nDCG@10, recall, first-index time, model size, RAM) and the non-inferiority
 bar each candidate had to clear. **The result was not the smaller/faster pick**: both 384-dimension
 candidates (`all-MiniLM-L6-v2`, `bge-small-en-v1.5`), each run with its own correct pooling
@@ -84,9 +84,9 @@ and a model2vec/potion static-embedding model has no Transformers.js-loadable ON
 
 ### Availability by install method
 
-`local` resolves the optional `@the-40-thieves/obsidian-tc-embedder-local` package the same way
+`local` resolves the optional `@the-40-thieves/reliquary-tc-embedder-local` package the same way
 the local reranker resolves its own package — a published-npm route, a source-checkout route (for
-anyone developing inside the monorepo), and an explicit-path escape hatch. The package is published to npm, but `npm install obsidian-tc` does not install it: install it at the same
+anyone developing inside the monorepo), and an explicit-path escape hatch. The package is published to npm, but `npm install reliquary-tc` does not install it: install it at the same
 version, and the resolution below then finds it. The published embedder is generated: Transformers.js and the ORT
 JavaScript shim are bundled into the base package, which has no runtime dependencies, and six
 exact-pinned optional packages carry the platform runtimes. npm's `os`/`cpu` filters install only
@@ -103,17 +103,17 @@ reranker has no such packaging, so it stays unreachable there. Practically, toda
 | --- | --- |
 | A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built. A root `bun install` + `bun run build` does not build it, so run `(cd packages/embedder-local && bun install && bun run build)`; the root build warns with these commands when it is missing. CI does this automatically. |
 | Docker (GHCR) | **Works** — the image builds `packages/embedder-local` from source in the same stage as the server and copies its built package (dist + `node_modules`) into the same relative path the source-checkout resolution route walks for, so the identical route resolves inside the container. |
-| npm (`npm install -g obsidian-tc`) | **Works once the embedder is installed.** `obsidian-tc` does not install `@the-40-thieves/obsidian-tc-embedder-local` by default. Install it with `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>`, or let `obsidian-tc setup` offer to. Then it pulls the generated embedder base and only `@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>` for the host. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. Installing the embedder with `--omit=optional`/`--no-optional` omits its host runtime. |
+| npm (`npm install -g reliquary-tc`) | **Works once the embedder is installed.** `reliquary-tc` does not install `@the-40-thieves/reliquary-tc-embedder-local` by default. Install it with `npm install -g @the-40-thieves/reliquary-tc-embedder-local@<same version>`, or let `reliquary-tc setup` offer to. Then it pulls the generated embedder base and only `@the-40-thieves/reliquary-tc-embedder-local-<os>-<arch>` for the host. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. Installing the embedder with `--omit=optional`/`--no-optional` omits its host runtime. |
 | Standalone binary (`bun --compile`) | **Works** on Linux x64 and arm64, macOS arm64, macOS x64 and Windows x64: compiled in, about 14 MB larger. macOS x64 uses WASM. |
 | One-click `.mcpb` bundle | **Works** on Linux x64 and arm64, macOS arm64, macOS x64 and Windows x64 (the bundle carries every required ONNX runtime; it is about 66 MB). |
 
 An unresolvable `local` provider does not crash boot — the same graceful degradation an
 unreachable Ollama endpoint has always had (a `[index] reconcile degraded` notice, FTS/lexical
-search stays fully functional). `obsidian-tc doctor`'s check (a doctor check id, not a config path, named `embeddings.buildable` <!-- config-path:ignore -->) distinguishes: **WARN** when running
+search stays fully functional). `reliquary-tc doctor`'s check (a doctor check id, not a config path, named `embeddings.buildable` <!-- config-path:ignore -->) distinguishes: **WARN** when running
 from a source checkout where the package simply hasn't been built yet (a one-command fix) or when
 the platform genuinely has no `onnxruntime-node` prebuild AND another provider is already
 configured, and **FAIL** — with remediation naming the exact fix — when the platform IS supported
-but the package still cannot resolve (for example an embedder package that was never installed alongside obsidian-tc). A `local` embedder that resolves is still a WARN in a plain run: resolving it never loads the model. `obsidian-tc doctor --probe` embeds one probe string through the configured provider and reports whether it answered.
+but the package still cannot resolve (for example an embedder package that was never installed alongside reliquary-tc). A `local` embedder that resolves is still a WARN in a plain run: resolving it never loads the model. `reliquary-tc doctor --probe` embeds one probe string through the configured provider and reports whether it answered.
 
 ### Known gaps
 
@@ -134,7 +134,7 @@ published target.
 **RAM**: peak RSS during first-index varies by catalog entry — see the per-model column in the
 [measurement table](#model-choice-measured-not-assumed) rather than a single number here, since
 `all-MiniLM-L6-v2`/`bge-small-en-v1.5` (384-dim) and the default `nomic-embed-text-v1.5` (768-dim)
-measure differently. This is the `obsidian-tc index` process's own footprint (model load + ONNX
+measure differently. This is the `reliquary-tc index` process's own footprint (model load + ONNX
 runtime + the batch of vectors being produced), not additive with any other provider's, since a
 given process runs only the one provider it is configured for.
 
@@ -147,7 +147,7 @@ underlying Hugging Face revision, by contrast, is a package-internal constant
 fingerprint automatically — this matches how every OTHER built-in provider already handles the
 same concern (`model-tier`'s own per-service `revision` fields are explicitly "provenance only" in
 `config.schema.ts`'s own description; the documented fix there is the same top-level
-`embeddings.revision` this paragraph is about). If a future `@the-40-thieves/obsidian-tc-embedder-local`
+`embeddings.revision` this paragraph is about). If a future `@the-40-thieves/reliquary-tc-embedder-local`
 release repins a catalog entry's Hugging Face revision under the same catalog name, set
 `embeddings.revision` explicitly (any string) after upgrading to force a rebuild — omitting it
 reproduces today's behavior (the previous checkpoint's vectors keep serving) exactly, same as it
@@ -175,7 +175,7 @@ For a host under 16 GB, a smaller catalog entry is the practical choice. `all-Mi
 q8) and `bge-small-en-v1.5` (~34 MB q8) both measured about 1.1-1.3 GB peak RSS on the evaluation
 host, against about 2.7 GB for the default. Their retrieval quality is lower: neither clears the
 non-inferiority floor that the default was chosen against, so expect weaker recall. The per-model
-numbers are in [`docs/EVALUATION.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/EVALUATION.md#local-embedder-model-selection).
+numbers are in [`docs/EVALUATION.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/EVALUATION.md#local-embedder-model-selection).
 
 ```json
 {
@@ -231,7 +231,7 @@ what changed and what didn't.)
 }
 ```
 
-It is marked deprecated (`obsidian-tc doctor` surfaces an advisory note, not a warning) because the
+It is marked deprecated (`reliquary-tc doctor` surfaces an advisory note, not a warning) because the
 generic `openai-compatible` adapter already serves Ollama's OpenAI-shaped `/v1/embeddings`
 endpoint. **Do not switch a live deployment** without planning a re-embed:
 the internal `provider.id` identity field <!-- config-path:ignore --> is the vector-index fingerprint, so changing it re-embeds the whole vault; see [Embedding model
@@ -249,11 +249,11 @@ re-embed, which the migration page walks through.
 ## Upgrading from a pre-local-embedder config
 
 If your config has no `embeddings.provider` set at all, the schema's own default resolves to the
-in-process embedder (`provider: "local"`, model `nomic-embed-text-v1.5`). **obsidian-tc 1.31.4 and
+in-process embedder (`provider: "local"`, model `nomic-embed-text-v1.5`). **reliquary-tc 1.31.4 and
 1.31.5 applied that default unconditionally**, so an existing install that had never configured
 `embeddings` was silently switched away from whatever it was already using (for most installs,
 Ollama) and fully re-embedded in-process on the next boot — see
-[GH #995](https://github.com/The-40-Thieves/obsidian-tc/issues/995).
+[GH #995](https://github.com/The-40-Thieves/reliquary-tc/issues/995).
 
 **1.31.6 and later keep an existing index's provider instead.** When `embeddings.provider` is
 unset and your vault's cache already holds active vectors from a different provider than the
@@ -271,7 +271,7 @@ Setting `embeddings.provider` explicitly — including `provider: "local"` itsel
 provider/model change does — see [Changing providers or models on a live
 index](#changing-providers-or-models-on-a-live-index) above).
 
-`obsidian-tc doctor`, the boot log, and `obsidian-tc config show`/`config explain` all report which
+`reliquary-tc doctor`, the boot log, and `reliquary-tc config show`/`config explain` all report which
 of these ways the effective provider was decided — `configured` (you set it), `kept-from-index`
 (kept from your existing vault, GH #995), `default` (nothing configured, nothing to keep), or
 `ambiguous-orphaned-index` (see below) — so you can always tell which one applied. To keep using
@@ -279,7 +279,7 @@ Ollama explicitly rather than relying on `"keep"`, add `"embeddings": { "provide
 your config — the implicit model (`nomic-embed-text`) is preserved for that one case; see
 [`ollama` (deprecated, still supported)](#ollama-deprecated-still-supported) above.
 
-**`obsidian-tc config show` never lets a kept value masquerade as something you configured.** Its
+**`reliquary-tc config show` never lets a kept value masquerade as something you configured.** Its
 plain `embeddings` block always shows the SCHEMA-resolved value (what your config file/env/profile
 actually produce) — never a value merely kept from your existing index — and a separate
 `embeddingsEffective` field reports the effective provider/model/dimensions plus `source` and an
@@ -287,7 +287,7 @@ explicit note when it differs from what you wrote. Do not copy `embeddingsEffect
 `embeddings.provider` unless you actually intend to pin it — writing `embeddings.provider`
 explicitly (even to the same value it was already using) IS the opt-in to switch, disables `"keep"`
 on the next boot, and re-embeds if the value differs from what was actually stored.
-`obsidian-tc config explain` likewise adds an `embeddings.effective` row <!-- config-path:ignore -->
+`reliquary-tc config explain` likewise adds an `embeddings.effective` row <!-- config-path:ignore -->
 (source `derived`, since it comes from reading `cacheDir`, not your config file — a synthetic
 output row, not a real config path) alongside its normal per-key attribution.
 
@@ -308,7 +308,7 @@ to `chunk_embeddings` rather than a fixed 768. Likewise, if the stored `chunk_em
 carries a revision suffix (`provider:model@revision`), the kept config carries that same
 `embeddings.revision` rather than dropping or doubling it.
 
-**Renaming a vault's `id` no longer orphans its index.** obsidian-tc records each vault's canonical
+**Renaming a vault's `id` no longer orphans its index.** reliquary-tc records each vault's canonical
 root path in `cache.db` the first time it sees it. At boot, if a configured vault's root path
 matches a path already recorded under a *different* id, every vault-scoped row (chunks, embeddings,
 notes, links, sessions — every table keyed on `vault_id`, across both `cache.db` and the
@@ -324,29 +324,29 @@ each vault a distinct `id` (and, if they still share a `cacheDir`, a distinct `c
 when the cache db (`cacheDir`) holds active vectors under a vault id that matches no CURRENTLY
 configured vault id *and* has no recorded root path either — e.g. a vault entry removed from config
 outright, or a pre-upgrade cache db whose identity has not been recorded yet. In that case
-obsidian-tc still refuses to guess: it **keeps the orphaned rows' provider/model/width** rather than
+reliquary-tc still refuses to guess: it **keeps the orphaned rows' provider/model/width** rather than
 silently adopting this vault's own default identity over them, and reports the source as
 `ambiguous-orphaned-index` (never `default` or `kept-from-index`) with a notice naming the
-situation, both in `obsidian-tc doctor` and the boot log. If every orphaned row already belongs to
+situation, both in `reliquary-tc doctor` and the boot log. If every orphaned row already belongs to
 the current default's own provider family (nothing to keep), this falls back to the current default
-and says so in the same notice. Either way: re-add the vault to config (or run `obsidian-tc doctor`
+and says so in the same notice. Either way: re-add the vault to config (or run `reliquary-tc doctor`
 to inspect the cache directory's stored providers), or set `embeddings.provider` explicitly (or
 `embeddings.onProviderChange: "switch"`) to make the choice yourself instead of relying on `"keep"`.
 
 **An unmappable stored provider fails closed, before any vector-index rebuild.** The active
-`chunk_embeddings.model` id obsidian-tc would otherwise keep must be reconstructable back into a
+`chunk_embeddings.model` id reliquary-tc would otherwise keep must be reconstructable back into a
 real provider config (`provider:model`, or `provider:model@revision`, for `ollama`, `openai`,
 `voyage`, `cohere`, and `bge-m3`). A stored id outside that set — a custom `openai-compatible:...`
-or `module:...` identity, or anything else obsidian-tc cannot rebuild on its own — is refused rather
-than guessed: obsidian-tc exits with a config error naming the unmappable stored id and telling you
+or `module:...` identity, or anything else reliquary-tc cannot rebuild on its own — is refused rather
+than guessed: reliquary-tc exits with a config error naming the unmappable stored id and telling you
 exactly what to set instead — `embeddings.provider` (plus `embeddings.model` / `embeddings.dimensions`
-if needed) to match whatever that id was actually embedded with. Run `obsidian-tc doctor` first if
+if needed) to match whatever that id was actually embedded with. Run `reliquary-tc doctor` first if
 you are not sure which model/width that is. Guessing here would rebuild `vec_chunks` at the wrong
 width and silently drop every real vector — refusing is the smaller-safe-option.
 
 **Config files must set `cacheDir` when the embeddings provider is `local` (the default)** — the
-bare `obsidian-tc <vault>` form (no config file) sets it for you, so this only affects a config
-file that never named `cacheDir`. The old `.obsidian-tc`-under-the-working-directory default is
+bare `reliquary-tc <vault>` form (no config file) sets it for you, so this only affects a config
+file that never named `cacheDir`. The old `.reliquary-tc`-under-the-working-directory default is
 gone because it wrote model weights wherever the server happened to be started; config load now
 fails at startup, naming `cacheDir`, rather than that surprising at first embed instead.
 
@@ -384,6 +384,6 @@ since a periodic repair pass is background work too:
 **Explicit `index_vault` calls and index-on-write (a note saved through the client) are never
 paced, regardless of this setting** — those are calls the user asked for directly, not a background
 catch-up pass, and pacing them would make an intentional reindex feel slower for no benefit.
-The `obsidian_tc_background_embed_paused` Prometheus gauge (see
+The `reliquary_tc_background_embed_paused` Prometheus gauge (see
 [Observability](/observability/prometheus/)) reports whether a background embed pass is currently
 paused for idle (1) or actively running / not reconciling at all (0).

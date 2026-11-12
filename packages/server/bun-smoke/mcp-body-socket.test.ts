@@ -5,7 +5,7 @@
 
 import { expect, test } from "bun:test";
 import { connect, type Socket } from "node:net";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { FolderAcl } from "../src/acl";
 import { openDatabase } from "../src/db/open";
@@ -53,7 +53,7 @@ test("an oversize authenticated POST /mcp gets 413 on a real socket, and the soc
     .setExpirationTime("10m")
     .sign(new TextEncoder().encode(JWT_SECRET));
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,

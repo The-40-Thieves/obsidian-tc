@@ -454,7 +454,7 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
               ...platformDetails(view),
             },
             remediation:
-              'To enable it: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/obsidian-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local. See that package\'s README for the model-weights download step — no longer required up front (THE-944 fetches on first use), but still available offline via "bun run fetch-model".',
+              'To enable it: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/reliquary-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local. See that package\'s README for the model-weights download step — no longer required up front (THE-944 fetches on first use), but still available offline via "bun run fetch-model".',
           };
         }
         // THE-944 review round 2 (G3): the probe above is withheld whenever
@@ -502,11 +502,11 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
         return {
           status: "fail" as CheckStatus,
           summary: platform.supported
-            ? 'reranker: "local" is configured but the optional @the-40-thieves/obsidian-tc-reranker-local package could not be resolved — retrieval degrades to RRF-only, it does NOT fail to boot'
+            ? 'reranker: "local" is configured but the optional @the-40-thieves/reliquary-tc-reranker-local package could not be resolved — retrieval degrades to RRF-only, it does NOT fail to boot'
             : `reranker: "local" is configured but is unreachable on this platform — ${platform.note}`,
           details: { provider: "local", attempts: probe.attempts, ...platformDetails(view) },
           remediation: platform.supported
-            ? 'Either: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/obsidian-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local — the automatic upward walk finds it from the monorepo root regardless of whether this is running from source or a bundled dist/cli.js. See that package\'s README for the model-weights download step (bun run fetch-model) — no longer required up front (THE-944 fetches on first use), but still available offline.'
+            ? 'Either: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/reliquary-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local — the automatic upward walk finds it from the monorepo root regardless of whether this is running from source or a bundled dist/cli.js. See that package\'s README for the model-weights download step (bun run fetch-model) — no longer required up front (THE-944 fetches on first use), but still available offline.'
             : 'No remediation available on this platform: onnxruntime-node ships no native prebuild here. Remove reranker.provider: "local" (or move this deployment to a supported platform — linux x64/arm64 glibc, darwin arm64, or win32 x64/arm64).',
         };
       }
@@ -536,7 +536,7 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
  *  probe: this one runs a local SQLite command, so making it async would buy nothing and would
  *  imply a network round-trip that does not happen. */
 export interface NotesFtsView {
-  /** FTS5 available on the connection (OBSIDIAN_TC_DISABLE_FTS unset, adapter built with FTS5). */
+  /** FTS5 available on the connection (RELIQUARY_TC_DISABLE_FTS unset, adapter built with FTS5). */
   ftsEnabled: boolean;
   /** What a live look at the connection found (under `--probe`, or a running server's own state):
    *  distinguishes a transient lock and a real failure from a deliberate "off". */
@@ -567,14 +567,14 @@ export function notesFtsIntegrityCheck(view: NotesFtsView): Check {
     run: async () => {
       const finding = ftsStatusFinding(view.status);
       if (finding) return finding;
-      // Not a fault: OBSIDIAN_TC_DISABLE_FTS=1 and an adapter without FTS5 are both supported, and
+      // Not a fault: RELIQUARY_TC_DISABLE_FTS=1 and an adapter without FTS5 are both supported, and
       // the query layer falls back to disk scans. Reporting that as unsound would be a false alarm
       // for a deliberate configuration.
       if (!view.ftsEnabled) {
         return {
           status: "ok" as CheckStatus,
           summary: "notes_fts: off — note-level lexical search falls back to disk scans",
-          details: { notes_fts: "off (FTS5 unavailable or OBSIDIAN_TC_DISABLE_FTS=1)" },
+          details: { notes_fts: "off (FTS5 unavailable or RELIQUARY_TC_DISABLE_FTS=1)" },
         };
       }
       // THE-688 wording rule: the default branch says what it can support and no more. Provisioning
@@ -602,7 +602,7 @@ export function notesFtsIntegrityCheck(view: NotesFtsView): Check {
           `the notes_fts inverted index failed FTS5 integrity-check: ${probed.reason}. It will keep answering MATCH queries, so search_text / find_notes_by_* / list_tags may be returning incomplete results with no error.`,
         ],
         remediation:
-          "Rebuild the derived index: `INSERT INTO notes_fts(notes_fts) VALUES('rebuild');` against cache.db, or set OBSIDIAN_TC_VERIFY_FTS=1 so the next boot detects and repairs it. Nothing is lost — notes_fts is fully derived from the notes table. If it recurs after a rebuild, suspect unclean container shutdown.",
+          "Rebuild the derived index: `INSERT INTO notes_fts(notes_fts) VALUES('rebuild');` against cache.db, or set RELIQUARY_TC_VERIFY_FTS=1 so the next boot detects and repairs it. Nothing is lost — notes_fts is fully derived from the notes table. If it recurs after a rebuild, suspect unclean container shutdown.",
       };
     },
   };
@@ -625,7 +625,7 @@ const STALE_PROMOTABLE_MS = 86_400_000;
 /**
  * experiential.evaluator — is the pending -> eligible promotion pass actually running?
  *
- * `evaluateEpisodes` had no scheduled caller: only the manual `obsidian-tc reflect` CLI. On the
+ * `evaluateEpisodes` had no scheduled caller: only the manual `reliquary-tc reflect` CLI. On the
  * live deployment that left 337 of 337 episodes `pending` across seventeen days, and `work_search`
  * — which serves evaluator-approved rows only, by security contract — returned zero rows every
  * time. Nothing reported it, because an honest-empty result is indistinguishable from "nothing
@@ -683,7 +683,7 @@ export function experientialEvaluatorCheck(view: ExperientialEvaluatorView): Che
           `${b.promotable} episode(s) are eligible for promotion under the deterministic rules but are still 'pending', and the oldest is ${days} day(s) old — far past any evaluation cycle. work_search serves evaluator-approved (eligible) rows only, so it is returning little or nothing, which is indistinguishable from "no episodes matched".`,
         ],
         remediation:
-          "Run `obsidian-tc reflect` to promote the backlog, and confirm the server is on a build that schedules `episode-evaluation` (THE-698). Do NOT work around this by making work_search include pending rows: 'pending' means unevaluated, and the eligible-only contract is the security boundary.",
+          "Run `reliquary-tc reflect` to promote the backlog, and confirm the server is on a build that schedules `episode-evaluation` (THE-698). Do NOT work around this by making work_search include pending rows: 'pending' means unevaluated, and the eligible-only contract is the security boundary.",
       };
     },
   };

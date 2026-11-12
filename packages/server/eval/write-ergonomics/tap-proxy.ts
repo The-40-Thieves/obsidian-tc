@@ -1,4 +1,4 @@
-// A logging stdio proxy between a REAL MCP client and the obsidian-tc server.
+// A logging stdio proxy between a REAL MCP client and the reliquary-tc server.
 //
 // The client (Claude Code / Codex) spawns THIS as its MCP server; it spawns the real server and
 // forwards newline-delimited JSON-RPC both ways. It exists for two reasons the clients cannot give

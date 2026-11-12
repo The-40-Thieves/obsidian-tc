@@ -245,7 +245,7 @@ describe("schema migration peer races", () => {
           {
             version: "rollback_001",
             checksum: "x",
-            obsidianTcVersion: "t",
+            reliquaryTcVersion: "t",
             appliedAt: () => 0,
             durationMs: () => 0,
           },

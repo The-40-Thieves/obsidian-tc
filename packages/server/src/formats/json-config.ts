@@ -6,7 +6,7 @@
 // caller-supplied empty default; a malformed file throws invalid_input.
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { readNote, writeNoteAtomic } from "../vault/notes-io";
 import { contentHash } from "../vault/paths";
 
@@ -33,9 +33,9 @@ function readConfigNote(abs: string): { raw: string; hash: string } {
   try {
     return readNote(abs);
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.code === "acl_denied")
+    if (e instanceof ReliquaryTcError && e.code === "acl_denied")
       throw err.aclDenied(
-        `${basename(abs)} is a hard link or symlink and is not read: obsidian-tc refuses a config file with a second directory entry (it could alias a note the folder ACL denies). Replace it with an ordinary single-link file.`,
+        `${basename(abs)} is a hard link or symlink and is not read: reliquary-tc refuses a config file with a second directory entry (it could alias a note the folder ACL denies). Replace it with an ordinary single-link file.`,
         { path: abs },
       );
     throw e;

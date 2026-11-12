@@ -26,9 +26,9 @@ import {
 import { basename, dirname, join, normalize, relative, sep } from "node:path";
 import {
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { existsNoFollow } from "../auth/key-files";
 import type { MetricsRecorder } from "../metrics/registry";
 import { enforceMemoryDefenseOnNoteWrite } from "../util/memory-defense";
@@ -67,7 +67,7 @@ function nativeRead(io: NativeVaultIo, abs: string): Buffer {
   return io.safeReadNote(path, pinned);
 }
 
-const fallbackReadRefused = (message: string, abs: string): ObsidianTcError =>
+const fallbackReadRefused = (message: string, abs: string): ReliquaryTcError =>
   err.aclDenied(`safe open refused the path: ${message}`, { path: vaultDetailPath(abs) });
 
 function openRegularRead(abs: string): { fd: number; stat: BigIntStats } {
@@ -121,7 +121,7 @@ function mapNativeReadError(e: unknown, abs: string): never {
       throw err.pathInvalid("not a regular file", { path: vaultDetailPath(path) });
     }
   } catch (error) {
-    if (error instanceof ObsidianTcError) throw error;
+    if (error instanceof ReliquaryTcError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") missingReadPath(path);
     throw fallbackReadRefused(
       `native path classification failed: ${(error as Error).message}`,
@@ -170,7 +170,7 @@ function fallbackOpen(abs: string): number {
         }
         return fd;
       } catch (e) {
-        if (e instanceof ObsidianTcError) throw e;
+        if (e instanceof ReliquaryTcError) throw e;
         // procfs is optional; fall through to the ancestor identity check when it is unavailable.
       }
     }
@@ -283,7 +283,7 @@ function isNativeExists(e: unknown): boolean {
   return e instanceof Error && e.message.startsWith("exists:");
 }
 
-function noteExistsConcurrently(): ObsidianTcError {
+function noteExistsConcurrently(): ReliquaryTcError {
   return err.noteExists("target already exists; nothing was replaced");
 }
 
@@ -634,7 +634,7 @@ export function trashNote(root: string, relPath: string): string {
       moveNoReplace(src, dest);
       return `.trash/${candidate}`;
     } catch (e) {
-      if (!(e instanceof ObsidianTcError && e.code === "note_exists") || i >= 10_000) throw e;
+      if (!(e instanceof ReliquaryTcError && e.code === "note_exists") || i >= 10_000) throw e;
     }
   }
 }

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { enabledAs } from "./as-metadata";
 import {
   jwksWithoutAudience,

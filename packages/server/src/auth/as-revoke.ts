@@ -8,7 +8,7 @@
 // the response never says whether a value was a token. The only refusals are the ones about the
 // REQUEST (no token, wrong encoding) and about the CLIENT's own credentials. `token_type_hint` is a
 // hint only: the value is tried as a refresh token and as an access token whatever it says.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, Hono } from "hono";
 import { decodeProtectedHeader, jwtVerify } from "jose";
 import {

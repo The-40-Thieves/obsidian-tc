@@ -1,5 +1,5 @@
 // Note resources serve every registered vault the caller may read. A trusted, unbound caller (stdio)
-// names any vault in obsidian-tc://<vault>/<path>, and resources/list enumerates them all, each
+// names any vault in reliquary-tc://<vault>/<path>, and resources/list enumerates them all, each
 // filtered by that vault's own ACL. A vault-bound caller (an HTTP token, vaultBound: true) and
 // resources.boundVaultOnly keep the old refusal. A refusal in another vault answers exactly as a
 // missing note does, so the URI cannot be used as a vault- or note-existence oracle.
@@ -7,7 +7,7 @@ import { linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AclConfigT } from "../src/acl";
 import { internalReasonOf } from "../src/mcp/resource-errors";

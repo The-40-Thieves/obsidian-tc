@@ -35,7 +35,7 @@ describe("MorgianaEmitter spool (G2.4)", () => {
     expect(ev).toMatchObject({
       specversion: "1.0",
       id: "fixed-id",
-      source: "obsidian-tc/main",
+      source: "reliquary-tc/main",
       type: "tc.tool.call.completed",
       datacontenttype: "application/json",
       time: "2026-06-18T09:00:00.000Z",

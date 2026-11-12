@@ -31,7 +31,7 @@ export function routingGuidance(surface: InstructionsSurface, hasResources: bool
     // GH #1457 (slice 2): the hot-path tools are listed directly, so they are named before the
     // gateway. Same sentence shape as "triad"; the 512-character head test covers both.
     const lead = hasResources
-      ? "Known note path? Read the resource obsidian-tc://<vault>/<path> (one call). "
+      ? "Known note path? Read the resource reliquary-tc://<vault>/<path> (one call). "
       : "";
     return (
       lead +
@@ -44,7 +44,7 @@ export function routingGuidance(surface: InstructionsSurface, hasResources: bool
     // The cheapest route leads (GH #1457): a known note path is one resource read, and search and
     // fetch are listed directly. The three-tool route is the fallback for anything else.
     const lead = hasResources
-      ? "Known note path? Read the resource obsidian-tc://<vault>/<path> (one call). Topic? "
+      ? "Known note path? Read the resource reliquary-tc://<vault>/<path> (one call). Topic? "
       : "Topic? ";
     return (
       lead +
@@ -63,6 +63,6 @@ export function routingGuidance(surface: InstructionsSurface, hasResources: bool
     "search_text, to read use read_note, to change use patch_note or write_note, for task " +
     "context use vault_context.";
   if (surface === "flat") return direct;
-  const catalog = hasResources ? " (obsidian-tc://catalog lists all)" : "";
+  const catalog = hasResources ? " (reliquary-tc://catalog lists all)" : "";
   return `${direct} A curated subset; other tools are still callable by name${catalog}.`;
 }

@@ -1,4 +1,4 @@
-### obsidian-tc
+### reliquary-tc
 
 **Getting started**
 - [[Home]]
@@ -18,4 +18,4 @@
 - [[FAQ]]
 
 ---
-[Repository](https://github.com/The-40-Thieves/obsidian-tc) · Apache-2.0
+[Repository](https://github.com/The-40-Thieves/reliquary-tc) · Apache-2.0

@@ -23,7 +23,7 @@ vi.mock("../src/vault/snapshots", async (orig) => {
   };
 });
 
-const KEY = "obsidian_tc_provenance";
+const KEY = "reliquary_tc_provenance";
 const SCHEMA_STRICT = "---\ntypes:\n  concept:\n    required: [type]\nproperties:\n  type:\n---\n";
 const SCHEMA_DECLARED = `---\ntypes:\n  concept:\n    required: [type]\nproperties:\n  type:\n  ${KEY}:\n---\n`;
 const MENTIONS = "Notes\n\nI rely on learning techniques.\n";

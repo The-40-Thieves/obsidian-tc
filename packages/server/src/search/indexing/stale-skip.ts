@@ -99,11 +99,11 @@ export function createStaleSkipLog(db: Database, vaultId: string): StaleSkipLog 
       if (multi.length > 0)
         msg +=
           ` ${multi.length} of them carry MORE THAN ONE ACTIVE embedding (${multi[0]?.multi}): a ` +
-          `data-integrity fault, not a concurrent write — run \`obsidian-tc doctor\` (GH #1160).`;
+          `data-integrity fault, not a concurrent write — run \`reliquary-tc doctor\` (GH #1160).`;
       else if (repeated.length > 0)
         msg +=
           ` ${repeated.length} of them were skipped before with this identical difference; a concurrent ` +
-          `write would not repeat identically, so suspect a persistent state fault (run \`obsidian-tc doctor\`).`;
+          `write would not repeat identically, so suspect a persistent state fault (run \`reliquary-tc doctor\`).`;
       else
         msg +=
           " A concurrent write_note/watcher commit is the usual cause; the next index_vault re-plans them.";

@@ -48,7 +48,7 @@ const ROOTS = [
   "packages/server/src/cli.ts",
   "packages/server/src/index.ts",
   // Required, and not a workaround: server modules import the shared package by its published name
-  // (@the-40-thieves/obsidian-tc-shared). tsconfig.dependency-cruiser.json resolves that specifier
+  // (@the-40-thieves/reliquary-tc-shared). tsconfig.dependency-cruiser.json resolves that specifier
   // back to packages/shared/src/index.ts, but it must still be a root or every shared module reads
   // as unreachable.
   "packages/shared/src/index.ts",

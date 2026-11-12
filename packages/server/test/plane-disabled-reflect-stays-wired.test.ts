@@ -8,7 +8,7 @@ import { openMemoryDb } from "./helpers";
 import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
-const ENV_URL = "OBSIDIAN_TC_GATEWAY_URL";
+const ENV_URL = "RELIQUARY_TC_GATEWAY_URL";
 
 let savedUrl: string | undefined;
 let savedFetch: typeof globalThis.fetch;

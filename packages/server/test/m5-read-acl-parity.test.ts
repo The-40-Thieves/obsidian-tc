@@ -6,7 +6,7 @@
 // { readPaths: undefined, strictReadDefault: false } and the symlink one with readPaths ["pub/**"].
 import { linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { enqueueCapture } from "../src/capture/queue";
 import { insertEntity } from "../src/memory/entities";

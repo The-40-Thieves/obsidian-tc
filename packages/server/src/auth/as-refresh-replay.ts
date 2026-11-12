@@ -6,7 +6,7 @@
 // secret can read it; replacing the secret makes every seal unreadable, which is the intended end.
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
-const KEY_INFO = "obsidian-tc/as-refresh-replay/v1";
+const KEY_INFO = "reliquary-tc/as-refresh-replay/v1";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 

@@ -13,7 +13,7 @@
 // written (11/11 query groups, 66/66 in-window rows, with negative controls).
 //
 // None of that belongs in this package. The join is CLIENT-SPECIFIC — it knows one agent's event
-// names and attribute keys — and obsidian-tc is a general MCP server that must not learn them, nor
+// names and attribute keys — and reliquary-tc is a general MCP server that must not learn them, nor
 // take a dependency on any particular log store. So the split is:
 //
 //   here          a plain JSONL contract, parsed and matched by PURE functions

@@ -11,7 +11,7 @@ import { AsConfigSchema, HOSTNAME_RE } from "./auth-as.schema";
 import { aclPathGlob } from "./path-glob";
 
 // `auth.oidc`: verify access tokens issued by an EXTERNAL OpenID Connect provider (bring your own
-// IdP). Verification only — obsidian-tc stays a resource server; the bundled authorization server
+// IdP). Verification only — reliquary-tc stays a resource server; the bundled authorization server
 // is a separate design and lives under `auth.as`, a namespace this block does not use.
 //
 // Only asymmetric algorithms can be allowed. HS* never verifies an IdP token (the "key" would be a
@@ -133,7 +133,7 @@ const OidcConfigSchema = z
           "Claim naming the caller. Required on every token.",
         ),
         scopes: ClaimPathSchema.default("scope").describe(
-          "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings (`permissions`, `realm_access.roles`). Only this claim grants scopes, and only FULLY-QUALIFIED values (`read:notes`, `write:*`) are taken from it: a bare value such as the role `admin` is dropped (and logged once) unless `scopeMap` maps it, because obsidian-tc reads a bare family name as a wildcard over every resource.",
+          "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings (`permissions`, `realm_access.roles`). Only this claim grants scopes, and only FULLY-QUALIFIED values (`read:notes`, `write:*`) are taken from it: a bare value such as the role `admin` is dropped (and logged once) unless `scopeMap` maps it, because reliquary-tc reads a bare family name as a wildcard over every resource.",
         ),
         scopeMap: z
           .record(
@@ -149,7 +149,7 @@ const OidcConfigSchema = z
           )
           .optional()
           .describe(
-            'Optional. Maps a value of the scopes claim (an IdP role or group name) to the obsidian-tc scopes it grants, e.g. `{ vault_admin: ["admin:auth"], reader: ["read:notes", "read:search"] }`. A mapped value grants exactly its list; an unmapped, non-qualified value grants nothing.',
+            'Optional. Maps a value of the scopes claim (an IdP role or group name) to the reliquary-tc scopes it grants, e.g. `{ vault_admin: ["admin:auth"], reader: ["read:notes", "read:search"] }`. A mapped value grants exactly its list; an unmapped, non-qualified value grants nothing.',
           ),
         principal: ClaimPathSchema.optional().describe(
           "Optional claim used as the caller label in audit and logs instead of the subject (for example `email`). It does not affect authentication.",
@@ -225,7 +225,7 @@ export const AuthConfigSchema = z.object({
     .enum(["none", "jwt", "oidc"])
     .default("none")
     .describe(
-      "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`obsidian-tc auth rotate-key`). A `jwt` server with none of them refuses to start. `oidc` verifies access tokens from an external OpenID Connect provider configured in `auth.oidc`; discovery runs at boot and a failure refuses to start.",
+      "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`reliquary-tc auth rotate-key`). A `jwt` server with none of them refuses to start. `oidc` verifies access tokens from an external OpenID Connect provider configured in `auth.oidc`; discovery runs at boot and a failure refuses to start.",
     ),
   oidc: OidcConfigSchema.optional().describe(
     "Required when `mode` is `oidc`, and refused under any other mode. Replaces jwtSecret/jwks*/issuer/audience/algorithms for verification.",
@@ -235,7 +235,7 @@ export const AuthConfigSchema = z.object({
     .min(32)
     .optional()
     .describe(
-      "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this (or an HS256 key in the auth registry), never against the JWKS. It is the initial signing key (kid `config`); once `auth rotate-key` has retired that key it is no longer used to verify or mint, and can be removed (`obsidian-tc doctor` says when).",
+      "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this (or an HS256 key in the auth registry), never against the JWKS. It is the initial signing key (kid `config`); once `auth rotate-key` has retired that key it is no longer used to verify or mint, and can be removed (`reliquary-tc doctor` says when).",
     ),
   tokenTtlSeconds: z
     .number()
@@ -257,13 +257,13 @@ export const AuthConfigSchema = z.object({
     .max(604800)
     .default(0)
     .describe(
-      "Seconds the previous signing key keeps verifying after `obsidian-tc auth rotate-key`, used when `--grace` is not passed (an explicit `--grace` always wins, including `--grace 0`). 0, the default, retires the previous key immediately. Maximum 604800 (7 days). A retiring key stops verifying at its `retire_after` whether or not anything has rewritten its state, so the window is exact; `obsidian-tc doctor` lists each retiring key with its time remaining.",
+      "Seconds the previous signing key keeps verifying after `reliquary-tc auth rotate-key`, used when `--grace` is not passed (an explicit `--grace` always wins, including `--grace 0`). 0, the default, retires the previous key immediately. Maximum 604800 (7 days). A retiring key stops verifying at its `retire_after` whether or not anything has rewritten its state, so the window is exact; `reliquary-tc doctor` lists each retiring key with its time remaining.",
     ),
   requireJti: z
     .boolean()
     .default(false)
     .describe(
-      'Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry, but `securityProfile: "hardened"` sets it true (an explicit value still wins); the default itself is planned to flip to true at the next major release. `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).',
+      'Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry, but `securityProfile: "hardened"` sets it true (an explicit value still wins); the default itself is planned to flip to true at the next major release. `reliquary-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).',
     ),
   // THE-297 — asymmetric verification (RS256/ES256/EdDSA) behind the TokenVerifier seam.
   // `jwks` is an inline JWKS document; `jwksFile` a path loaded once at transport boot (file
@@ -324,7 +324,7 @@ export const AuthConfigSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "DEPRECATION OPT-OUT. A JWKS key source (jwks, jwksFile, jwksUri) with no EFFECTIVE audience accepts a token its issuer minted for another service. `audience` is effective; `resource` is used as the audience only when Protected Resource Metadata is complete (`authorizationServers` set too), so a `resource`-only config passes validation and binds nothing. That keeps working for one release with a warning at startup, in `obsidian-tc doctor` and in server_health, and becomes a startup error in the next minor release. Set `true` only if you really mean to accept tokens regardless of `aud`; the warning then stops. It does NOT waive the rule above: a JWKS still needs `audience` or `resource` at config load.",
+      "DEPRECATION OPT-OUT. A JWKS key source (jwks, jwksFile, jwksUri) with no EFFECTIVE audience accepts a token its issuer minted for another service. `audience` is effective; `resource` is used as the audience only when Protected Resource Metadata is complete (`authorizationServers` set too), so a `resource`-only config passes validation and binds nothing. That keeps working for one release with a warning at startup, in `reliquary-tc doctor` and in server_health, and becomes a startup error in the next minor release. Set `true` only if you really mean to accept tokens regardless of `aud`; the warning then stops. It does NOT waive the rule above: a JWKS still needs `audience` or `resource` at config load.",
     ),
   issuer: z
     .string()

@@ -9,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { writeConfig } from "./config";
 import { buildVault, MEMORY_ENTITY } from "./fixtures";
 
-export const DEFAULT_CORPUS = "/data/obsidian-tc-eval/evergreen-corpus";
+export const DEFAULT_CORPUS = "/data/reliquary-tc-eval/evergreen-corpus";
 const CLI = resolve(import.meta.dirname, "../../dist/cli.js");
 
 /** Spawn the built server directly (no proxy) with the same stdio transport the clients use. */

@@ -12,7 +12,7 @@
 // `db.busyTimeoutMs`, applied by openDatabase) governs how long a contended update waits before it
 // throws SQLITE_BUSY, which the limiter's failure policy then handles.
 import { join } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { openConfiguredDatabase } from "../db/open";
 import { inWriteTransaction } from "../db/txn";
 import { cachedPrepare, type Database, type Statement } from "../db/types";

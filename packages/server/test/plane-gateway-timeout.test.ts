@@ -21,8 +21,8 @@ import { compileEgressFilter } from "../src/plane/egress-filter";
 import { EgressViolationError } from "../src/plane/egress-guard";
 import { planeRoles } from "../src/runtime/tool-wiring";
 
-const ENV_URL = "OBSIDIAN_TC_GATEWAY_URL";
-const ENV_TOKEN = "OBSIDIAN_TC_GATEWAY_TOKEN";
+const ENV_URL = "RELIQUARY_TC_GATEWAY_URL";
+const ENV_TOKEN = "RELIQUARY_TC_GATEWAY_TOKEN";
 
 let savedUrl: string | undefined;
 let savedToken: string | undefined;

@@ -61,7 +61,7 @@ export function createEmbedderWarmup(
       const error = e instanceof Error ? e.message : String(e);
       status = { state: "failed", error };
       log(
-        `obsidian-tc: embedder warmup failed (${error}); the first semantic search will retry the load`,
+        `reliquary-tc: embedder warmup failed (${error}); the first semantic search will retry the load`,
       );
     }
   };

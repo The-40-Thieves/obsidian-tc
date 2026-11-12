@@ -6,7 +6,7 @@
 // a separate worker entry file. If the runtime cannot run the eval worker (the readiness
 // handshake fails), callers fall back to the inline scan — the prior heuristic-only behavior.
 import { Worker } from "node:worker_threads";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 
 export interface RegexJob {
   pattern: string;

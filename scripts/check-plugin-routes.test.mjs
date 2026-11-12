@@ -137,7 +137,7 @@ test("parseDocRoutes: reads the fenced block that follows the marker", () => {
 
 test("parseDocRoutes: strips the mount prefix so both sides compare on the same path", () => {
   const { routes } = parseDocRoutes(DOC_FIXTURE);
-  assert.ok(routes.every((r) => r.path.startsWith("/") && !r.path.includes("obsidian-tc")));
+  assert.ok(routes.every((r) => r.path.startsWith("/") && !r.path.includes("reliquary-tc")));
 });
 
 test("parseDocRoutes: a missing marker is an ERROR, not an empty set", () => {

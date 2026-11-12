@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { asKeyOverlapInJwks, ensureAsKey } from "../src/auth/as-boot";
@@ -401,9 +401,9 @@ describe("doctor: the `as` section", () => {
       clientCount: 2,
       clientRedirectUris: 3,
       cimdAllowedHosts: ["claude.ai"],
-      setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
+      setupTokenEnv: "RELIQUARY_TC_AS_SETUP_TOKEN",
       setupTokenSet: false,
-      resetTokenEnv: "OBSIDIAN_TC_AS_RESET_TOKEN",
+      resetTokenEnv: "RELIQUARY_TC_AS_RESET_TOKEN",
       resetTokenSet: false,
     },
     now,
@@ -418,7 +418,7 @@ describe("doctor: the `as` section", () => {
     expect(text).toContain(base.metadataUrl);
     expect(text).toContain("k1");
     expect(text).toContain("refreshTokenDays");
-    expect(text).toContain("OBSIDIAN_TC_AS_SETUP_TOKEN");
+    expect(text).toContain("RELIQUARY_TC_AS_SETUP_TOKEN");
     expect(text).toContain("claude.ai");
     expect(text).toContain("3 redirect URIs");
     expect(text).toMatch(/back up oauth\.db/i);
@@ -490,9 +490,9 @@ describe("doctor: the `as` section", () => {
 
   it("reports whether the reset-token variable is set, never its value", async () => {
     const r = await run({ settings: { ...base.settings, resetTokenSet: true } });
-    expect(JSON.stringify(r)).toContain("resetTokenEnv=OBSIDIAN_TC_AS_RESET_TOKEN (set)");
+    expect(JSON.stringify(r)).toContain("resetTokenEnv=RELIQUARY_TC_AS_RESET_TOKEN (set)");
     const unset = await run();
-    expect(JSON.stringify(unset)).toContain("resetTokenEnv=OBSIDIAN_TC_AS_RESET_TOKEN (not set)");
+    expect(JSON.stringify(unset)).toContain("resetTokenEnv=RELIQUARY_TC_AS_RESET_TOKEN (not set)");
   });
 
   it("run_doctor maps `purpose` into the auth.registry key view (S2 gap) and wires the as view", async () => {

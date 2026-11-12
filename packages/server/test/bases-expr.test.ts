@@ -1,6 +1,6 @@
 // THE-281 — Bases DSL subset evaluator unit tests.
 
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   type BasesNoteCtx,
@@ -73,8 +73,8 @@ describe("bases-expr evaluator (THE-281)", () => {
         ev(bad);
         throw new Error(`expected throw for ${bad}`);
       } catch (e) {
-        expect(e, bad).toBeInstanceOf(ObsidianTcError);
-        expect((e as ObsidianTcError).code, bad).toBe("unsupported_base_filter");
+        expect(e, bad).toBeInstanceOf(ReliquaryTcError);
+        expect((e as ReliquaryTcError).code, bad).toBe("unsupported_base_filter");
       }
     }
   });

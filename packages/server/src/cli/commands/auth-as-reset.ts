@@ -1,4 +1,4 @@
-// `obsidian-tc auth as reset-credentials [--user <name>] [--stdin] [--revoke-grants]` (design v2
+// `reliquary-tc auth as reset-credentials [--user <name>] [--stdin] [--revoke-grants]` (design v2
 // section 4.11.5, slice S10): the recovery when the operator has lost the passkey and the password,
 // or the hostname changed and every passkey was orphaned with its old rpID. Shell access to the host
 // and write access to `<cacheDir>` are the root of trust, as for `set-password`: whoever can write
@@ -45,8 +45,8 @@ export async function runAuthAsResetCredentials(
     if (operator === undefined) {
       throw new CliError(
         wanted === undefined
-          ? "this authorization server has no single operator to reset: claim it with `obsidian-tc auth as set-password`, or name the account with --user"
-          : `no operator named ${wanted} (claim the server with \`obsidian-tc auth as set-password\`)`,
+          ? "this authorization server has no single operator to reset: claim it with `reliquary-tc auth as set-password`, or name the account with --user"
+          : `no operator named ${wanted} (claim the server with \`reliquary-tc auth as set-password\`)`,
       );
     }
     const password = await obtainPassword(cmd.stdin === true, io);
@@ -98,13 +98,13 @@ export async function runAuthAsResetCredentials(
           ? `${JSON.stringify(summary)}\n`
           : `credentials of operator ${operator.username} reset: new password set, ${reset.credentials} passkey${reset.credentials === 1 ? "" : "s"} removed, ${reset.sessions} session${reset.sessions === 1 ? "" : "s"} ended${
               revoking !== undefined
-                ? `; ${revoked.revoked} grant${revoked.revoked === 1 ? "" : "s"} revoked (${revoked.families} refresh families, ${revoked.accessTokens} access tokens)${pending ? "; grant revocation pending: the registry did not take it (run `obsidian-tc doctor`)" : ""}`
+                ? `; ${revoked.revoked} grant${revoked.revoked === 1 ? "" : "s"} revoked (${revoked.families} refresh families, ${revoked.accessTokens} access tokens)${pending ? "; grant revocation pending: the registry did not take it (run `reliquary-tc doctor`)" : ""}`
                 : ""
             }\n`,
       );
       if (pending) {
         throw new CliError(
-          "grant revocation pending: the password was reset, but the registry did not take the revocations; they finish at the next successful drain. Run `obsidian-tc doctor`.",
+          "grant revocation pending: the password was reset, but the registry did not take the revocations; they finish at the next successful drain. Run `reliquary-tc doctor`.",
         );
       }
     } finally {

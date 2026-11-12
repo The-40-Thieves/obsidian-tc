@@ -184,7 +184,7 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
 
   it("createEmbeddingProvider(Async) is called ONLY from the allowlisted composition roots", () => {
     // THE-1122: providers/local-embedder-registry.ts's buildLocalEmbeddingProvider calls
-    // `resolution.mod?.createEmbeddingProvider(...)` — the OPTIONAL @the-40-thieves/obsidian-tc-
+    // `resolution.mod?.createEmbeddingProvider(...)` — the OPTIONAL @the-40-thieves/reliquary-tc-
     // embedder-local package's OWN factory of the same name (dot-called on the dynamically resolved
     // module, mirroring embeddings/provider.ts's naming), never this file's real, egress-guarded
     // createEmbeddingProvider/createEmbeddingProviderAsync — those are what registry.ts's own

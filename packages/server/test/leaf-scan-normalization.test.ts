@@ -9,7 +9,7 @@
 // convention even though a Unicode-spliced or array-split fixture is already unlikely to trip a
 // literal-secret scanner.
 
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { enforceMemoryDefense, INVISIBLE_SPLICE_RANGES } from "../src/util/memory-defense";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
@@ -24,8 +24,8 @@ function expectSecretDetected(fn: () => void): void {
     fn();
   } catch (e) {
     threw = true;
-    expect(e).toBeInstanceOf(ObsidianTcError);
-    if (e instanceof ObsidianTcError) expect(e.code).toBe("secret_detected");
+    expect(e).toBeInstanceOf(ReliquaryTcError);
+    if (e instanceof ReliquaryTcError) expect(e.code).toBe("secret_detected");
   }
   expect(threw, "expected a secret_detected refusal").toBe(true);
 }

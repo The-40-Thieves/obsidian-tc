@@ -24,7 +24,7 @@ export interface FtsDataRowCount {
 
 export interface DbSpaceState {
   /** THE-1039 fix round 1 (A2): main file + `-wal` sidecar when present
-   *  (`db/introspect.ts`'s `dbFootprintBytes`) — the SAME accounting `obsidian-tc compact` uses
+   *  (`db/introspect.ts`'s `dbFootprintBytes`) — the SAME accounting `reliquary-tc compact` uses
    *  for its before/after sizes, so the two surfaces can't silently disagree on "how big is this
    *  database". Stated explicitly in the summary text below, not left implicit in the number. */
   fileBytes: number;
@@ -53,7 +53,7 @@ export type DbSpaceView =
 const WARN_FREELIST_RATIO = 0.1;
 
 /**
- * db.reclaimable-space — is cache.db carrying enough dead weight that `obsidian-tc compact` is
+ * db.reclaimable-space — is cache.db carrying enough dead weight that `reliquary-tc compact` is
  * worth running?
  *
  * Freelist bytes, not FTS index size, drive the verdict: the freelist is what VACUUM reclaims
@@ -80,7 +80,7 @@ export function dbSpaceCheck(view: DbSpaceView): Check {
           summary: `db.reclaimable-space: cache.db exists but could not be opened (${view.reason})`,
           details: { state: "unopenable", reason: view.reason },
           remediation:
-            "Check file permissions and whether another process holds an exclusive lock on cache.db, then run `obsidian-tc doctor` again.",
+            "Check file permissions and whether another process holds an exclusive lock on cache.db, then run `reliquary-tc doctor` again.",
         };
       }
       const { fileBytes, freelistBytes, ftsData, readonlyMode } = view.state;
@@ -109,7 +109,7 @@ export function dbSpaceCheck(view: DbSpaceView): Check {
             `db.reclaimable-space: cache.db is ${fileBytes} bytes (main + -wal); ${freelistBytes} ` +
             `bytes (${(ratio * 100).toFixed(1)}%) reclaimable by VACUUM — over the 10% floor${fallbackNote}`,
           details,
-          remediation: "obsidian-tc compact",
+          remediation: "reliquary-tc compact",
         };
       }
       return {

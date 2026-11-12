@@ -1,15 +1,15 @@
-import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import type { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge/fake";
 import { type BridgeFetch, createBridgeClient } from "../src/bridge/transport";
 
 const BASE = "http://127.0.0.1:27124";
 
-async function caught(p: Promise<unknown>): Promise<ObsidianTcError> {
+async function caught(p: Promise<unknown>): Promise<ReliquaryTcError> {
   try {
     await p;
   } catch (e) {
-    return e as ObsidianTcError;
+    return e as ReliquaryTcError;
   }
   throw new Error("expected the request to reject");
 }

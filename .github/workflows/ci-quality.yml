@@ -28,7 +28,7 @@ name: ci-quality
 #
 # Deliberately NOT here: knip. Its one high-value output (dead files) is zero once entry points are
 # declared, and everything it reports after that is invisible-to-static-analysis by design — the
-# native package is required via ["@the-40-thieves","obsidian-tc-native"].join("/") so bundlers
+# native package is required via ["@the-40-thieves","reliquary-tc-native"].join("/") so bundlers
 # cannot resolve it statically, sqlite-vec is loaded as a SQLite extension rather than imported, and
 # dependency-cruiser is invoked as a binary. knip.jsonc is committed so a human running `knip` gets
 # useful output; gating on it would mean permanently allow-listing three false positives.

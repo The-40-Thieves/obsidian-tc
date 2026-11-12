@@ -116,7 +116,7 @@ stays local. The GPU script runs the same pinned ONNX graph, so its vectors are 
 bun eval/export-chunk-texts.ts <config.json> <outdir>            # ids.json + texts.jsonl, whole vault
 modal run eval/modal_embed_nomic.py --texts <outdir>/texts.jsonl --out <outdir>/vecs.f32   # also writes vecs-ids.json
 bun eval/load-gpu-vecs.ts <config.json> <outdir>/vecs-ids.json <outdir>/vecs.f32 [--insert]
-obsidian-tc index                                                # rebuilds vec_chunks from the loaded vectors
+reliquary-tc index                                                # rebuilds vec_chunks from the loaded vectors
 ```
 
 `vecs-ids.json` and `vecs.f32` come from the same `modal run`, written together and joined by position; load that
@@ -238,7 +238,7 @@ result still measured a rule production couldn't reproduce. This section is step
 fix (see "`--gated-rerank`'s reranker" above), the calibration this repo owed since
 2026-07-11, and the resulting default decision. Measured against a **reachable, live-probed
 reranker** for the first time — the bundled offline cross-encoder
-(`{ "reranker": { "provider": "local" } }`), confirmed serving via `obsidian-tc doctor`
+(`{ "reranker": { "provider": "local" } }`), confirmed serving via `reliquary-tc doctor`
 (`reranker.buildable` — resolved via source-checkout) and via `assertFlagDependencies`'s real probe
 call: both arms below stamp `gated-rerank` in their `--json` artifact, which only happens
 when that preflight passed.
@@ -314,15 +314,15 @@ derive them — the golden set is private. Keep them current with the bridge ins
 
 ```bash
 # After a golden-set expansion — recount and refresh the DERIVED size (human-gated: writes the
-# file, never commits). The golden set is private; pass its path (or set $OBSIDIAN_TC_GOLDEN):
-bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml
+# file, never commits). The golden set is private; pass its path (or set $RELIQUARY_TC_GOLDEN):
+bun run docgen:sync-facts --golden ~/reliquary-tc-eval/multi-hop-golden-set.yaml
 
 # When a default-on mechanism wins its ship gate — set the CURATED headline claim explicitly
 # (never auto-scraped from a run):
 bun run docgen:sync-facts --enrichment "+0.223 nDCG"
 
 # CI-style freshness check: exits 1 if project-facts.json is stale vs the golden set.
-bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml --check
+bun run docgen:sync-facts --golden ~/reliquary-tc-eval/multi-hop-golden-set.yaml --check
 ```
 
 Then `bun run docgen:render`, review `git diff docs/`, and commit — merging republishes the wiki.
@@ -390,7 +390,7 @@ bun eval/history.ts record art.json --label write-ergonomics
 - Each trial copies the template vault and cache to one fixed path (the index records the vault path)
   and archives the post-run state under `<root>/runs/<arm>/<client>/<task>__r<N>/`; runs are never
   overwritten and nothing is deleted. Tasks marked `approved` state the user's approval and let the
-  client run `obsidian-tc elicit`, the stand-in for a human confirming a HITL prompt.
+  client run `reliquary-tc elicit`, the stand-in for a human confirming a HITL prompt.
 - The Codex login is copied into a private temp dir for the run and removed afterwards; only the
   secret-free `codex-config.toml` is archived.
 - `test/write-ergonomics-harness.test.ts` needs no client: every checker must fail on the wrong state
@@ -425,7 +425,7 @@ bun eval/write-ergonomics/facade-analyze.ts --root <root> --tables tables.md --o
   default kept unless beaten by more than the band, partial cells undecided) and the artifacts it writes
   are `history.ts`-recordable, one per client with `baseline = triad`, `graph = domain|flat`.
 - Metrics beyond the write-ergonomics ones: calls-to-success (server calls plus client tool-search
-  calls), tool-not-found (server `unknown tool` plus the client's own "no such tool" for an obsidian-tc
+  calls), tool-not-found (server `unknown tool` plus the client's own "no such tool" for a reliquary-tc
   tool; a disabled built-in does not count).
 
 ## Run history

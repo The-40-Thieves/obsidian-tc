@@ -2,7 +2,7 @@
 // same "one shared handler, two callers" harness http-caller-isolation.test.ts uses, extended
 // with a `personas` config and tokens carrying a `persona` claim instead of raw scopes/vault.
 
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -45,7 +45,7 @@ async function boot(personas?: Record<string, unknown>) {
     ...(personas ? { personas } : {}),
   });
   return startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth: parsed.auth,

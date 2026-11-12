@@ -8,7 +8,7 @@
 //     same for both.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { CallerContext } from "../src/mcp/registry";
@@ -143,7 +143,7 @@ describe("HTTP transport threads the config default to resources/read", () => {
       auth: { mode: "none" },
     }).auth;
     const h = await startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry: v.registry,
       vaultRegistry: v.vaultRegistry,

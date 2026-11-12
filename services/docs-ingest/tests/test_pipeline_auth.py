@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from obsidian_tc_docs_ingest import config, pipeline
-from obsidian_tc_docs_ingest.contracts import SourceRef
+from reliquary_tc_docs_ingest import config, pipeline
+from reliquary_tc_docs_ingest.contracts import SourceRef
 
 SOURCE = SourceRef(uri="https://docs.example.com/x")
 RENDER = json.dumps({"results": [{"success": True, "markdown": "# Hi"}]}).encode()

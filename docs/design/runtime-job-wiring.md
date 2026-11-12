@@ -76,7 +76,7 @@ nothing or doing active harm:
 
 `registerNoteQualitySchedule` wires `registerEpisodeEvaluation` (the evaluator that promotes
 `pending` episodes to `eligible`) onto the maintenance cadence. Before that change this pass had no
-scheduled caller — only the manual `obsidian-tc reflect` CLI — and on the live deployment 337 of 337
+scheduled caller — only the manual `reliquary-tc reflect` CLI — and on the live deployment 337 of 337
 episodes sat `pending` across seventeen days. `work_search`, which by contract serves only eligible
 rows, returned zero rows every time: the capture half of the experiential tier worked, the recall
 half was dark, and an honest-empty result was indistinguishable from "nothing matched".

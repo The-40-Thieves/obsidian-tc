@@ -11,7 +11,7 @@ const timeoutFloor = resolveVitestTimeoutFloorMs() ?? 0;
 export default defineConfig({
   // Dev: resolve the shared workspace package to source (not built to dist in dev).
   resolve: {
-    alias: { "@the-40-thieves/obsidian-tc-shared": resolve(here, "../shared/src/index.ts") },
+    alias: { "@the-40-thieves/reliquary-tc-shared": resolve(here, "../shared/src/index.ts") },
   },
   test: {
     include: ["test/**/*.test.ts"],

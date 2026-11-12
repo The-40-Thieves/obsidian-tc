@@ -72,7 +72,7 @@ test("every request on a REUSED keep-alive connection succeeds", async () => {
     }),
   );
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth: { mode: "none" } as never,

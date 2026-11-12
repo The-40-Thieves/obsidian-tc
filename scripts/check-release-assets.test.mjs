@@ -23,19 +23,19 @@ const NATIVE = [
   "darwin-arm64",
   "win32-x64-msvc",
   "win32-arm64-msvc",
-].map((t) => `obsidian-tc-native.${t}.node`);
+].map((t) => `reliquary-tc-native.${t}.node`);
 const BINARIES = [
-  "obsidian-tc-bun-linux-x64",
-  "obsidian-tc-bun-linux-arm64",
-  "obsidian-tc-bun-darwin-x64",
-  "obsidian-tc-bun-darwin-arm64",
-  "obsidian-tc-bun-windows-x64.exe",
+  "reliquary-tc-bun-linux-x64",
+  "reliquary-tc-bun-linux-arm64",
+  "reliquary-tc-bun-darwin-x64",
+  "reliquary-tc-bun-darwin-arm64",
+  "reliquary-tc-bun-windows-x64.exe",
 ];
 // Each standalone binary ships its sourcemap; the windows map drops the .exe.
 const MAPS = BINARIES.map((b) => `${b.replace(/\.exe$/, "")}.map`);
-const ZIPS = ["obsidian-tc-plugin-1.2.3.zip", "obsidian-tc-legacy-final-notice-1.0.0.zip"];
+const ZIPS = ["reliquary-tc-plugin-1.2.3.zip", "reliquary-tc-legacy-final-notice-1.0.0.zip"];
 const LOOSE = ["main.js", "manifest.json", "styles.css"];
-const MCPB = ["obsidian-tc.mcpb"];
+const MCPB = ["reliquary-tc.mcpb"];
 
 // manifest line: <family><TAB><bundle basename>
 const FAMILIES = [

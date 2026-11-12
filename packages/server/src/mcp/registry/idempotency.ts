@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { cachedPrepare, type Database } from "../../db/types";
 import type { IdempotencyState } from "./types";
 
@@ -10,7 +10,7 @@ import type { IdempotencyState } from "./types";
 // an explicit discriminated state (claimed | mismatch | in_flight | replay), so runDispatch's
 // idempotency gate becomes a switch over an already-resolved outcome instead of re-deriving it.
 //
-// Deliberately NOT lifted here: the ObsidianTcError construction, audit(), meter(), and
+// Deliberately NOT lifted here: the ReliquaryTcError construction, audit(), meter(), and
 // memoizeSerialized() calls that runDispatch performs FOR each outcome — those are dispatch-shaped
 // concerns (error codes/messages, metrics, the result-serialization memo that lives in registry.ts
 // and would be a cycle to import from here) and stay in runDispatch, unchanged in behavior.
@@ -243,7 +243,7 @@ export function claimOrReplay(
     } catch {
       // Corrupt cached blob: drop it (so the next call re-executes) and fail this one cleanly.
       deleteIdempotency(db, o, key);
-      throw new ObsidianTcError("internal", "cached idempotent result was unreadable; retry");
+      throw new ReliquaryTcError("internal", "cached idempotent result was unreadable; retry");
     }
   }
   return { kind: "in_flight" };

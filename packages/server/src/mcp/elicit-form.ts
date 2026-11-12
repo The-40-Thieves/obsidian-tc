@@ -21,7 +21,7 @@ import {
   inputResponse,
   type Server,
 } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err, type MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err, type MorgianaEventData } from "@the-40-thieves/reliquary-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { type HitlSource, recordHitlOffer } from "../hitl-telemetry";
 import { callerHash } from "../throttle";
@@ -96,7 +96,7 @@ export function clientSupportsFormElicitation(caps: unknown): boolean {
  * and an absolute leading slash, so it may legally contain newlines, backticks, double quotes, or
  * arbitrary prose. Left unsanitized, a crafted path can inject a fake extra "line" into a rendered
  * form message or directive sentence — e.g. a path ending the sentence and appending its own
- * spoofed `confirm with: obsidian-tc elicit ...` line, or a bogus "this is a harmless preview"
+ * spoofed `confirm with: reliquary-tc elicit ...` line, or a bogus "this is a harmless preview"
  * reassurance — that a human skimming the text, or a naive line-based locator, could mistake for
  * the real one.
  *
@@ -333,7 +333,7 @@ export function offeredElicitError(result: unknown): ErrorJSON | undefined {
 /** Stamps a non-approving confirm outcome on an `elicit_required` error: `details.reason` for
  *  error-rendering.ts's text, and `message`/`recovery` so the structured channel agrees with it.
  *  `declined` is a hard stop (no retry, no token); `cancelled` means approval was NOT obtained —
- *  nobody refused, so the out-of-band `obsidian-tc elicit` route stays open (the write is still
+ *  nobody refused, so the out-of-band `reliquary-tc elicit` route stays open (the write is still
  *  refused until a token is redeemed). `undefined` (no round happened) stamps the cancel reason. */
 export function withRoundOutcome(
   error: ErrorJSON,
@@ -364,7 +364,7 @@ export function withRoundOutcome(
     recovery: declined
       ? "The user declined this change. Do not retry it and do not mint a token."
       : "Approval was not obtained: no answer to the confirmation prompt came back (it was dismissed, could not be shown, or did not complete), and nothing was changed. Ask the user; if they approve, mint a single-use token with " +
-        (command ? `\`${command}\`` : "`obsidian-tc elicit --hash <args_hash> --tool <name>`") +
+        (command ? `\`${command}\`` : "`reliquary-tc elicit --hash <args_hash> --tool <name>`") +
         " and resend with elicit_token. Never reuse an old token.",
     details: { ...error.details, reason: declined ? "approval_declined" : "approval_not_obtained" },
   };

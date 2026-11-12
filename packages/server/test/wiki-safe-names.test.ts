@@ -13,7 +13,7 @@
 //      is exactly the one intended link — so rewrite_link's free-text to_target is covered too.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ToolResult, wikiLinkNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { type ToolResult, wikiLinkNameProblem } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";

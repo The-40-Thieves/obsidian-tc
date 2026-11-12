@@ -68,6 +68,6 @@ export const providerFetch: typeof fetch = createPlainHttpPolicyFetch({
   onUnlistedPrivate: ({ host, address }) => {
     if (warned.has(host)) return;
     warned.add(host);
-    console.warn(`[obsidian-tc] DEPRECATED: ${unlistedPlainHttpMessage(host, address)}`);
+    console.warn(`[reliquary-tc] DEPRECATED: ${unlistedPlainHttpMessage(host, address)}`);
   },
 });

@@ -1,4 +1,4 @@
-// THE-826: `obsidian-tc elicit` — the sanctioned route to a HITL confirmation token for a client
+// THE-826: `reliquary-tc elicit` — the sanctioned route to a HITL confirmation token for a client
 // that cannot complete an MCP elicitation prompt: one without elicitation support, or a headless
 // one (Claude Code) that auto-cancels it (SEP-2260/2322).
 //
@@ -15,7 +15,7 @@
 // `<cacheDir>/cache.db`. That same directory already holds `auth.jwtSecret` and every configured
 // provider API key; `token-mint.ts` (readAuthBlock) already treats read access to it as sufficient
 // authority to issue a bearer credential with wildcard scopes. This command asks for nothing
-// stronger: whoever can read that directory can already run `obsidian-tc serve` against it and
+// stronger: whoever can read that directory can already run `reliquary-tc serve` against it and
 // dispatch the exact call being gated, directly, with no confirmation at all. There is no separate
 // credential check here because filesystem access to the vault's own state IS the credential — a
 // caller who lacks it cannot open the db (openDatabase fails on ENOENT/EACCES under a restrictive
@@ -31,7 +31,7 @@
 // escape hatch when their client cannot render the confirmation prompt itself. Wiring it as a tool
 // would hand the very agent under the gate a way to clear its own gate.
 import { mkdirSync } from "node:fs";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { type AuditEvent, writeEvent } from "../../audit";
 import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
@@ -94,7 +94,7 @@ export function planElicitMint(
     toolName: cmd.tool,
     argsHash: cmd.hash,
     // "stdio" matches the caller identity server-runtime.ts's trusted local context stamps on
-    // EVERY stdio-transport call (`obsidian-tc serve <vault>`, no auth) — the client this command
+    // EVERY stdio-transport call (`reliquary-tc serve <vault>`, no auth) — the client this command
     // exists for: a locally-spawned MCP client that cannot complete the prompt, talking over stdio,
     // so its blocked calls always carry caller "stdio". An HTTP/jwt deployment's caller is the
     // bearer token's `sub` claim (the same value given to `token mint --sub`) — pass --caller
@@ -159,7 +159,7 @@ export function mintElicitAudited(
 }
 
 /**
- * The mint `obsidian-tc elicit` performs: only for a request the server actually raised.
+ * The mint `reliquary-tc elicit` performs: only for a request the server actually raised.
  *
  * The CLI holds an args_hash, not the arguments, so it cannot recompute the state a tool's
  * `confirmationTargets` (or `pathAcl`) fingerprints. The state the token binds to is therefore the
@@ -229,7 +229,7 @@ export async function run_elicit_mint(cmd: ElicitMintCmd): Promise<void> {
       return;
     }
     // Same split as `token mint`: every human-facing line goes to stderr, the bare token alone on
-    // stdout, so `obsidian-tc elicit ... 2>/dev/null` (or piping the output straight into the
+    // stdout, so `reliquary-tc elicit ... 2>/dev/null` (or piping the output straight into the
     // retried tool call) never picks up anything but the secret. THE-826 hazard 5: the token must
     // reach nowhere but stdout here — not the audit row above (which never carries it), not this
     // stderr line, not argv (it is only ever produced by this command, never accepted as input).

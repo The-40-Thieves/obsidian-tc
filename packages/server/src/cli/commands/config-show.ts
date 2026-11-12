@@ -37,7 +37,7 @@ export async function run_config_show(cmd: Cmd<"config-show" | "config-validate"
             "(that IS the opt-in to switch — see the embeddings docs' upgrade section)."
           : "AMBIGUOUS — no active vectors matched this vault's configured id, but this cache " +
             "directory holds active vectors under a DIFFERENT vault id (a rename, or a shared " +
-            "cache dir). NOT part of your config. Run `obsidian-tc doctor` for details.";
+            "cache dir). NOT part of your config. Run `reliquary-tc doctor` for details.";
   const out = {
     ...(redactConfig(config) as Record<string, unknown>),
     embeddingsEffective: {

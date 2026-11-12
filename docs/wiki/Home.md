@@ -1,6 +1,6 @@
-# obsidian-tc
+# reliquary-tc
 
-**Obsidian Turbocharged** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (bundled offline embeddings, SQLite, no cloud account).
+**Reliquary-TC** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (bundled offline embeddings, SQLite, no cloud account).
 
 ## At a glance
 
@@ -10,7 +10,7 @@
 
 <!-- END GENERATED: stats -->
 
-> **Status:** Shipped — **v1.34.0**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.34.0`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **Apache-2.0** (releases up to 1.34.x: AGPL-3.0-only).
+> **Status:** Shipped — **v1.34.0**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/reliquary-tc:1.34.0`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **Apache-2.0** (releases up to 1.34.x: AGPL-3.0-only).
 
 ## Three pillars
 
@@ -22,11 +22,11 @@
 
 By default `tools/list` advertises just **five tools**: three meta-tools, `find_capability` (BM25 search over the capability catalog), `describe_capability` (one capability's schema, scopes, and safety hints), and `call_capability` (invoke by name — routed through the same auth/ACL/HITL/idempotency/throttle pipeline as a direct call). plus the standard `search` and `fetch` tools (the pair ChatGPT deep research and company knowledge require). This keeps agent context lean while the full surface stays reachable; `toolFacade.mode` selects `triad` (default), `domain`, or `flat`. The facade is boundary-only — no gate is ever bypassed.
 
-Beyond Tools, the server exposes the vault as MCP **Resources** (`obsidian-tc://<vault>/<path>` URIs, read-scope and folder-ACL enforced) and built-in **Prompts**.
+Beyond Tools, the server exposes the vault as MCP **Resources** (`reliquary-tc://<vault>/<path>` URIs, read-scope and folder-ACL enforced) and built-in **Prompts**.
 
 ## The memory engine
 
-obsidian-tc is a **measured memory engine**:
+reliquary-tc is a **measured memory engine**:
 
 - an **experiential work-memory tier** — a quarantined second store (never mixed with authored notes) with retrieval logging, auto-captured agent episodes behind a poison scanner, and reader tools under a strict eligibility contract;
 - **composite context surfaces** — `vault_context` (one-call budgeted context: graph-reranked chunks, synthesis patterns, contradictions, lesson surfacing, session bootstrap) and `reflect` (grounded synthesis, adversarial challenge, a versioned preference profile);
@@ -36,8 +36,8 @@ obsidian-tc is a **measured memory engine**:
 ## Quick start
 
 ```bash
-npm install -g obsidian-tc      # Node >= 24 or Bun >= 1.1 (runtime auto-detected)
-obsidian-tc /path/to/your/vault # zero-config: boots a single vault "main" with defaults
+npm install -g reliquary-tc      # Node >= 24 or Bun >= 1.1 (runtime auto-detected)
+reliquary-tc /path/to/your/vault # zero-config: boots a single vault "main" with defaults
 ```
 
 Pull the default local embeddings model once (`ollama pull nomic-embed-text`) and everything runs on your machine. For multi-vault, auth, ACLs, or custom embeddings, pass a JSON config file instead — see **[[Installation]]** and **[[Configuration]]**.
@@ -70,12 +70,12 @@ Polyglot monorepo:
 
 ## Links
 
-- **Repository:** https://github.com/The-40-Thieves/obsidian-tc
-- **npm:** `obsidian-tc`
-- **Container:** `ghcr.io/the-40-thieves/obsidian-tc`
+- **Repository:** https://github.com/The-40-Thieves/reliquary-tc
+- **npm:** `reliquary-tc`
+- **Container:** `ghcr.io/the-40-thieves/reliquary-tc`
 - **Docs site source:** `docs/` (Astro Starlight) — deep reference lives there and in `ARCHITECTURE.md`
 - **MCP spec target:** [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
 
 ## Trademark
 
-obsidian-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a trademark of Dynalist Inc. This is an independent open-source MCP server that integrates with Obsidian.
+reliquary-tc is not affiliated with or endorsed by Obsidian.md. "Obsidian" is a trademark of Dynalist Inc. This is an independent open-source MCP server that integrates with Obsidian.

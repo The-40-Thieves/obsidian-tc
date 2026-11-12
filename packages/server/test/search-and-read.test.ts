@@ -302,7 +302,7 @@ describe("search_and_read: ACL", () => {
     ]);
     expect(emitted.filter((t) => t === "tc.acl.denied")).toHaveLength(1);
     expect(await metrics.metrics()).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
+      /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
     );
   });
 

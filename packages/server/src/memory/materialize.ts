@@ -8,7 +8,7 @@
 // parseEntityNote reads a note back (frontmatter + observations + [[link]] targets)
 // for graph-integrity checks; it relies on the shared extractLinks parser, so aliases
 // ([[a|b]]), headings ([[a#h]]) and blocks ([[a#^id]]) all resolve to the bare target.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import { enforcePathAcl } from "../vault/acl-path";
 import { type Frontmatter, parseNote, serializeNote } from "../vault/frontmatter";
@@ -22,7 +22,7 @@ import { normalizeObservationKey, type RenderableObservation } from "./entities"
 // THE-833: "status" joined this set — a retired entity's note says so on its face, not just in
 // SQLite, so a human reading the vault directly (the reporter's whole reason for wanting
 // materialize:true) sees the same lifecycle state get_entity/query_entity_graph filter on.
-const OWNED_FM_KEYS = new Set(["obsidian_tc_id", "entity_type", "status"]);
+const OWNED_FM_KEYS = new Set(["reliquary_tc_id", "entity_type", "status"]);
 
 const OBSERVATIONS_HEADING = "Observations";
 const SUPERSEDED_HEADING = "Superseded";
@@ -159,7 +159,7 @@ function stripOwned(fm: Frontmatter | null | undefined): Frontmatter {
  *  (it's the append/history order a reader would expect). */
 export function renderEntityNote(input: RenderEntityInput): string {
   const fm: Frontmatter = {
-    obsidian_tc_id: input.id,
+    reliquary_tc_id: input.id,
     entity_type: input.entityType,
     status: input.status,
     ...stripOwned(input.preserved),
@@ -216,7 +216,7 @@ export interface MaterializeInput {
  * Path-safe (resolveVaultPath containment) + ACL-checked (enforcePathAcl write).
  *
  * Ownership check (review finding, data-loss class): a note already sitting at the target path
- * whose `obsidian_tc_id` is MISSING or DIFFERENT from `input.id` is refused, not silently
+ * whose `reliquary_tc_id` is MISSING or DIFFERENT from `input.id` is refused, not silently
  * overwritten. Before this check, `create_entity` for a (type, name) that happened to collide
  * with a hand-written note — or with an orphaned note left behind by a different, unrelated
  * entity that once sanitized to the same path — kept only that note's frontmatter and threw away
@@ -230,7 +230,7 @@ export interface MaterializeInput {
  */
 /** Read the note at `abs` (if any) and report who owns it: `{ exists: false }` when nothing is
  *  there, else `{ exists: true, ownerId, frontmatter }` — `ownerId` is `null` when the note has no
- *  (or a non-string) `obsidian_tc_id`, which reads identically to "not this entity's" everywhere
+ *  (or a non-string) `reliquary_tc_id`, which reads identically to "not this entity's" everywhere
  *  this is consulted. Shared by `materializeEntity`'s own check below and by
  *  `assertNoteOwnership`, the pre-check lifecycle handlers (rename/unlink/delete_entity) call
  *  BEFORE mutating SQLite — one read, one definition of "who owns this note", never re-derived. */
@@ -243,8 +243,8 @@ function readNoteOwner(abs: string): {
   if (!ex.exists || ex.type !== "file") return { exists: false, ownerId: null, frontmatter: null };
   const frontmatter = parseNote(readNote(abs).raw).frontmatter;
   const ownerId =
-    frontmatter && typeof frontmatter.obsidian_tc_id === "string"
-      ? frontmatter.obsidian_tc_id
+    frontmatter && typeof frontmatter.reliquary_tc_id === "string"
+      ? frontmatter.reliquary_tc_id
       : null;
   return { exists: true, ownerId, frontmatter };
 }
@@ -256,7 +256,7 @@ function ownershipError(
 ): Error {
   return err.noteExists(
     "refusing to touch a note this entity does not own " +
-      "(its obsidian_tc_id is missing or belongs to a different entity)",
+      "(its reliquary_tc_id is missing or belongs to a different entity)",
     {
       path: rel,
       entity_id: expectedEntityId,
@@ -287,7 +287,7 @@ export function assertNoteOwnership(root: string, rel: string, expectedEntityId:
  * Path-safe (resolveVaultPath containment) + ACL-checked (enforcePathAcl write).
  *
  * Ownership check (review finding, data-loss class): a note already sitting at the target path
- * whose `obsidian_tc_id` is MISSING or DIFFERENT from `input.id` is refused, not silently
+ * whose `reliquary_tc_id` is MISSING or DIFFERENT from `input.id` is refused, not silently
  * overwritten. Before this check, `create_entity` for a (type, name) that happened to collide
  * with a hand-written note — or with an orphaned note left behind by a different, unrelated
  * entity that once sanitized to the same path — kept only that note's frontmatter and threw away
@@ -365,7 +365,7 @@ export function parseEntityNote(raw: string): ParsedEntityNote {
   const fm = parsed.frontmatter ?? {};
   const h1 = parsed.body.split(/\r?\n/).find((l) => /^#\s+/.test(l));
   return {
-    entityId: typeof fm.obsidian_tc_id === "string" ? fm.obsidian_tc_id : null,
+    entityId: typeof fm.reliquary_tc_id === "string" ? fm.reliquary_tc_id : null,
     entityType: typeof fm.entity_type === "string" ? fm.entity_type : null,
     status: typeof fm.status === "string" ? fm.status : null,
     name: h1 ? h1.replace(/^#\s+/, "").trim() : null,

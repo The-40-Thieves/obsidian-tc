@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from obsidian_tc_bge import api
-from obsidian_tc_bge.config import Settings
-from obsidian_tc_bge.contracts import EncodeItem, SparseVec
+from reliquary_tc_bge import api
+from reliquary_tc_bge.config import Settings
+from reliquary_tc_bge.contracts import EncodeItem, SparseVec
 
 
 class StubEncoder:

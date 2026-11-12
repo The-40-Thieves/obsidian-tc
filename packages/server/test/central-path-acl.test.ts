@@ -89,7 +89,7 @@ describe("central path ACL fails closed", () => {
     const text = await metrics.metrics();
     // Metered like the unknown-vault refusal the handler itself would have returned.
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="known",tool="central_read",status="error"} 1',
+      'reliquary_tc_tool_calls_total{vault="known",tool="central_read",status="error"} 1',
     );
   });
 

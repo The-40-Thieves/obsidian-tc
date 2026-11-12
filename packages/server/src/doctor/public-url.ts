@@ -11,7 +11,7 @@ import {
   isLoopbackHost,
   isPrivateNetworkAddress,
   normalizeHostForBind,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { sameResource } from "../auth/as-clients";
 import { isBlockedAddress } from "../auth/oidc-network";
 import {
@@ -34,7 +34,7 @@ const INIT_BODY = JSON.stringify({
   params: {
     protocolVersion: "2025-11-25",
     capabilities: {},
-    clientInfo: { name: "obsidian-tc-doctor", version: "0" },
+    clientInfo: { name: "reliquary-tc-doctor", version: "0" },
   },
 });
 

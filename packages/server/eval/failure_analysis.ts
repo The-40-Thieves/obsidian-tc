@@ -7,7 +7,7 @@
 // retrieved and whether graph expansion fired), and a reachability set from the pure wikilink
 // probe (reachability.ts) — NOT the DB — so the whole module is unit-testable in memory.
 //
-// obsidian-tc port: types are adapted to this repo's GoldenQuery / QueryMetrics / RankedChunk
+// reliquary-tc port: types are adapted to this repo's GoldenQuery / QueryMetrics / RankedChunk
 // (eval/metrics.ts); the reachability set comes from reachability.ts's undirected `vault_edges`
 // walk. The six failure classes and their exact lever mapping are preserved unchanged from the
 // original — that mapping IS the deliverable.

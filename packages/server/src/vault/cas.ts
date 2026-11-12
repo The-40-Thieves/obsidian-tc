@@ -7,7 +7,7 @@
 // / quality warning in an ack, only to a caller that may read the file. Every `concurrentModification(`
 // in the server goes through casConflict; the source-scan gate in test/cas-source-gate.test.ts keeps
 // it that way.
-import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import { callerCanReadVaultPath } from "./acl-path";
 

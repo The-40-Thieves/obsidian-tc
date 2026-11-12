@@ -18,7 +18,7 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BLOCK = join(REPO, ".claude/hooks/block-generated-edits.sh");
 const BACKSTOP = join(REPO, ".claude/hooks/generated-drift-backstop.sh");
 const REAL_TXT = readFileSync(join(REPO, ".claude/generated-paths.txt"), "utf8");
-const SCHEMA = "docs/obsidian-tc.config.schema.json";
+const SCHEMA = "docs/reliquary-tc.config.schema.json";
 const EMBEDDED = "packages/server/src/db/migrations-embedded.ts";
 
 const scratch = [];
@@ -146,7 +146,7 @@ test("backstop: fires for a python heredoc write to the schema, naming the rever
   assert.equal(r.code, 0);
   const ctx = context(r);
   assert.ok(ctx.includes(`${SCHEMA} changed outside its generator`), ctx);
-  assert.match(ctx, /git checkout -- docs\/obsidian-tc\.config\.schema\.json/);
+  assert.match(ctx, /git checkout -- docs\/reliquary-tc\.config\.schema\.json/);
   assert.match(ctx, /bun run config:schema/);
   assert.equal(JSON.parse(r.out).hookSpecificOutput.hookEventName, "PostToolUse");
 });

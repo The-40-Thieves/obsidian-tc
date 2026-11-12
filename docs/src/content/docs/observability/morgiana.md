@@ -3,7 +3,7 @@ title: MORGIANA Event Spool
 description: A fail-soft CloudEvents 1.0 JSONL spool of nine lifecycle and tool events.
 ---
 
-**MORGIANA** is obsidian-tc's structured event spool. Each event is a
+**MORGIANA** is reliquary-tc's structured event spool. Each event is a
 [CloudEvents 1.0](https://cloudevents.io/) envelope written as one JSON line to a
 daily-rotated file under the cache directory
 (`<cacheDir>/<vault>/morgiana-events-<date>.jsonl`).
@@ -61,4 +61,4 @@ The file for the current UTC day, any file modified in the last hour,
 symlinks and anything not named like a spool file are never touched. Set the
 window longer than the longest time MORGIANA can be down, because a deleted day
 cannot be replayed. Each sweep logs one `[maintenance] morgiana spool sweep`
-line and adds to `obsidian_tc_morgiana_spool_files_pruned_total{reason}`.
+line and adds to `reliquary_tc_morgiana_spool_files_pruned_total{reason}`.

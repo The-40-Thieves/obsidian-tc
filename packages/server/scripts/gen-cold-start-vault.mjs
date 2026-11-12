@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE-1122 — generates a small, deterministic, synthetic vault on DISK (real markdown files, not
 // the in-memory fixtures eval/perf/harness.ts seeds directly into a DB) so the cold-start budget
-// check below can index it through the REAL `obsidian-tc index` CLI path with the REAL "local"
+// check below can index it through the REAL `reliquary-tc index` CLI path with the REAL "local"
 // embeddings provider — the perf harness itself deliberately uses a fake, zero-I/O provider (see
 // its own header comment) precisely so it never depends on network/model behaviour, which is
 // exactly the axis this script measures instead. Not reusing eval/perf/scenarios.ts's generator:

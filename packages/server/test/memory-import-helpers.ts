@@ -1,4 +1,4 @@
-// Harness for `obsidian-tc memory import` tests: a real temp vault + a real temp import-source
+// Harness for `reliquary-tc memory import` tests: a real temp vault + a real temp import-source
 // directory, an in-memory cache DB on the committed schema, M1 + M5 registered on one
 // ToolRegistry (the same pair cli/commands/memory-import.ts wires), and a bound `dispatch`
 // closure matching memory-import/apply.ts's Dispatch type. Mirrors m5-helpers.ts's makeM5Vault.

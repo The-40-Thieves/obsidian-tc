@@ -7,7 +7,7 @@ export class ProvenanceCounters {
 
   constructor(registers: Registry[]) {
     this.faults = new Counter({
-      name: "obsidian_tc_provenance_faults_total",
+      name: "reliquary_tc_provenance_faults_total",
       help: "Write-provenance recording faults, by vault, tool and kind. `omitted`: a committed write left NO record (recording is fail-open, so the write still succeeded). `head_untrusted`: the record was written but the chain head failed validation and was not re-signed. Any non-zero value means the provenance trail is incomplete or was tampered with; doctor reports the same events from event_log. Labels are vault id, tool name and the two-value kind, never a path or an error message.",
       labelNames: ["vault", "tool", "kind"],
       registers,

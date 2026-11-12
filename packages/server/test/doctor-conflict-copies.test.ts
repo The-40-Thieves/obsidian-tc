@@ -139,7 +139,7 @@ describe("THE-939 fix round 1 — dist is skipped only in a source checkout", ()
   it("(a) npm-install layout (no src/): a conflict copy under dist/ IS reported", async () => {
     const root = tmpDir();
     // Mirrors packages/server/package.json's real "files": ["dist", ...] shape — no src ships.
-    writeFixture(root, "package.json", JSON.stringify({ name: "obsidian-tc" }));
+    writeFixture(root, "package.json", JSON.stringify({ name: "reliquary-tc" }));
     writeFixture(root, "dist/cli.js");
     writeFixture(root, "dist/cli 2.js");
 

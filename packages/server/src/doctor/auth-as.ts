@@ -86,7 +86,7 @@ export function authAsCheck(view: AuthAsView): Check {
         );
       } else if (active === undefined) {
         failures.push(
-          "no active `as` signing key: it is generated at server start, so start the server once, or run `obsidian-tc auth rotate-key --purpose as`",
+          "no active `as` signing key: it is generated at server start, so start the server once, or run `reliquary-tc auth rotate-key --purpose as`",
         );
       }
       if (view.oauthDb.unreadable !== undefined) {
@@ -108,7 +108,7 @@ export function authAsCheck(view: AuthAsView): Check {
         const ageDays = Math.floor((now - active.createdAt) / DAY_MS);
         if (ageDays > AS_KEY_WARN_DAYS) {
           warnings.push(
-            `the active \`as\` key ${active.kid} is ${ageDays} days old (over ${AS_KEY_WARN_DAYS}): rotate it with \`obsidian-tc auth rotate-key --purpose as\``,
+            `the active \`as\` key ${active.kid} is ${ageDays} days old (over ${AS_KEY_WARN_DAYS}): rotate it with \`reliquary-tc auth rotate-key --purpose as\``,
           );
         }
         if (active.alg !== view.signingAlg) {

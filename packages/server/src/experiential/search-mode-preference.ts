@@ -23,7 +23,7 @@
 // per-value tally (one row holds one value, and an `add` for a different tool overwrites the value
 // while the weight keeps climbing), and it is NOT a count of distinct windows either:
 // `extractPreferences` re-reads the newest judged windows on every run and re-applies them, so one
-// unchanged window reaches 3.0 after five `obsidian-tc reflect` runs (measured, see the PR that
+// unchanged window reaches 3.0 after five `reliquary-tc reflect` runs (measured, see the PR that
 // added this reader). The weight therefore measures "evidence observed across extraction passes".
 // `SEARCH_MODE_MIN_WEIGHT` of 3.0 is a floor against a single fresh observation steering a caller,
 // not a statistical confidence. Making extraction idempotent (a per-window watermark) is what

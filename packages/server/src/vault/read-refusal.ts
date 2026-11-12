@@ -5,7 +5,7 @@
 // deleted mid-pass, a non-regular file) propagates unchanged. Under the native module an ordinary I/O
 // failure on a regular file also surfaces as acl_denied, so it is skipped and counted; only the JS
 // fallback propagates it.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { errorMessage } from "../util/errors";
 import { readNote, readNoteBounded } from "./notes-io";
 import { resolveVaultPath } from "./paths";
@@ -31,7 +31,7 @@ function refusalOr<T>(read: () => T): T | { refused: string } {
   try {
     return read();
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.code === "acl_denied")
+    if (e instanceof ReliquaryTcError && e.code === "acl_denied")
       return { refused: errorMessage(e) };
     throw e;
   }

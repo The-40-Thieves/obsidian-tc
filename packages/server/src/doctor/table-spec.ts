@@ -14,7 +14,7 @@
 //
 //   preference_profile / preference_deltas  reported `enabled` on every experiential deployment.
 //     Their only producer is `extractPreferences`, reachable solely from the manual
-//     `obsidian-tc reflect` CLI. The scheduled experiential pass is `evaluateEpisodes`, a
+//     `reliquary-tc reflect` CLI. The scheduled experiential pass is `evaluateEpisodes`, a
 //     DIFFERENT function that never touches these tables. Nothing schedules extraction at all.
 //
 //   gap_reports  reported `enabled` from the store being open, while THE-719 registers the sweep
@@ -52,12 +52,12 @@ export function experientialTableSpec(cfg: TableSpecConfig): TableLivenessSpec[]
     {
       table: "preference_profile",
       writer: off("on-demand"),
-      lever: "running `obsidian-tc reflect` — preference extraction has no scheduled caller",
+      lever: "running `reliquary-tc reflect` — preference extraction has no scheduled caller",
     },
     {
       table: "preference_deltas",
       writer: off("on-demand"),
-      lever: "running `obsidian-tc reflect` — preference extraction has no scheduled caller",
+      lever: "running `reliquary-tc reflect` — preference extraction has no scheduled caller",
     },
     // Keyed on the SCHEDULER GATE. With the sweep off (the default) the producer genuinely does
     // not exist and `on-demand` is honest; with it on, `enabled` is, and an empty table then IS
@@ -67,7 +67,7 @@ export function experientialTableSpec(cfg: TableSpecConfig): TableLivenessSpec[]
       writer: on ? (cfg.gapSweepScheduled ? "enabled" : "on-demand") : "disabled",
       lever: cfg.gapSweepScheduled
         ? "the scheduled coverage-gap sweep"
-        : "running `obsidian-tc gaps`, or setting experiential.gapSweep.enabled",
+        : "running `reliquary-tc gaps`, or setting experiential.gapSweep.enabled",
     },
     // Stated-only by construction — the migration CHECK-pins `source` to 'stated' precisely so
     // nothing can infer one — so an empty table is awaiting a caller, never a failed producer.

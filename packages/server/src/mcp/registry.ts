@@ -3,10 +3,10 @@ import {
   err,
   type MorgianaEventData,
   type MorgianaEventType,
-  ObsidianTcError,
+  ReliquaryTcError,
   scopeClassOf,
   type ToolResult,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { markDispatchActive, markInFlight } from "../dispatch-activity";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
@@ -364,7 +364,7 @@ export class ToolRegistry {
     } catch (e) {
       // A refusal answered to the caller as note_not_found still audits as its true reason.
       const code =
-        internalReasonOf(e) ?? (e instanceof ObsidianTcError ? e.code : "internal_error");
+        internalReasonOf(e) ?? (e instanceof ReliquaryTcError ? e.code : "internal_error");
       emit("error", now() - start, 0, code);
       throw e;
     }
@@ -401,7 +401,7 @@ export class ToolRegistry {
       // is a pass-through when they did not, so the no-carrier path is unchanged — and a malformed
       // carrier degrades to a root span rather than losing one.
       return await withTraceCarrier(ctx.traceCarrier, () =>
-        tracer.startActiveSpan(`obsidian_tc.${name}`, { kind: SpanKind.SERVER }, async (span) => {
+        tracer.startActiveSpan(`reliquary_tc.${name}`, { kind: SpanKind.SERVER }, async (span) => {
           try {
             span.setAttribute(SPAN_ATTR.vaultId, ctx.vaultId);
             span.setAttribute(SPAN_ATTR.tool, name);

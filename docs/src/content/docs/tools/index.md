@@ -1,9 +1,9 @@
 ---
 title: Tool Reference
-description: The tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
+description: The tool surface reliquary-tc exposes to MCP clients, and the facade that shapes it.
 ---
 
-obsidian-tc groups **its tools across modules M1–M8 plus admin**. Every tool has
+reliquary-tc groups **its tools across modules M1–M8 plus admin**. Every tool has
 a Zod-validated input schema, a structured result, a declared scope set, and a
 scope class that selects its rate-limit tier. `tools/list` also derives MCP
 **annotations** (`readOnlyHint` / `destructiveHint` / `openWorldHint`) and a
@@ -47,7 +47,7 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
 - **`flat`** — the full underlying surface.
 - **`auto`** — **deprecated; set an explicit mode.** It resolves to `triad` for
   every client, so it is the same as setting `triad` and adds nothing. The
-  setting is still accepted, so no existing config breaks, but `obsidian-tc
+  setting is still accepted, so no existing config breaks, but `reliquary-tc
   doctor` and `server_health` report it as deprecated, and it will be removed in
   the next major version. An operator's own `toolFacade.autoClients` entry (a
   case-insensitive substring of the client's `clientInfo.name` mapped to a mode,
@@ -66,14 +66,14 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
   for the measured recommendations (`triad` for Claude Code, `domain` for Codex).
 
   **Explaining an `auto` decision.** `toolFacade.explainAutoMode: true` (default
-  `false`) writes one `obsidian-tc toolFacade.explain {...}` JSON line to stderr
+  `false`) writes one `reliquary-tc toolFacade.explain {...}` JSON line to stderr
   per resolution, and the `explanation` field of `server_health`'s `toolFacade` block returns the
   same record for the calling client: the observed `clientName` (bounded, control
   characters stripped), the `configuredKeys` and `builtInKeys` checked, the
   `rule` that fired (`no-client-name`, `configured-override`, `built-in-table` or
   `no-match`), the `matchedKey`, the `fallback` and the `mode` chosen.
   The same block carries a `deprecation` notice whenever the configured mode is
-  `auto`. `obsidian-tc doctor` warns that `auto` is deprecated
+  `auto`. `reliquary-tc doctor` warns that `auto` is deprecated
   and, separately, warns when `autoClients` or `explainAutoMode` is set under a
   mode other than `auto`.
 
@@ -161,7 +161,7 @@ the four hot-path tools carry it too.
 
 Every tool carries a set of tags, and `toolVisibility.hiddenTags` / `disabledTags` act on them.
 Naming a tag in `hiddenTags` drops its tools from `tools/list`, `find_capability`, the
-`obsidian-tc://catalog` resource and the domain meta-tools while leaving them callable by name;
+`reliquary-tc://catalog` resource and the domain meta-tools while leaving them callable by name;
 naming it in `disabledTags` also rejects the call, as if the tool were never registered. Each
 tool's page in the [Tool Catalog](/tools/tool-catalog/) lists its tags, and `describe_capability`
 returns them as `tags`.
@@ -405,7 +405,7 @@ on a call, or `lintEnabled: false`, turns it off. The scheduled lint itself stil
 * **Privacy.** The topic and the opening text of the candidate pages (at most `maxNoteChars` each) go to the
   judge (the gateway model, or TypeSafe with `provider: typesafe`). A note is sent only if the caller may read it (ACL), it is outside `egress.excludePaths`
   and outside Obsidian's Excluded files; such notes are never sent and are listed as `unjudged`. `maxCallsPerDay: 0`
-  or no judge configured keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the provider, the model, today's <!-- config-path:ignore -->
+  or no judge configured keeps everything local. `reliquary-tc doctor` (check `wiki.judge`) reports the provider, the model, today's <!-- config-path:ignore -->
   calls and failures.
 * **Model note.** The gateway's `judge` alias served `openai/gpt-6-sol` when this was measured. That model
   answers HTTP 400 to `temperature` and `max_tokens`, so the judge request sends neither.
@@ -618,7 +618,7 @@ record was already written.
 ### Generated index and log pages
 
 The wiki folder also holds two files the server writes, not you and not an LLM. Both start with
-`generated_by: obsidian-tc` in their frontmatter and a notice; do not edit them.
+`generated_by: reliquary-tc` in their frontmatter and a notice; do not edit them.
 
 * **`index.md`**: every page of the wiki folder grouped by its `SCHEMA.md` `type` (the schema's order <!-- config-path:ignore -->
   first, then other types, then `(no type)`), one link each. Queued after every `commit_wiki_page` and,
@@ -750,7 +750,7 @@ Other concise shapes: `read_frontmatter` omits `has_frontmatter` (it is `frontma
 per link plus `heading`, `target_path` and `candidates` when they are set; `read_resources`
 returns `{ ok, uri, text }` per item with the note body only.
 
-Note resources (`obsidian-tc://<vault>/<path>`) name their vault in the URI. A trusted (stdio) caller
+Note resources (`reliquary-tc://<vault>/<path>`) name their vault in the URI. A trusted (stdio) caller
 can read any registered vault it may read, under that vault's own folder ACL, and a refusal in
 another vault answers as a missing note. Set `resources.boundVaultOnly: true` to keep them on the
 default vault ([configuration](/configuration/config-yaml/)). A vault-bound HTTP token stays on its
@@ -915,7 +915,7 @@ cannot be skipped.
 ## Degradation & errors
 
 A tool that needs an unavailable capability (a missing plugin, an unconfigured
-embedding provider) returns a typed error from the shared `ObsidianTcError`
+embedding provider) returns a typed error from the shared `ReliquaryTcError`
 taxonomy (e.g. `plugin_missing`, `embedding_provider_error`) with a `retryable`
 flag and a bounded `recovery` hint naming the next step — it never throws an
 opaque failure. At the MCP boundary a dispatch failure

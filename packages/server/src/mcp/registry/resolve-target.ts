@@ -1,5 +1,5 @@
 // The `resolveTarget` dispatch stage, split out of policy-gates.ts: see ToolDefinition.resolveTarget.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { argsHash } from "../../hash";
 import { enforceCentralPathAcl } from "./policy-gates";
 import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
@@ -24,16 +24,16 @@ export async function bindResolvedTarget(
   const bound = await def.resolveTarget(data, ctx);
   const collisions = Object.keys(bound).filter((k) => k in (data as Record<string, unknown>));
   if (collisions.length > 0)
-    throw new ObsidianTcError("internal", "resolved target collides with input fields", {
+    throw new ReliquaryTcError("internal", "resolved target collides with input fields", {
       collisions,
     });
   const input = { ...(data as Record<string, unknown>), ...bound };
   try {
     enforceCentralPathAcl(def, input, ctx, rootResolver);
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.details && "path" in e.details) {
+    if (e instanceof ReliquaryTcError && e.details && "path" in e.details) {
       const { path: _discovered, ...rest } = e.details;
-      throw new ObsidianTcError(e.code, e.message, rest);
+      throw new ReliquaryTcError(e.code, e.message, rest);
     }
     throw e;
   }

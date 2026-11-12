@@ -2,7 +2,7 @@
 // sections 4.1, 4.2): generating the `as` signing key, and refusing a configured JWKS that smuggles
 // that key back in as a hand-minted-token key.
 import { readFileSync } from "node:fs";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { calculateJwkThumbprint, type JWK } from "jose";
 import type { AuthKey, AuthRegistry } from "./registry";
 import { type AsymmetricAlg, generateSigningKey } from "./signing-keys";

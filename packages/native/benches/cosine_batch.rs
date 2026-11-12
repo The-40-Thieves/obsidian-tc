@@ -3,7 +3,7 @@
 // the requested dims x docs matrix.
 //
 // The crate now builds as `["cdylib", "rlib"]`, so this bench links the SHIPPED kernels directly:
-// `cosine_batch_core` and `cosine_core` are imported from `obsidian_tc_native` rather than
+// `cosine_batch_core` and `cosine_core` are imported from `reliquary_tc_native` rather than
 // hand-copied. That removes the drift hazard the previous header warned about ("kept in lockstep
 // manually — re-copy if that function changes"), which could silently benchmark a stale copy of a
 // function that had since changed in src/lib.rs.
@@ -29,7 +29,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
 // The shipped kernels, linked from the rlib — not copies.
-use obsidian_tc_native::{cosine_batch_core as cosine_batch_core_new, cosine_core};
+use reliquary_tc_native::{cosine_batch_core as cosine_batch_core_new, cosine_core};
 
 /// OLD `cosine_batch_core`, pre-THE-504: reuses `cosine_core` per doc, recomputing the query's
 /// norm on every document.

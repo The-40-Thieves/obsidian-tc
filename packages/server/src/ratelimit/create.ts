@@ -1,7 +1,7 @@
 // Build the configured backend. Async because the sqlite adapter and the redis client are both
 // imported lazily: a default (memory) boot loads neither.
 import { readFileSync } from "node:fs";
-import { err, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { RateLimitBackend } from "./backend";
 import { MemoryBackend, type MemoryBackendOptions } from "./memory-backend";
 
@@ -9,8 +9,8 @@ export type ThrottleBackendConfig = Pick<ServerConfig["throttle"], "backend" | "
 
 /** The schema defaults for `throttle.redis`, for callers that hold a config without the block. */
 export const DEFAULT_REDIS_REF: ThrottleBackendConfig["redis"] = {
-  urlEnv: "OBSIDIAN_TC_REDIS_URL",
-  keyPrefix: "obsidian-tc:rl:",
+  urlEnv: "RELIQUARY_TC_REDIS_URL",
+  keyPrefix: "reliquary-tc:rl:",
 };
 
 /**

@@ -110,7 +110,7 @@ export interface DoctorConfigView {
   /** THE-679: enough to answer whether a DECLARED reranker block can be built, offline. */
   rerankerBuildable?: RerankerBuildableView;
   /** THE-1122: mirrors rerankerBuildable for the embeddings slot's "local" provider — enough to
-   *  answer whether the optional @the-40-thieves/obsidian-tc-embedder-local package actually
+   *  answer whether the optional @the-40-thieves/reliquary-tc-embedder-local package actually
    *  resolves. Optional, same reasoning as retrieval/snapshots above. */
   embeddingsBuildable?: EmbeddingsBuildableView;
   /** THE-696: notes_fts availability, plus an optional integrity probe under `--probe`. Optional,

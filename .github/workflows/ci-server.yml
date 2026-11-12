@@ -91,7 +91,7 @@ jobs:
         run: bun run check:ingest-telemetry-wiring
       # THE-598: every backticked dotted config path (`a.b.c`) in narrative docs must resolve in
       # ServerConfigSchema. Ground truth is the committed JSON Schema
-      # (docs/obsidian-tc.config.schema.json, kept fresh by the docgen drift gate), so this needs no
+      # (docs/reliquary-tc.config.schema.json, kept fresh by the docgen drift gate), so this needs no
       # schema re-parse of its own.
       # Four keys (traceDetail/tracesSampleRate/tracesDays/morgianaEventsDays) were deleted from the
       # schema as dead — the schema has no .strict(), so a config that still sets them validates
@@ -137,7 +137,7 @@ jobs:
       - name: plugin route table vs ARCHITECTURE.md (source scan)
         run: bun run check:plugin-routes
 
-      # obsidian-tc is public (The-40-Thieves org); Linear is the private planning plane. A bare
+      # reliquary-tc is public (The-40-Thieves org); Linear is the private planning plane. A bare
       # THE-<digits> ticket id or a linear.app URL in README.md, the public docs site, a top-level
       # package README, or either MCP manifest leaks that private plane onto the public one. This
       # scans exactly those surfaces (docs-scan gate) — see scripts/check-public-text.mjs's own
@@ -463,7 +463,7 @@ jobs:
           set -euo pipefail
           bun -e '
             import { createRequire } from "node:module";
-            const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native");
+            const mod = createRequire(import.meta.url)("@the-40-thieves/reliquary-tc-native");
             if (mod.nativeLoaded !== true) {
               console.error("macos-intel-native-server-tests: compiled addon did NOT load -- silently on the JS fallback");
               process.exit(1);
@@ -526,7 +526,7 @@ jobs:
         working-directory: packages/server
       - name: two built CLI processes share one limit (redis)
         env:
-          OBSIDIAN_TC_REDIS_URL: redis://127.0.0.1:6379
+          RELIQUARY_TC_REDIS_URL: redis://127.0.0.1:6379
         run: bun scripts/ratelimit-shared-smoke.ts --cli dist/cli.js --backend redis
         working-directory: packages/server
 
@@ -596,9 +596,9 @@ jobs:
         run: bun test bun-smoke
         working-directory: packages/server
 
-  # THE-941: proves the documented front door -- `npx obsidian-tc /path/to/vault`, no config file
+  # THE-941: proves the documented front door -- `npx reliquary-tc /path/to/vault`, no config file
   # -- actually works, rather than merely being a README claim. Builds the exact artifact
-  # `obsidian-tc`'s `bin` field points to (dist/cli.js), generates a five-note fixture vault, then
+  # `reliquary-tc`'s `bin` field points to (dist/cli.js), generates a five-note fixture vault, then
   # drives the real CLI over stdio with the MCP client SDK: initialize, tools/list (the triad),
   # search_text for a seeded phrase, get_index_status (degraded, never an error), then SIGTERM.
   # The THE-941 task report captures two red runs proving this fails for the right reason: the
@@ -671,7 +671,7 @@ jobs:
           path: ~/.cache/obtc-smoke-models/embedder-local/nomic-ai/nomic-embed-text-v1.5/e9b6763023c676ca8431644204f50c2b100d9aab
           key: local-embedder-model-nomic-embed-text-v1.5-q8-e9b6763023c676ca8431644204f50c2b100d9aab
       # The smoke runs under an isolated HOME; it copies this cache dir into that home's
-      # `.obsidian-tc/models` before the run and back after, so the real home is never touched.
+      # `.reliquary-tc/models` before the run and back after, so the real home is never touched.
       - name: zero-config smoke, local embeddings end-to-end (search_semantic, reconcile ok)
         run: bun run smoke:zero-config -- --expect-local-embeddings --reconcile-timeout-ms 180000 --model-cache "$HOME/.cache/obtc-smoke-models"
         working-directory: packages/server
@@ -840,7 +840,7 @@ jobs:
   acl-audit:
     # THE-607: src/vault/acl-audit.ts (THE-414 follow-up, #280) already exists and already
     # verifies that a tool's declared `pathAcl` extractor mirrors the vault paths its handler
-    # actually resolves for filesystem ops -- but it is gated on OBSIDIAN_TC_ACL_AUDIT, which
+    # actually resolves for filesystem ops -- but it is gated on RELIQUARY_TC_ACL_AUDIT, which
     # nothing set. This job is the first thing that ever sets it in strict mode.
     #
     # Deliberately NOT folded into build-test: that matrix's module-harness tests
@@ -924,7 +924,7 @@ jobs:
           set -euo pipefail
           bun -e '
             import { createRequire } from "node:module";
-            const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native");
+            const mod = createRequire(import.meta.url)("@the-40-thieves/reliquary-tc-native");
             if (mod.nativeLoaded !== true) {
               console.error("native-contract: compiled addon did NOT load -- silently on the JS fallback");
               process.exit(1);

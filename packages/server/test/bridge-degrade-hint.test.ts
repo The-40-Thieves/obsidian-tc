@@ -1,4 +1,4 @@
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { withDegradeHint } from "../src/tools/m4/shared";
 
@@ -9,8 +9,8 @@ describe("withDegradeHint", () => {
     err.requiresLiveObsidian("headless vault", { plugin: "tasks" }),
   ])("enriches a $code degrade, preserving code + details", (e) => {
     const out = withDegradeHint(e, "use list_tasks");
-    expect(out).toBeInstanceOf(ObsidianTcError);
-    const o = out as ObsidianTcError;
+    expect(out).toBeInstanceOf(ReliquaryTcError);
+    const o = out as ReliquaryTcError;
     expect(o.code).toBe(e.code);
     expect(o.details?.hint).toBe("use list_tasks");
     expect(o.details?.plugin).toBe("tasks");

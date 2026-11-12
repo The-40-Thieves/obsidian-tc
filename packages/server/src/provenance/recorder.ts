@@ -20,7 +20,7 @@
 
 import { createHash } from "node:crypto";
 import { hostname } from "node:os";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { writeEvent } from "../audit";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -278,7 +278,7 @@ export function resolveHostId(cfg: {
 }): string {
   if (cfg.mode === "label" && cfg.label) return cfg.label;
   return createHash("sha256")
-    .update(`obsidian-tc:host:${hostname()}`, "utf8")
+    .update(`reliquary-tc:host:${hostname()}`, "utf8")
     .digest("hex")
     .slice(0, 32);
 }

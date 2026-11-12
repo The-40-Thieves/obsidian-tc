@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * link-plugin — symlinks packages/plugin/dist/ into a vault's
- * `.obsidian/plugins/tc-bridge/` directory (plugin id `tc-bridge`, renamed from `obsidian-tc`
+ * `.obsidian/plugins/tc-bridge/` directory (plugin id `tc-bridge`, renamed from `reliquary-tc`
  * THE-943), the manual step CONTRIBUTING.md's "Running the plugin in Obsidian" section otherwise
  * has a contributor build by hand every time ("Symlink packages/plugin/dist/ into your test
  * vault's .obsidian/plugins/tc-bridge/ directory").

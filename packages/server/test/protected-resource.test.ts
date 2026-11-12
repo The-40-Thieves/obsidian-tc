@@ -1,4 +1,4 @@
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { buildProtectedResourceMetadata, isPrmConfigured } from "../src/auth/protected-resource";
 

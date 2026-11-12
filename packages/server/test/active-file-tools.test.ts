@@ -8,7 +8,7 @@
 // overwrite confirmation) is the one that runs.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { FakeRequestInfo, FakeRoute } from "../src/bridge";
@@ -299,7 +299,7 @@ describe("no active file / bridge unavailable: typed errors, never a default pat
     expect(malformed.code).toBe("plugin_incompatible");
     expect(malformed.message).toBe("companion returned an unexpected response payload");
     expect(malformed.details).toMatchObject({
-      plugin: "obsidian-tc-companion",
+      plugin: "reliquary-tc-companion",
       issues: [{ path: "path", code: "invalid_type" }],
     });
     for (const bad of ["../outside.md", "/etc/passwd", "a/../../b.md"]) {

@@ -808,7 +808,7 @@ describe("deriveClosedWindows", () => {
 
   // THE-726 review round 1 BLOCKING #3 (second half): a cache.db that exists as a FILE but was
   // never provisioned (no migrations run — `openDatabase` creates an empty file) has no
-  // `workspace_sessions` table. Reachable today: `obsidian-tc reflect` against a cacheDir the
+  // `workspace_sessions` table. Reachable today: `reliquary-tc reflect` against a cacheDir the
   // server never booted. Mirrors maintenance.ts's `job_schedule` guard.
   it("no-ops cleanly when cache.db has no workspace_sessions table, rather than throwing", async () => {
     const bareCacheDb = openMemoryDb(); // NOT provisionCacheDb()'d — no tables at all

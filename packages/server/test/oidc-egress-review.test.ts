@@ -3,7 +3,7 @@
 //  - allowedJwksHosts matched the hostname and ignored the port the discovered jwks_uri names;
 //  - a jwks_uri carrying query credentials was printed verbatim in errors, the startup line and
 //    the doctor output.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createOidcVerifier, oidcBootNotice } from "../src/auth/oidc";
 import { boundedJwksFetch, discoverOidc, fetchBoundedText } from "../src/auth/oidc-discovery";

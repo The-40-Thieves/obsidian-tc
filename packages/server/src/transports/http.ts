@@ -5,7 +5,7 @@ import type {
   ResponseFormat,
   ServerConfig,
   ToolVisibilityConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import "../auth/as-issuing";

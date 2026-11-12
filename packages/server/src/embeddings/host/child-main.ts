@@ -1,5 +1,5 @@
 // GH #1433 rec 4, step 2: the embedder child. cli.ts runs this instead of the CLI when a parent spawned
-// it with OBSIDIAN_TC_EMBEDDER_HOST=1 (child-process.ts). It loads the local embedder through the same
+// it with RELIQUARY_TC_EMBEDDER_HOST=1 (child-process.ts). It loads the local embedder through the same
 // resolution ladder as the in-process host and answers the protocol (protocol.ts) on the given streams.
 // Its stdout IS the protocol channel, so everything else it logs goes to stderr.
 import { createInterface } from "node:readline";
@@ -32,7 +32,7 @@ export async function runEmbedderChild(
 ): Promise<void> {
   // The flag that started this child must not reach the model stack: a child that inherits it would
   // treat any child it starts as another embedder child.
-  delete process.env.OBSIDIAN_TC_EMBEDDER_HOST;
+  delete process.env.RELIQUARY_TC_EMBEDDER_HOST;
   const restoreConsole = routeConsoleToStderr();
   const reply = (message: ChildMessage): void => {
     io.output.write(encodeMessage(message));

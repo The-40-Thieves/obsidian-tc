@@ -52,7 +52,7 @@ export interface MetricDoc {
   buckets?: number[];
 }
 
-/** A typed error code from the ObsidianTcError taxonomy. */
+/** A typed error code from the ReliquaryTcError taxonomy. */
 export interface ErrorDoc {
   code: string;
   description?: string;

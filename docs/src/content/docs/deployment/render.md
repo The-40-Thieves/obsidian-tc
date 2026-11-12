@@ -1,15 +1,15 @@
 ---
 title: Render
-description: Deploy obsidian-tc on Render from a Blueprint, with a persistent disk, generated secrets and a health check.
+description: Deploy reliquary-tc on Render from a Blueprint, with a persistent disk, generated secrets and a health check.
 ---
 
 :::caution
-These templates need obsidian-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
+These templates need reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
 :::
 
 The repository's `render.yaml` is a Render Blueprint. It creates one web service from the published
-image `ghcr.io/the-40-thieves/obsidian-tc:latest` with a persistent disk at `/data`. The image's
-ENTRYPOINT boots the server from `OBSIDIAN_TC_CONFIG`, and the server serves HTTP on the port Render
+image `ghcr.io/the-40-thieves/reliquary-tc:latest` with a persistent disk at `/data`. The image's
+ENTRYPOINT boots the server from `RELIQUARY_TC_CONFIG`, and the server serves HTTP on the port Render
 injects as `PORT`. Nothing here needs a shell on the host, but the config file must be written to
 the disk before the first boot (see [Config file](#config-file)).
 
@@ -22,13 +22,13 @@ CI tested is the one that runs, and Render runs no build.
 | --- | --- | --- |
 | Service type | `web`, `runtime: image` | Pulls the published image. |
 | Plan | `1c-2g` (Standard, 2 GB) | A persistent disk needs a paid plan. Starter (`0.5c-512mb`, 512 MB) is below the roughly 430 MB idle footprint plus indexing peaks. |
-| Disk | `obsidian-tc-data`, mounted at `/data`, 10 GB | The vault, the cache and the config file live here. The disk can be grown later but not shrunk. |
+| Disk | `reliquary-tc-data`, mounted at `/data`, 10 GB | The vault, the cache and the config file live here. The disk can be grown later but not shrunk. |
 | Health check | `healthCheckPath: /healthz` | Liveness only. See [Railway](/deployment/railway/#environment-variables) for why `allowedHosts` must include the public host. |
-| `OBSIDIAN_TC_CONFIG` | `/data/config.json` | The config file on the disk. |
-| `OBSIDIAN_TC_VAULT_PATH` | `/data/vault` | The vault, on the disk. |
-| `OBSIDIAN_TC_CACHE_DIR` | `/data/cache` | The cache, on the disk. |
-| `OBSIDIAN_TC_PUBLIC_URL` | prompted | The public origin. See [Public URL](#public-url-and-custom-domain). |
-| `OBSIDIAN_TC_AS_SETUP_TOKEN` | generated | Claims the bundled authorization server once. See [First-run claim](#first-run-claim). |
+| `RELIQUARY_TC_CONFIG` | `/data/config.json` | The config file on the disk. |
+| `RELIQUARY_TC_VAULT_PATH` | `/data/vault` | The vault, on the disk. |
+| `RELIQUARY_TC_CACHE_DIR` | `/data/cache` | The cache, on the disk. |
+| `RELIQUARY_TC_PUBLIC_URL` | prompted | The public origin. See [Public URL](#public-url-and-custom-domain). |
+| `RELIQUARY_TC_AS_SETUP_TOKEN` | generated | Claims the bundled authorization server once. See [First-run claim](#first-run-claim). |
 | `OPENAI_API_KEY` | prompted, blank by default | Only for an embeddings config that names the `openai` provider. See [Embeddings](/configuration/embeddings/). |
 
 Render also injects `PORT`, which the server reads as described in
@@ -51,13 +51,13 @@ and the plan in the Blueprint review before you create the service.
 ## Create the service
 
 1. Click **Deploy to Render** in the repository README, or open
-   `https://render.com/deploy?repo=https://github.com/The-40-Thieves/obsidian-tc`.
+   `https://render.com/deploy?repo=https://github.com/The-40-Thieves/reliquary-tc`.
 2. Review the service, the plan and the disk, then enter the values Render prompts for:
-   `OBSIDIAN_TC_PUBLIC_URL`, and `OPENAI_API_KEY` if you use the `openai` embeddings provider.
-3. Render generates `OBSIDIAN_TC_AS_SETUP_TOKEN`. Copy it from the service's environment page now,
+   `RELIQUARY_TC_PUBLIC_URL`, and `OPENAI_API_KEY` if you use the `openai` embeddings provider.
+3. Render generates `RELIQUARY_TC_AS_SETUP_TOKEN`. Copy it from the service's environment page now,
    because you need it for the first-run claim.
 4. Before the first boot succeeds, write the config file to the disk. The disk is empty until then.
-   `OBSIDIAN_TC_CONFIG` names this file, so it must exist before the server can be configured from
+   `RELIQUARY_TC_CONFIG` names this file, so it must exist before the server can be configured from
    it. Use the same starting
    point as [Railway's config file](/deployment/railway/#config-file), with the paths above:
    `/data/vault` for the vault and `/data/cache` for the cache. Set `transports.http.host` to
@@ -65,7 +65,7 @@ and the plan in the Blueprint review before you create the service.
 
 ## Public URL and custom domain
 
-`OBSIDIAN_TC_PUBLIC_URL` must be `https://host` or `https://host:port`, with no path, query or
+`RELIQUARY_TC_PUBLIC_URL` must be `https://host` or `https://host:port`, with no path, query or
 credentials. Render gives each service a `https://<name>.onrender.com` address; set the variable to
 that origin, or to your own domain once it is attached in the Render dashboard. The value sets
 `auth.resource` (the origin plus `/mcp`) and is added to `allowedHosts`, so a custom domain must be
@@ -75,7 +75,7 @@ domain.
 ## First-run claim
 
 With `auth.as` enabled in the config file, claim the operator account once: open
-`<public URL>/oauth/setup` and enter `OBSIDIAN_TC_AS_SETUP_TOKEN`. Then remove the variable from the
+`<public URL>/oauth/setup` and enter `RELIQUARY_TC_AS_SETUP_TOKEN`. Then remove the variable from the
 service's environment. The setup token is for the one claim; leaving it set makes the server warn at
 every boot. The full authorization-server flow is in
 [Authentication](/deployment/railway/#authentication), which applies unchanged.

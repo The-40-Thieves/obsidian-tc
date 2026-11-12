@@ -6,7 +6,7 @@
 // the wiki folder's own identity check (insideFolder): the path as written AND the real path it leads
 // to, so a symlink in raw/ that leads out, or one that leads in, is not a source. A source the
 // caller may not read answers exactly like a missing one, before any byte of it is read.
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { CallerContext } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { parseNoteLenient } from "../../../vault/frontmatter";
@@ -82,7 +82,7 @@ export function readRawSource(
   try {
     enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.code === "acl_denied") return notFound();
+    if (e instanceof ReliquaryTcError && e.code === "acl_denied") return notFound();
     throw e;
   }
   if (!insideFolder(v.root, v.rawFolder, rel))

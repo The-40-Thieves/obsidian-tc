@@ -32,7 +32,7 @@ describe("mcp transport round-trip", () => {
     });
 
     const server = createMcpServer({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry,
       context,
@@ -62,7 +62,7 @@ describe("mcp transport round-trip", () => {
     const content = res.content as Array<{ type: string; text: string }>;
     const payload = JSON.parse(content[0]?.text ?? "null");
     expect(payload.status).toBe("ok");
-    expect(payload.name).toBe("obsidian-tc");
+    expect(payload.name).toBe("reliquary-tc");
 
     const rows = db.prepare("SELECT tool_name, status FROM event_log").all() as Array<{
       tool_name: string;

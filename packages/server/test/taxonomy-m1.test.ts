@@ -1,11 +1,11 @@
 import {
   AclConfigSchema,
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   recoveryFor,
   VaultId,
   VaultPath,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("M1 error taxonomy", () => {
@@ -25,9 +25,9 @@ describe("M1 error taxonomy", () => {
     });
   });
   it("marks concurrent_modification retryable, path_ambiguous not", () => {
-    expect(new ObsidianTcError("concurrent_modification", "x").retryable).toBe(true);
-    expect(new ObsidianTcError("path_ambiguous", "x").retryable).toBe(false);
-    expect(new ObsidianTcError("note_not_found", "x").retryable).toBe(false);
+    expect(new ReliquaryTcError("concurrent_modification", "x").retryable).toBe(true);
+    expect(new ReliquaryTcError("path_ambiguous", "x").retryable).toBe(false);
+    expect(new ReliquaryTcError("note_not_found", "x").retryable).toBe(false);
   });
 });
 

@@ -318,7 +318,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         input: flagValue(rest, "--config") ?? positional(rest),
       };
     }
-    // THE-697: reindex from the command line. Before this, `obsidian-tc index` parsed as
+    // THE-697: reindex from the command line. Before this, `reliquary-tc index` parsed as
     // `{ kind: "serve", input: "index" }` — the word was read as a config path, so the CLI's answer
     // to a reindex request was to try to boot a server against a file named `index`.
     if (first === "index") {
@@ -642,7 +642,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       // path USAGE documents (`rerun <session-id> [path] ...`) -- can be found the same way every
       // sibling command finds its config path: `flagValue(rest, "--config") ?? positional(scan)`
       // (see `prefetch` just above). Without this, `scan.find` above never advances past the
-      // session id, so a path positional silently falls through to OBSIDIAN_TC_CONFIG/the default.
+      // session id, so a path positional silently falls through to RELIQUARY_TC_CONFIG/the default.
       scan.splice(scan.indexOf(sessionId), 1);
       const vault = flagValue(rest, "--vault");
       const input = flagValue(rest, "--config") ?? positional(scan);

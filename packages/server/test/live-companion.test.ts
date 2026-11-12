@@ -8,32 +8,32 @@
 //
 // It does NOT modify your vault (editing community-plugins.json under a running Obsidian
 // races with Obsidian's own persistence). Install + enable the companion first, then run it:
-//   1. cd packages/plugin && bun run build      (or: obsidian-tc plugin install --vault <path>)
+//   1. cd packages/plugin && bun run build      (or: reliquary-tc plugin install --vault <path>)
 //   2. copy packages/plugin/dist/{main.js,manifest.json,styles.css}
 //        -> <vault>/.obsidian/plugins/tc-bridge/
 //   3. enable "TC Bridge" in Obsidian (Settings -> Community plugins) and reload the app.
-// THE-943: the companion plugin's manifest id/name renamed obsidian-tc -> tc-bridge / "TC
-// Bridge"; `obsidian-tc plugin install` above is the SERVER's CLI binary name (unchanged,
+// THE-943: the companion plugin's manifest id/name renamed reliquary-tc -> tc-bridge / "TC
+// Bridge"; `reliquary-tc plugin install` above is the SERVER's CLI binary name (unchanged,
 // `packages/server`'s own package name) and already installs to the id-derived folder
 // automatically (`installPlugin` reads `manifest.id`), so step 1 needs no change either way.
 // This suite exercises the bridge ROUTES, which only the renamed tc-bridge build registers — it
 // is unrelated to and does NOT need packages/plugin/legacy/ (THE-943's old-id sunset build),
 // which registers no routes at all and would fail every assertion below if pointed at instead.
 // Then, from packages/server:
-//   OBSIDIAN_TC_LIVE=1 OBSIDIAN_TC_LIVE_VAULT="C:/path/to/your/vault" \
-//   OBSIDIAN_TC_LIVE_EXPECT="dataview,text-extractor" \
+//   RELIQUARY_TC_LIVE=1 RELIQUARY_TC_LIVE_VAULT="C:/path/to/your/vault" \
+//   RELIQUARY_TC_LIVE_EXPECT="dataview,text-extractor" \
 //   node ./node_modules/vitest/vitest.mjs run test/live-companion.test.ts
 //
 // It asserts GET {prefix}/probe == 200 with a sane capability snapshot + a live command
 // round-trip + LRA's native /commands/ route (the #155 fallback target). The companion
 // registers on LRA's SECURE (https) server, so the test talks https and pins LRA's
 // self-signed cert as a trusted CA (from the vault's LRA data.json, or a PEM at
-// OBSIDIAN_TC_LIVE_CACERT) — it never disables TLS validation.
+// RELIQUARY_TC_LIVE_CACERT) — it never disables TLS validation.
 //
-// Env: OBSIDIAN_TC_LIVE (gate) | OBSIDIAN_TC_LIVE_VAULT (vault path; its LRA data.json supplies
-// the key + cert) | OBSIDIAN_TC_LIVE_URL (default https://127.0.0.1:27124) | OBSIDIAN_TC_LIVE_KEY
-// | OBSIDIAN_TC_LIVE_CACERT (PEM path; default: the vault cert) | OBSIDIAN_TC_LIVE_PREFIX
-// (default /obsidian-tc/v1) | OBSIDIAN_TC_LIVE_EXPECT (CSV of capability keys expected installed).
+// Env: RELIQUARY_TC_LIVE (gate) | RELIQUARY_TC_LIVE_VAULT (vault path; its LRA data.json supplies
+// the key + cert) | RELIQUARY_TC_LIVE_URL (default https://127.0.0.1:27124) | RELIQUARY_TC_LIVE_KEY
+// | RELIQUARY_TC_LIVE_CACERT (PEM path; default: the vault cert) | RELIQUARY_TC_LIVE_PREFIX
+// (default /obsidian-tc/v1) | RELIQUARY_TC_LIVE_EXPECT (CSV of capability keys expected installed).
 
 import { readFileSync } from "node:fs";
 import * as http from "node:http";
@@ -42,11 +42,11 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
 
-const LIVE = !!process.env.OBSIDIAN_TC_LIVE;
-const VAULT = process.env.OBSIDIAN_TC_LIVE_VAULT ?? "";
-const BASE = (process.env.OBSIDIAN_TC_LIVE_URL ?? "https://127.0.0.1:27124").replace(/\/+$/, "");
-const PREFIX = process.env.OBSIDIAN_TC_LIVE_PREFIX ?? "/obsidian-tc/v1";
-const EXPECT = (process.env.OBSIDIAN_TC_LIVE_EXPECT ?? "")
+const LIVE = !!process.env.RELIQUARY_TC_LIVE;
+const VAULT = process.env.RELIQUARY_TC_LIVE_VAULT ?? "";
+const BASE = (process.env.RELIQUARY_TC_LIVE_URL ?? "https://127.0.0.1:27124").replace(/\/+$/, "");
+const PREFIX = process.env.RELIQUARY_TC_LIVE_PREFIX ?? "/obsidian-tc/v1";
+const EXPECT = (process.env.RELIQUARY_TC_LIVE_EXPECT ?? "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -72,8 +72,8 @@ function lraData(): { apiKey?: string; crypto?: { cert?: string } } {
 }
 
 function lraKey(): string {
-  const key = process.env.OBSIDIAN_TC_LIVE_KEY ?? lraData().apiKey;
-  if (!key) throw new Error("no LRA apiKey (set OBSIDIAN_TC_LIVE_KEY or OBSIDIAN_TC_LIVE_VAULT)");
+  const key = process.env.RELIQUARY_TC_LIVE_KEY ?? lraData().apiKey;
+  if (!key) throw new Error("no LRA apiKey (set RELIQUARY_TC_LIVE_KEY or RELIQUARY_TC_LIVE_VAULT)");
   return key;
 }
 
@@ -82,10 +82,12 @@ function lraKey(): string {
 let agent: https.Agent | undefined;
 function httpsAgent(): https.Agent {
   if (!agent) {
-    const caPath = process.env.OBSIDIAN_TC_LIVE_CACERT;
+    const caPath = process.env.RELIQUARY_TC_LIVE_CACERT;
     const ca = caPath ? readFileSync(caPath, "utf8") : lraData().crypto?.cert;
     if (!ca)
-      throw new Error("no LRA cert to pin (set OBSIDIAN_TC_LIVE_CACERT or OBSIDIAN_TC_LIVE_VAULT)");
+      throw new Error(
+        "no LRA cert to pin (set RELIQUARY_TC_LIVE_CACERT or RELIQUARY_TC_LIVE_VAULT)",
+      );
     agent = new https.Agent({ ca });
   }
   return agent;
@@ -136,7 +138,7 @@ function api(
 
 describe.skipIf(!LIVE)("live companion <-> LRA bridge (opt-in)", () => {
   beforeAll(async () => {
-    if (!VAULT) throw new Error("set OBSIDIAN_TC_LIVE_VAULT to the vault path");
+    if (!VAULT) throw new Error("set RELIQUARY_TC_LIVE_VAULT to the vault path");
     const { status } = await api(`${PREFIX}/probe`).catch(() => ({ status: 0, json: null }));
     if (status !== 200)
       throw new Error(

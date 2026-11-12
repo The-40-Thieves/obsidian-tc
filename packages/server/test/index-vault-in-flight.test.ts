@@ -5,7 +5,7 @@
 // exercises the exact wiring production uses rather than a hand-fed value.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import {

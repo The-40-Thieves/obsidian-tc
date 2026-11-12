@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -29,7 +29,7 @@ async function boot(auth: ServerConfig["auth"]) {
     }),
   );
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,
@@ -53,7 +53,7 @@ async function signed(secret: string, claims: Record<string, unknown>): Promise<
 
 /** THE-658: auth.mode "jwt" now requires an audience — an aud-less token is replayable
  *  against any service sharing the secret, which is the hole this closes. */
-const AUD = "http://obsidian-tc.test";
+const AUD = "http://reliquary-tc.test";
 
 describe("mcp streamable http transport", () => {
   it(

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { openAuthRegistry } from "../src/auth/registry-open";
@@ -65,9 +65,9 @@ describe("wireTransports: auth registry", () => {
     try {
       expect(wiring.authRegistry).toBeDefined();
       const text = await metrics.metrics();
-      expect(text).toContain('obsidian_tc_auth_keys{state="active"} 1');
-      expect(text).toContain('obsidian_tc_auth_keys{state="retiring"} 1');
-      expect(text).toContain('obsidian_tc_auth_keys{state="retired"} 1');
+      expect(text).toContain('reliquary_tc_auth_keys{state="active"} 1');
+      expect(text).toContain('reliquary_tc_auth_keys{state="retiring"} 1');
+      expect(text).toContain('reliquary_tc_auth_keys{state="retired"} 1');
     } finally {
       await wiring.close();
     }
@@ -97,16 +97,16 @@ describe("wireTransports: auth registry", () => {
     const wiring = await wireTransports(deps(config, metrics));
     try {
       // The implicit config key is the one active key.
-      expect(await metrics.metrics()).toContain('obsidian_tc_auth_keys{state="active"} 1');
+      expect(await metrics.metrics()).toContain('reliquary_tc_auth_keys{state="active"} 1');
     } finally {
       await wiring.close();
     }
   });
 });
 
-describe("obsidian_tc_auth_keys gauge", () => {
+describe("reliquary_tc_auth_keys gauge", () => {
   it("reports effective counts per state, and emits nothing while unbound", async () => {
-    expect(await new MetricsRecorder().metrics()).not.toMatch(/^obsidian_tc_auth_keys\{/m);
+    expect(await new MetricsRecorder().metrics()).not.toMatch(/^reliquary_tc_auth_keys\{/m);
 
     const db = openMemoryDb();
     provisionAuthDb(db);
@@ -122,13 +122,13 @@ describe("obsidian_tc_auth_keys gauge", () => {
     rec.bindAuthKeys(() => registry.keyCounts());
     registry.rotateKey({ graceSeconds: 60 });
     let text = await rec.metrics();
-    expect(text).toContain('obsidian_tc_auth_keys{state="active"} 1');
-    expect(text).toContain('obsidian_tc_auth_keys{state="retiring"} 1');
-    expect(text).toContain('obsidian_tc_auth_keys{state="retired"} 0');
+    expect(text).toContain('reliquary_tc_auth_keys{state="active"} 1');
+    expect(text).toContain('reliquary_tc_auth_keys{state="retiring"} 1');
+    expect(text).toContain('reliquary_tc_auth_keys{state="retired"} 0');
 
     clock.t += 61_000;
     text = await rec.metrics();
-    expect(text).toContain('obsidian_tc_auth_keys{state="retiring"} 0');
-    expect(text).toContain('obsidian_tc_auth_keys{state="retired"} 1');
+    expect(text).toContain('reliquary_tc_auth_keys{state="retiring"} 0');
+    expect(text).toContain('reliquary_tc_auth_keys{state="retired"} 1');
   });
 });
