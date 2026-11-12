@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/reliquary-tc-embedder-local",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Optional bundled dense embedder for reliquary-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Ollama required",
   "license": "Apache-2.0",
   "type": "module",

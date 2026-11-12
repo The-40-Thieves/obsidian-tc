@@ -1,6 +1,6 @@
 {
   "name": "reliquary-tc",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "mcpName": "io.github.The-40-Thieves/reliquary-tc",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "license": "Apache-2.0",

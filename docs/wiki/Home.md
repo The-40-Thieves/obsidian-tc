@@ -10,7 +10,7 @@
 
 <!-- END GENERATED: stats -->
 
-> **Status:** Shipped — **v2.0.0**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/reliquary-tc:2.0.0`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **Apache-2.0** (releases up to 1.34.x: AGPL-3.0-only).
+> **Status:** Shipped — **v2.0.1**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/reliquary-tc:2.0.1`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **Apache-2.0** (releases up to 1.34.x: AGPL-3.0-only).
 
 ## Three pillars
 

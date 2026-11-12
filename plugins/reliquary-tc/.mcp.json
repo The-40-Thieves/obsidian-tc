@@ -2,7 +2,7 @@
   "mcpServers": {
     "reliquary-tc": {
       "command": "npx",
-      "args": ["-y", "reliquary-tc@2.0.0"],
+      "args": ["-y", "reliquary-tc@2.0.1"],
       "env": {
         "RELIQUARY_TC_CONFIG": "${user_config.config_path}"
       }

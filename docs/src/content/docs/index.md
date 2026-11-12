@@ -27,7 +27,7 @@ Memory you write with reliquary-tc is plain Markdown in your own vault, not a ve
 feature — see [Memory you own](/getting-started/memory-you-own/) for the on-disk shape, the ACL/
 audit pipeline every write goes through, and a session-bootstrap recipe.
 
-v2.0.0 is the current release, published to npm with a container image on GHCR.
+v2.0.1 is the current release, published to npm with a container image on GHCR.
 
 See [Getting Started](/getting-started/install/) for install instructions, or browse the [Tool Reference](/tools/).
 

@@ -19,7 +19,7 @@
     },
     "packages/native": {
       "name": "@the-40-thieves/reliquary-tc-native",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "devDependencies": {
         "@napi-rs/cli": "^3.10.9",
         "@types/node": "^26.6.4",
@@ -28,7 +28,7 @@
     },
     "packages/plugin": {
       "name": "@the-40-thieves/reliquary-tc-plugin",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "devDependencies": {
         "@types/node": "^26.6.4",
         "@vitest/coverage-v8": "^5.0.5",
@@ -39,7 +39,7 @@
     },
     "packages/server": {
       "name": "reliquary-tc",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "reliquary-tc": "./dist/cli.js",
         "obsidian-tc": "./dist/cli.js",
@@ -82,7 +82,7 @@
     },
     "packages/shared": {
       "name": "@the-40-thieves/reliquary-tc-shared",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "dependencies": {
         "zod": "^4.6.7",
       },

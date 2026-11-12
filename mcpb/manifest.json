@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "reliquary-tc",
   "display_name": "Reliquary-TC",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "author": {
     "name": "The 40 Thieves",
