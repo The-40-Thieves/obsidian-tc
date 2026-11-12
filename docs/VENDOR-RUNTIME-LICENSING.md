@@ -4,10 +4,10 @@
 > the date each one was checked. Items marked ⚠ need counsel before anything ships. Items marked
 > UNVERIFIED were not read from a primary source in this pass and must not be relied on.
 
-Context: obsidian-tc is AGPL-3.0-only ([LICENSE](../LICENSE);
-[plain-language FAQ](src/content/docs/licensing.md)). A planned clean-room engine would be
-Apache-2.0. Before any deferred vendor inference runtime ships, bundled or fetched, each artifact
-needs a row here.
+Context: obsidian-tc is Apache-2.0 ([LICENSE](../LICENSE), [NOTICE](../NOTICE);
+[plain-language page](src/content/docs/licensing.md)). Releases up to 1.34.x were AGPL-3.0-only;
+the rows below that discuss AGPL interaction describe those releases. Before any deferred vendor
+inference runtime ships, bundled or fetched, each artifact needs a row here.
 
 All "checked" dates are **2026-10-19** unless a row says otherwise. Sources are the vendor's own
 licence or EULA, the package's own LICENSE file, or the model card. Where a source was reached only
@@ -54,7 +54,7 @@ only in design or candidate lists.
 
 | Artifact | Bundled (may ship in it) | Dynamically loaded or fetched | User-installed only | Ships today? |
 |---|---|---|---|---|
-| npm package (`obsidian-tc`; `@the-40-thieves/obsidian-tc-embedder-local` base plus six per-platform runtime packages, per `packages/embedder-local/README.md`) | Our AGPL code. Runtime packages carry ORT (MIT) and the WASM fallback (MIT). The base package bundles Transformers.js (Apache-2.0). | Models fetched from Hugging Face at first use (`model-fetch.ts`) | Foundry Local, NIM, TensorRT-RTX, CUDA: planned only | Yes (embedder pack per `scripts/pack-embedder-local.ts`) |
+| npm package (`obsidian-tc`; `@the-40-thieves/obsidian-tc-embedder-local` base plus six per-platform runtime packages, per `packages/embedder-local/README.md`) | Our Apache-2.0 code. Runtime packages carry ORT (MIT) and the WASM fallback (MIT). The base package bundles Transformers.js (Apache-2.0). | Models fetched from Hugging Face at first use (`model-fetch.ts`) | Foundry Local, NIM, TensorRT-RTX, CUDA: planned only | Yes (embedder pack per `scripts/pack-embedder-local.ts`) |
 | Compiled `bun --compile` binaries (`scripts/build-binary.ts`) | Anything the build plugin embeds: ORT native library and binding, `sqlite-vec`. The plugin in `scripts/lib/embedder-bundle.mjs` rewrites the ORT loader. | Models fetched at runtime | As for npm | Yes, the script exists. No licence text in the binary was found in `build-binary.ts` (grep for "licen"/"notice" returned nothing). |
 | MCPB bundle (`dist/obsidian-tc.mcpb`, `scripts/bundle-mcpb.ts`) | Server build, all `sqlite-vec` platform packages, ORT native libraries for each platform (`ORT_PLATFORMS`), `onnxruntime-web` WASM, `@huggingface/transformers` | Models fetched at runtime; not in the bundle | Nothing required | Yes |
 | Docker image (`Dockerfile`) | `sqlite-vec` (`cp -rL` of its platform packages), `packages/embedder-local` (including `licenses/`), runtime `node_modules` | Models fetched at runtime. No model download step found in the Dockerfile. | Foundry Local, NIM, CUDA: planned only | Yes |
@@ -115,9 +115,9 @@ Facts only. Each gap names its evidence path. None of these is fixed in this cha
    self-hosted container's NVIDIA Open Model Agreement flow down to our users?
 6. ⚠ Gemma flow-down (G7): if EmbeddingGemma returns, the §3.1 flow-down and the Prohibited Use Policy
    must be written into our terms.
-7. ⚠ AGPL interaction with Apache-2.0 and MIT components: this doc assumes they combine into an AGPL work,
-   based on the FSF licence list (not re-read here). Counsel to confirm, including for the `openvino`
-   Apache-2.0 §4 NOTICE duty.
+7. ⚠ Apache-2.0 §4 NOTICE duty for bundled Apache-2.0 components (including `openvino`): their
+   NOTICE text must reach our NOTICE when bundled. Counsel to confirm. (Through 1.34.x this item asked
+   whether they combined into an AGPL work; that question no longer applies to new releases.)
 8. ⚠ Windows ML, MIGraphX and Vitis AI: what licence governs an execution provider delivered by Windows
    Update, and whether we may call it without bundling it.
 
@@ -125,7 +125,7 @@ Facts only. Each gap names its evidence path. None of these is fixed in this cha
 
 All dated 2026-10-19 unless noted.
 
-- AGPL-3.0 (repo): [LICENSE](../LICENSE)
+- Apache-2.0 (repo): [LICENSE](../LICENSE), [NOTICE](../NOTICE)
 - Foundry Local License Terms: https://raw.githubusercontent.com/microsoft/Foundry-Local/main/LICENSE (partial read)
 - `foundry-local-sdk` 2.1.0 LICENSE (MIT): https://www.npmjs.com/package/foundry-local-sdk
 - NVIDIA TensorRT RTX License (21Apr2025): https://developer.download.nvidia.com/licenses/NVIDIA_TensorRT_RTX_License_(21Apr2025).pdf (not readable; search snippet only)

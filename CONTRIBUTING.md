@@ -460,7 +460,7 @@ The current runbook lives at `docs/RELEASING.md`.
 
 ## License and Sign-off (DCO)
 
-obsidian-tc is licensed under [AGPL-3.0-only](./LICENSE). A separate commercial-exception license may also be available for organizations that cannot meet the AGPL's network-copyleft terms; if that applies to you, open a discussion to ask — the terms are decided case by case and are not published here.
+obsidian-tc is licensed under the [Apache License 2.0](./LICENSE); see also [NOTICE](./NOTICE). Releases up to and including 1.34.x were licensed AGPL-3.0-only and keep that licence. Your contribution is licensed to the project and its users under Apache-2.0 (section 5 of the licence).
 
 Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/) (DCO), not a CLA. By signing off a commit you certify the DCO: that you wrote the change or otherwise have the right to submit it under the project's license.
 

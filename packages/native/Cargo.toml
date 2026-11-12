@@ -5,7 +5,7 @@ edition = "2024"
 # THE-542: without this, a too-old toolchain fails with an opaque edition-2024 parse error instead of
 # "package requires rustc 1.99". Kept in step with packages/native/rust-toolchain.toml.
 rust-version = "1.99"
-license = "AGPL-3.0-only"
+license = "Apache-2.0"
 description = "Native perf module for obsidian-tc"
 repository = "https://github.com/The-40-Thieves/obsidian-tc"
 

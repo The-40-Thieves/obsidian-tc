@@ -96,6 +96,7 @@ try {
     pins,
     readme: join(embedderDir, "README.md"),
     license: join(embedderDir, "LICENSE"),
+    notice: join(embedderDir, "NOTICE"),
   });
   assertNoRuntimeBinaries(baseDir);
 

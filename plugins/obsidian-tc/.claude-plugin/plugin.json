@@ -9,7 +9,7 @@
   },
   "homepage": "https://obsidian-tc.the40thieves.io",
   "repository": "https://github.com/The-40-Thieves/obsidian-tc",
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "keywords": ["obsidian", "mcp", "notes", "knowledge-base", "memory", "vault"],
   "userConfig": {
     "config_path": {

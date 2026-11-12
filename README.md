@@ -4,7 +4,7 @@
 
 > Obsidian Turbocharged — governed, agent-ready vault access over MCP.
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 ![Status: Shipped v1.34.0](https://img.shields.io/badge/Status-Shipped_v1.34.0-success)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/The-40-Thieves/obsidian-tc?utm_source=badge)
 
@@ -61,8 +61,6 @@ Honest guidance — this is a heavier product than most:
   published — see [Embeddings](https://obsidian-tc.the40thieves.io/configuration/embeddings/).
 - **Zero-config trades away auth/ACLs.** `obsidian-tc /path/to/vault` boots with auth off, no
   folder ACL — fine only because it's local-only; governance is opt-in. Detail: [SECURITY.md](./SECURITY.md).
-- **AGPL-3.0's network-copyleft terms.** Not permissive; a commercial license may exist — see
-  [License](#license).
 - **Single-maintainer project.**
 - **Everything inside Obsidian, or vault-independent memory.** See the
   [comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/) above.
@@ -196,10 +194,9 @@ Official app: [obsidian.md](https://obsidian.md).
 
 ### License
 
-AGPL-3.0-only. See [LICENSE](./LICENSE) and the
-[licensing FAQ](https://obsidian-tc.the40thieves.io/licensing/); a commercial exception may
-exist — open a [discussion](https://github.com/The-40-Thieves/obsidian-tc/discussions).
-Contributions under the [DCO](https://developercertificate.org/); sign-off in
+Apache-2.0. See [LICENSE](./LICENSE), [NOTICE](./NOTICE) and the
+[licensing page](https://obsidian-tc.the40thieves.io/licensing/). Releases up to 1.34.x stay
+AGPL-3.0-only. Contributions under the [DCO](https://developercertificate.org/); sign-off in
 [CONTRIBUTING.md](./CONTRIBUTING.md#license-and-sign-off-dco).
 
 ### Contributing

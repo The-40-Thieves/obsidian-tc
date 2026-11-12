@@ -3,7 +3,7 @@
   "version": "1.34.0",
   "private": true,
   "description": "Obsidian Turbocharged — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "author": "The 40 Thieves",
   "repository": {
     "type": "git",

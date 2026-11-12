@@ -18,4 +18,4 @@
 - [[FAQ]]
 
 ---
-[Repository](https://github.com/The-40-Thieves/obsidian-tc) · AGPL-3.0-only
+[Repository](https://github.com/The-40-Thieves/obsidian-tc) · Apache-2.0

@@ -8,8 +8,8 @@
 #
 # The allow-list below is DERIVED, not guessed: it is the exact set of licences present in the
 # current dependency graph (`cargo metadata | jq -r '.packages[].license'`), all permissive.
-# Note that obsidian-tc-native itself is AGPL-3.0-only — that is this project's own licence, not a
-# dependency, and `private.ignore` below keeps the workspace member out of the third-party check.
+# obsidian-tc-native itself is Apache-2.0, which the allow-list already covers, so the workspace
+# member needs no exception of its own.
 
 [graph]
 # Check every target the release builds for, not just the host. A dependency can be pulled in by a
@@ -38,12 +38,6 @@ allow = [
   "Unicode-3.0",
 ]
 confidence-threshold = 0.9
-
-[[licenses.exceptions]]
-# The workspace member itself. AGPL applies to this project's own source, and it is not a
-# third-party dependency of anyone.
-name = "obsidian-tc-native"
-allow = ["AGPL-3.0-only"]
 
 [bans]
 multiple-versions = "warn" # informative; a duplicate major is bloat, not a correctness problem

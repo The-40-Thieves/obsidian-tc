@@ -14,7 +14,7 @@ npx -y obsidian-tc@<plugin version>
 ```
 
 That downloads the published [`obsidian-tc`](https://www.npmjs.com/package/obsidian-tc) npm package
-(AGPL-3.0-only, provenance-signed) and runs it on your machine under Node 24 or later. The server
+(Apache-2.0, provenance-signed) and runs it on your machine under Node 24 or later. The server
 reads the vault folders named in your config file and writes only inside them, subject to the
 config's ACL. It sends nothing off your machine except what you configure yourself (for example a
 hosted embeddings provider). Nothing is bundled in this plugin besides the manifests.

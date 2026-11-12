@@ -74,7 +74,8 @@ test("runtime package names and manifests carry exact npm platform filters", () 
 
 test("the base manifest has no dependencies and exact-pins every runtime package", () => {
   const manifest = basePackageManifest(VERSION, KEYS);
-  assert.equal(manifest.license, "AGPL-3.0-only");
+  assert.equal(manifest.license, "Apache-2.0");
+  assert.deepEqual(manifest.files.slice(-2), ["LICENSE", "NOTICE"]);
   assert.equal("dependencies" in manifest, false);
   assert.deepEqual(
     manifest.optionalDependencies,
@@ -143,12 +144,14 @@ test("assembly writes base and runtime package layouts", () => {
   const bundle = join(fixtures, "bundle.mjs");
   const readme = join(fixtures, "README.md");
   const baseLicense = join(fixtures, "BASE-LICENSE");
+  const baseNotice = join(fixtures, "BASE-NOTICE");
   const runtimeLicense = join(fixtures, "RUNTIME-LICENSE");
   const runtimeFile = join(fixtures, "onnxruntime_binding.node");
   writeFileSync(entry, "export const entry = true;\n");
   writeFileSync(bundle, "export const bundle = true;\n");
   writeFileSync(readme, "readme\n");
-  writeFileSync(baseLicense, "AGPL\n");
+  writeFileSync(baseLicense, "Apache\n");
+  writeFileSync(baseNotice, "notice\n");
   writeFileSync(runtimeLicense, "MIT\n");
   writeFileSync(runtimeFile, "native\n");
   const pins = runtimePins(VERSION, {
@@ -162,6 +165,7 @@ test("assembly writes base and runtime package layouts", () => {
     pins,
     readme,
     license: baseLicense,
+    notice: baseNotice,
   });
   const runtime = assembleRuntimePackage(
     root,
@@ -174,9 +178,18 @@ test("assembly writes base and runtime package layouts", () => {
   assert.equal(base, join(root, "base"));
   assert.equal(runtime, join(root, "linux-x64"));
   assert.deepEqual(
-    ["LICENSE", "README.md", "embedder.mjs", "index.mjs", "package.json", "runtime-pins.json"],
     [
       "LICENSE",
+      "NOTICE",
+      "README.md",
+      "embedder.mjs",
+      "index.mjs",
+      "package.json",
+      "runtime-pins.json",
+    ],
+    [
+      "LICENSE",
+      "NOTICE",
       "README.md",
       "embedder.mjs",
       "index.mjs",

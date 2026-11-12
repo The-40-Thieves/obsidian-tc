@@ -3,7 +3,7 @@
   "version": "1.34.0",
   "mcpName": "io.github.The-40-Thieves/obsidian-tc",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
@@ -13,7 +13,8 @@
     "dist",
     "README.md",
     "SKILLS.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --external @redis/client --minify --sourcemap=linked && bun scripts/copy-assets.mjs",

@@ -33,7 +33,7 @@ test("claude plugin.json: kebab-case name, lockstep version, author, license", (
   assert.equal(typeof claude.description, "string");
   assert.ok(claude.description.length > 0);
   assert.equal(typeof claude.author?.name, "string");
-  assert.equal(claude.license, "AGPL-3.0-only");
+  assert.equal(claude.license, "Apache-2.0");
 });
 
 test("claude plugin.json: the config path is a required user option that .mcp.json substitutes", () => {

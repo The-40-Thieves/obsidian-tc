@@ -204,7 +204,7 @@ const NOMIC_EMBED_TEXT_V1_5: EmbeddingModelInfo = {
  *  "gemma" (Google's Gemma Terms of Use), not an OSI-approved open-source license. The Gemma terms
  *  carry a Prohibited Use Policy Google may update unilaterally and redistribution obligations
  *  (trademark notice, terms pass-through) that do not fit "auto-downloaded by default from every
- *  install of an AGPL-3.0 public server" — a user would be bound to those terms without having
+ *  install of a public open-source server" — a user would be bound to those terms without having
  *  agreed to them. Left undeclared here (no catalog entry) rather than declared-and-refused, since
  *  it is not close to being supportable.
  *

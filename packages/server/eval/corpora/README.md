@@ -12,7 +12,7 @@ ran. It changes no default and records no mechanism result; its one run is a har
 | --- | --- | --- | ---: | --- | --- |
 | `quartz-docs` | code documentation | English | 111 | MIT | `jackyzha0/quartz`, subtree `docs/` |
 | `knowledge-garden` | personal garden, deep folders | Chinese (51% CJK) | 959 | MIT | `oldwinter/knowledge-garden` |
-| `synthetic-multihop` | generated multi-hop chains | English | 638 | AGPL-3.0-only (this repo) | `eval/gen-multi-hop-slice.ts`, seed 652 |
+| `synthetic-multihop` | generated multi-hop chains | English | 638 | Apache-2.0 (this repo) | `eval/gen-multi-hop-slice.ts`, seed 652 |
 
 Notices, commits and licence texts are in [`ATTRIBUTION.md`](./ATTRIBUTION.md). The third-party corpora are
 never committed; this directory holds only the registry, the tools, the shape statistics and the golden sets.

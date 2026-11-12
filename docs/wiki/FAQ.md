@@ -26,6 +26,6 @@
 
 **How do I make the whole server read-only?** Set `acl.readOnly: true` — the kill switch short-circuits every write/delete.
 
-**Is it affiliated with Obsidian?** No. Independent, **AGPL-3.0-only**. "Obsidian" is a trademark of Dynalist Inc.
+**Is it affiliated with Obsidian?** No. Independent, **Apache-2.0** (releases up to 1.34.x: AGPL-3.0-only). "Obsidian" is a trademark of Dynalist Inc.
 
 **Where are the deep docs?** [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/ARCHITECTURE.md), [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md), and the `docs/` Astro Starlight site (quickstart, threat model, cutover guide).
