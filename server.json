@@ -3,7 +3,7 @@
   "name": "io.github.The-40-Thieves/reliquary-tc",
   "title": "Reliquary-TC",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "websiteUrl": "https://github.com/The-40-Thieves/reliquary-tc#readme",
   "repository": {
     "url": "https://github.com/The-40-Thieves/reliquary-tc",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "reliquary-tc",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "transport": {
         "type": "stdio"
       },

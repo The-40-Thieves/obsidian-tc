@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/reliquary-tc-plugin",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Companion Obsidian plugin for reliquary-tc — extends Local REST API with command dispatch and plugin firepower bridges",
   "license": "Apache-2.0",
   "private": true,

@@ -6,6 +6,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-11-12
+
+2.0.1 is the first published release under the Reliquary-TC name. The `v2.0.0` tag exists, but its publish run stopped part way: `reliquary-tc@2.0.0` and the 2.0.0 GitHub Release, image and MCP Registry entry were never published. Everything listed under 2.0.0 below ships in 2.0.1.
+
+### Fixed
+
+- **The release image smoke reads the right architecture on Docker 29.** With the containerd image store, `docker image inspect` on a multi-platform digest reports the runner's own platform, so the linux/arm64 check read an empty architecture and stopped the 2.0.0 image release. The check now passes `--platform` (#1511).
+
+### Security
+
+- **A second key may sign release tags.** `.github/allowed_signers` now lists the maintainer's Windows signing key beside the existing release key, so a `v*` tag signed with either one verifies. Releases are still verified only against `main`'s copy of the list (#1510).
+
 ## [2.0.0] - 2026-11-12
 
 ### Added
