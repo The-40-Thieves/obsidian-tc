@@ -246,7 +246,7 @@ jobs:
           published_version() {
             owners=$(npm view reliquary-tc maintainers --json) || return 1
             node -e 'const m = [].concat(JSON.parse(process.argv[1])).map((x) => String(x).split(" ")[0]);
-              if (!m.includes(process.env.NPM_PUBLISHER)) { console.error(`reliquary-tc on npm is not published by ${process.env.NPM_PUBLISHER}; not installing it`); process.exit(1); }' "$owners" || return 1
+              if (!m.includes(process.env.NPM_PUBLISHER)) { console.error("reliquary-tc on npm is not published by " + process.env.NPM_PUBLISHER + "; not installing it"); process.exit(1); }' "$owners" || return 1
             npm view reliquary-tc@latest version
           }
           case "$FR_PATH" in
