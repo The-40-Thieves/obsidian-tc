@@ -11,9 +11,10 @@
 // node_modules-aware) is identical and already spelled out there.
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { err } from "@the-40-thieves/reliquary-tc-shared";
+import { err, pickHomeDir } from "@the-40-thieves/reliquary-tc-shared";
 import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
@@ -23,7 +24,6 @@ import type { EmbedderInitOpts } from "../embeddings/host/protocol";
 import { registerHost } from "../embeddings/host/registry";
 import { selfSpawnArgv } from "../embeddings/host/spawn-argv";
 import type { EmbeddingProvider } from "../embeddings/provider";
-import { defaultHomeDir } from "../home-dir";
 import {
   currentInstallSite,
   type EmbedderInstallSite,
@@ -229,7 +229,7 @@ export async function resolveLocalEmbedderModule(
       // file: URLs for the extracted loader/binary. Point both bundled routes at this directory.
       (globalThis as Record<symbol, unknown>)[Symbol.for("reliquary-tc.ort-dir")] =
         extractEmbeddedRuntime({
-          cacheDir: ctx.cacheDir ?? defaultHomeDir(),
+          cacheDir: ctx.cacheDir ?? pickHomeDir(homedir(), existsSync).dir,
           files: embeddedEmbedder.files,
         });
       const mod = (await embeddedEmbedder.load()) as LocalEmbedderModule;
