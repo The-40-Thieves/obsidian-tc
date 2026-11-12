@@ -34,6 +34,7 @@ const ALLOWED_FILES = new Map([
   ["packages/server/src/db/migrations-embedded.ts", "generated from the shipped migrations"],
   ["packages/plugin/legacy/", "the pre-tc-bridge plugin build, kept for its migration"],
   ["packages/plugin/src/migration.ts", "migrates settings from the old plugin id"],
+  ["packages/plugin/test/legacy-notice.test.ts", "pins the old plugin id's sunset build"],
   ["packages/shared/src/legacy-names.ts", "the single list of old names"],
   ["packages/shared/test/legacy-names.test.ts", "tests the old names"],
   ["packages/server/src/legacy-env-install.ts", "maps the old env prefix"],
