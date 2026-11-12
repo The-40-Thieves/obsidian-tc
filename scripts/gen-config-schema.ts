@@ -82,23 +82,34 @@ if (process.argv.includes("--check")) {
   }
   let structure = "structure vs base NOT RUN (pass --base <ref>; CI passes --base origin/main)";
   if (baseRef) {
-    let baseJson: string;
-    try {
-      baseJson = execFileSync(
-        trustedExecutable("git"),
-        ["show", `${baseRef}:docs/reliquary-tc.config.schema.json`],
-        {
+    // A base from before the 2.0 rename holds the schema under the old file name.
+    const { LEGACY_NAMES } = await import(
+      join(ROOT, "packages", "shared", "src", "legacy-names.ts")
+    );
+    const candidates = [
+      "docs/reliquary-tc.config.schema.json",
+      `docs/${LEGACY_NAMES.bin}.config.schema.json`,
+    ];
+    let baseJson: string | undefined;
+    let lastError = "";
+    for (const path of candidates) {
+      try {
+        baseJson = execFileSync(trustedExecutable("git"), ["show", `${baseRef}:${path}`], {
           cwd: ROOT,
           encoding: "utf8",
           maxBuffer: 64 * 1024 * 1024,
           stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-    } catch (err) {
+        });
+        break;
+      } catch (err) {
+        lastError = (err as Error).message.split("\n")[0] ?? "";
+      }
+    }
+    if (baseJson === undefined) {
       // Fail closed: a check that cannot read its baseline has compared nothing.
       console.error(
-        `config schema: cannot read docs/reliquary-tc.config.schema.json at "${baseRef}" ` +
-          `(${(err as Error).message.split("\n")[0]}). Fetch the ref, or drop --base.`,
+        `config schema: cannot read ${candidates.join(" or ")} at "${baseRef}" ` +
+          `(${lastError}). Fetch the ref, or drop --base.`,
       );
       process.exit(1);
     }

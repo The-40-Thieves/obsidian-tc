@@ -291,7 +291,7 @@ server's own, but the model is only what the client said.
 `provenance.stamp.frontmatter: true` writes one key into a note an agent **creates**:
 
 ```yaml
-reliquary_tc_provenance:
+obsidian_tc_provenance:
   session: 7f3c0e
   principal: alice
   model_self_reported: claude-sonnet-5-5
@@ -331,7 +331,7 @@ reliquary_tc_provenance:
     "host": { "mode": "hashed" },
     "retentionDays": 365,
     "query": { "maxScanRows": 100000 },
-    "stamp": { "gitTrailers": false, "frontmatter": false, "frontmatterKey": "reliquary_tc_provenance" }
+    "stamp": { "gitTrailers": false, "frontmatter": false, "frontmatterKey": "obsidian_tc_provenance" }
   }
 }
 ```

@@ -71,7 +71,8 @@ export const ProvenanceConfigSchema = z
         frontmatterKey: z
           .string()
           .regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/)
-          .default("reliquary_tc_provenance")
+          // Kept from before the 2.0 rename: notes in users' vaults already carry this key.
+          .default("obsidian_tc_provenance")
           .describe(
             "The frontmatter key the stamp is written under when `frontmatter` is on. A caller-supplied value under this key in a note being created is replaced by the real stamp.",
           ),

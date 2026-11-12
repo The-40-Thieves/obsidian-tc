@@ -24,6 +24,7 @@ const PROTECTED = [
   /obsidianTcApiVersion/g, // companion plugin /probe field, the same versioned contract
   /The-40-Thieves_obsidian-tc/g, // SonarQube Cloud project key, renamed on the Sonar side
   /\.obsidian-tc\/traces/g, // per-vault folder that still holds pre-migration session traces
+  /obsidian_tc_provenance(?![A-Za-z0-9_])/g, // frontmatter key already written into users' notes
 ];
 
 /** Whole files or trees that keep the old name, and why. Paths use forward slashes. */

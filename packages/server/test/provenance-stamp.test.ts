@@ -7,7 +7,7 @@ import { applyTrailers, stampFrontmatter } from "../src/provenance/stamp";
 import { parseNote } from "../src/vault/frontmatter";
 
 const ProvenanceConfigSchema = ServerConfigSchema.shape.provenance;
-const KEY = "reliquary_tc_provenance";
+const KEY = "obsidian_tc_provenance";
 const STAMP = { session: "s-1", principal: "unverified", seq: 4 };
 const LINES = [
   "Reliquary-TC-Session: s-1",
@@ -22,7 +22,7 @@ describe("provenance.stamp config", () => {
     expect(cfg.stamp).toEqual({
       gitTrailers: false,
       frontmatter: false,
-      frontmatterKey: "reliquary_tc_provenance",
+      frontmatterKey: "obsidian_tc_provenance",
     });
   });
 

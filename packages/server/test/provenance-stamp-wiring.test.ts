@@ -28,7 +28,7 @@ import { provenanceFixture, rowsFor } from "./provenance-helpers";
 import { rmTemp } from "./tmp";
 
 const VAULT = "test";
-const KEY = "reliquary_tc_provenance";
+const KEY = "obsidian_tc_provenance";
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 const OFF: StampConfig = { gitTrailers: false, frontmatter: false, frontmatterKey: KEY };
 const ALICE: Partial<CallerContext> = {

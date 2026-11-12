@@ -3043,7 +3043,7 @@
               "type": "boolean"
             },
             "frontmatterKey": {
-              "default": "reliquary_tc_provenance",
+              "default": "obsidian_tc_provenance",
               "description": "The frontmatter key the stamp is written under when `frontmatter` is on. A caller-supplied value under this key in a note being created is replaced by the real stamp.",
               "type": "string",
               "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
