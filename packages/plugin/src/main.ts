@@ -7,50 +7,47 @@
 // not registered — the server's probe then reports the companion unreachable and every bridge
 // tool degrades. The plugin holds no secrets and logs none.
 //
-// NOTE: the bridge route prefix (/obsidian-tc/v1, below) is the SERVER's DEFAULT_API_PREFIX
+// Route lifecycle (src/registration.ts): the routes are released in onunload, and re-attached
+// whenever Local REST API (re)loads, so a reload, an in-place update, or Local REST API loading
+// after this plugin all end with exactly one copy of this build's routes mounted.
+//
+// NOTE: the bridge route prefix (/obsidian-tc/v1) is the SERVER's DEFAULT_API_PREFIX
 // (packages/server) and is NOT part of the Obsidian manifest id/name the rename covers — changing
 // it is a server-side wire-protocol change out of THE-943's scope, not a leftover.
-import { Notice, Plugin, type PluginManifest } from "obsidian";
+import { type EventRef, Notice, Plugin } from "obsidian";
 import { OLD_PLUGIN_ID, runMigrationAndConflictGuard } from "./migration";
+import {
+  BRIDGE_PREFIX,
+  type BridgeRegistration,
+  type LocalRestApiPlugin,
+  registerBridgeRoutes,
+} from "./registration";
 import { buildRoutes, type RouteDef } from "./routes";
 
 const LRA_ID = "obsidian-local-rest-api";
+/** Fired by Local REST API at the end of its onload, after its extension API is usable. */
+const LRA_LOADED_EVENT = "obsidian-local-rest-api:loaded";
 
-// Minimal models of the Local REST API extension surface (not in obsidian's d.ts).
-// Three shapes are supported, tried in order: the current getPublicApi(manifest)
-// extension object (LRA v4.x), the legacy express extension router on requestHandler,
-// and the legacy public addRoute() builder.
-interface ExtensionRouter {
-  get(path: string, handler: RouteDef["handler"]): void;
-  post(path: string, handler: RouteDef["handler"]): void;
-}
-interface AddRouteBuilder {
-  get(handler: RouteDef["handler"]): AddRouteBuilder;
-  post(handler: RouteDef["handler"]): AddRouteBuilder;
-}
-// The public extension object returned by LRA v4.x's plugin.getPublicApi(manifest).
-interface LocalRestApiPublicApi {
-  addRoute(path: string): AddRouteBuilder;
-}
-interface LocalRestApiPlugin {
-  // Current LRA (v4.x): documented integration point. Older builds expose one of the two below.
-  getPublicApi?(manifest: PluginManifest): LocalRestApiPublicApi;
-  requestHandler?: { apiExtensionRouter?: ExtensionRouter };
-  api?: { addRoute?(path: string): AddRouteBuilder };
-}
 interface AppWithPlugins {
   plugins?: {
     plugins: Record<string, LocalRestApiPlugin | undefined>;
     // Undocumented Obsidian internal (not in the public d.ts, same as `plugins.plugins` above):
     // the set of currently-ENABLED plugin ids, keyed the same as `plugins.plugins`. Used only by
-    // the conflict guard (THE-943) to detect the old `reliquary-tc` id still running alongside
+    // the conflict guard (THE-943) to detect the old id (OLD_PLUGIN_ID) still running alongside
     // this one. Duck-typed with the same fail-open posture as the rest of this file: if the shape
     // has moved, isOldPluginEnabled() below reports "not enabled" rather than blocking startup.
     enabledPlugins?: { has(id: string): boolean };
   };
 }
+interface AnyEventSource {
+  on(name: string, callback: () => void): EventRef;
+}
 
 export default class TcBridge extends Plugin {
+  private registration: BridgeRegistration | null = null;
+  /** Set by onunload; onload awaits the migration, and an unload can land during that await. */
+  private unloaded = false;
+
   override async onload(): Promise<void> {
     // THE-282: startup shape self-check over the Obsidian internals this plugin duck-types.
     // A failed check degrades honestly (one console.warn + surfaced on /probe) instead of
@@ -80,65 +77,45 @@ export default class TcBridge extends Plugin {
         ((this.app as unknown as AppWithPlugins).plugins?.enabledPlugins?.has(OLD_PLUGIN_ID) ??
           false),
     });
-    if (!proceed) return;
+    if (!proceed || this.unloaded) return;
 
     const routes = buildRoutes(this.app, this.manifest.version, shapeWarnings);
-    const count = this.registerBridgeRoutes(routes);
-    if (count === null) {
+    if (shapeWarnings.length)
+      console.warn(
+        `[tc-bridge] degraded: ${shapeWarnings.join("; ")} — Obsidian internals may have moved; some bridges will degrade.`,
+      );
+
+    // Local REST API rebuilds its server (and drops every extension route) each time it loads, and
+    // it may load after this plugin. Re-attach on its loaded event in both cases.
+    this.registerEvent(
+      (this.app.workspace as unknown as AnyEventSource).on(LRA_LOADED_EVENT, () =>
+        this.attach(routes),
+      ),
+    );
+    this.attach(routes);
+  }
+
+  override onunload(): void {
+    this.unloaded = true;
+    this.registration?.release();
+    this.registration = null;
+  }
+
+  /** (Re)attach the bridge routes, releasing any previous registration first. */
+  private attach(routes: RouteDef[]): void {
+    this.registration?.release();
+    const lra = (this.app as unknown as AppWithPlugins).plugins?.plugins?.[LRA_ID];
+    this.registration = registerBridgeRoutes(lra, this.manifest, routes);
+    if (this.registration === null) {
       // NOTE: when registration fails, /probe was never attached either — console is the only
       // surface for this failure mode (documented, THE-282).
       console.warn(
-        "[tc-bridge] Local REST API plugin not found (or no extension API); bridge routes not registered. Install/enable the Local REST API plugin.",
+        "[tc-bridge] Local REST API is not loaded (or exposes no extension API); bridge routes will be registered when it loads. Install/enable the Local REST API plugin.",
       );
-    } else {
-      if (shapeWarnings.length)
-        console.warn(
-          `[tc-bridge] degraded: ${shapeWarnings.join("; ")} — Obsidian internals may have moved; some bridges will degrade.`,
-        );
-      console.debug(`[tc-bridge] registered ${count} bridge routes under /obsidian-tc/v1`);
+      return;
     }
-  }
-
-  /** Attach the bridge routes to Local REST API. Returns the count, or null if LRA
-   *  is unavailable / exposes no extension surface. */
-  private registerBridgeRoutes(routes: RouteDef[]): number | null {
-    const lra = (this.app as unknown as AppWithPlugins).plugins?.plugins?.[LRA_ID];
-    if (!lra) return null;
-
-    // Namespace every bridge route under the prefix the server actually requests
-    // (packages/server DEFAULT_API_PREFIX). LRA mounts extension routers at its own
-    // root, so without this the routes land at "/" and every server call 404s.
-    const PREFIX = "/obsidian-tc/v1";
-
-    // Current LRA (v4.x): the documented integration point is plugin.getPublicApi(manifest),
-    // which returns an extension object exposing addRoute(). Neither legacy shape below
-    // exists on this build. getPublicApi() can throw if called before LRA finishes
-    // loadSettings() (upstream load-order race), so degrade honestly rather than throw.
-    let publicApi: LocalRestApiPublicApi | undefined;
-    try {
-      publicApi = lra.getPublicApi?.(this.manifest);
-    } catch {
-      publicApi = undefined;
-    }
-    if (publicApi) {
-      for (const r of routes) publicApi.addRoute(PREFIX + r.path)[r.method](r.handler);
-      return routes.length;
-    }
-
-    // Legacy express extension router (older LRA).
-    const router = lra.requestHandler?.apiExtensionRouter;
-    if (router) {
-      for (const r of routes) router[r.method](PREFIX + r.path, r.handler);
-      return routes.length;
-    }
-
-    // Legacy public addRoute() builder (older LRA).
-    const api = lra.api;
-    if (api?.addRoute) {
-      for (const r of routes) api.addRoute(PREFIX + r.path)[r.method](r.handler);
-      return routes.length;
-    }
-
-    return null;
+    console.debug(
+      `[tc-bridge] registered ${this.registration.count} bridge routes under ${BRIDGE_PREFIX} (${this.registration.via})`,
+    );
   }
 }
