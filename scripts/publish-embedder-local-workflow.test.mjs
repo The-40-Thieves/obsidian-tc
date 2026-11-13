@@ -35,12 +35,11 @@ test("the preflight classifies none, all, and partial base-plus-runtime publish 
   assert.match(job, /already_published=false/);
 });
 
-test("all six runtime directories publish before base with token auth and provenance", () => {
+test("all six runtime directories publish before base with OIDC and provenance", () => {
   const runtimePublish = job.indexOf("dist/embedder-local-npm/$key");
   const basePublish = job.indexOf("dist/embedder-local-npm/base");
   assert.ok(runtimePublish >= 0, "runtime package publish loop missing");
   assert.ok(basePublish > runtimePublish, "base package must publish after runtime packages");
-  assert.match(job, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
   assert.match(job, /npm publish --provenance --access public --tag "\$tag"/);
   for (const key of [
     "linux-x64",
@@ -52,4 +51,16 @@ test("all six runtime directories publish before base with token auth and proven
   ]) {
     assert.match(job, new RegExp(key));
   }
+});
+
+// Every npm package this workflow publishes has a GitHub OIDC trusted publisher. npm uses OIDC only
+// when NODE_AUTH_TOKEN is absent (even an empty value disables it), and a bypass-2FA token loses
+// direct publish rights in 2027, so no step may hand npm a token.
+test("publish.yml publishes to npm through OIDC only, never a token", () => {
+  assert.ok(
+    WORKFLOW.includes("npm publish --provenance"),
+    "no npm publish found (non-empty floor)",
+  );
+  assert.doesNotMatch(WORKFLOW, /NODE_AUTH_TOKEN/);
+  assert.doesNotMatch(WORKFLOW, /secrets\.NPM_TOKEN/);
 });
