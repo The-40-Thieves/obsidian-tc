@@ -14,7 +14,7 @@ that deleting the file is a safe index reset.
 | `write_provenance` and `write_provenance_heads` in `cache.db` | Write-attribution history and chain anchors. Reindexing does not restore them. |
 | Other `cache.db` operational state | Includes confirmations, idempotency records, captures, sessions, snapshots and event history. Preserve it unless intentionally applying its specific retention/reset policy. |
 | `experiential.db` | Captured retrieval/episode history and derived signals. A fresh index does not reproduce the history. An intentional experiential reset is a separate operation. |
-| `<cacheDir>/auth.db` and `auth-keys/` | Revocations, key retirement, signing keys and registry markers. Back them up together; registry-loss recovery is described in the [auth model](../../security/auth-model/). |
+| `<cacheDir>/auth.db` and `auth-keys/` | Revocations, key retirement, signing keys and registry markers. Back them up together; registry-loss recovery is described in the [auth model](/security/auth-model/). |
 | `server-secrets/` | Keys used for wiki seals and HITL confirmation state. Preserve them with the deployment state. |
 
 Stop all processes sharing the state directory before making a cold backup, or use a backup method
