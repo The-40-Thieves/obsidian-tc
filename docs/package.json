@@ -16,5 +16,9 @@
   },
   "devDependencies": {
     "mint": "4.3.23"
+  },
+  "overrides": {
+    "js-yaml": ">=4.3.2 <5",
+    "sharp": ">=0.35.5 <0.36"
   }
 }

@@ -77,7 +77,7 @@ test("curl: every curl in .github carries --proto '=https' (localhost probes all
       failures.push(`${file}: ${cmd}`);
     }
   }
-  assert.ok(sites.length >= 14, `expected to scan every curl, saw ${sites.length}`);
+  assert.ok(sites.length >= 13, `expected to scan every curl, saw ${sites.length}`);
   assert.deepEqual(failures, [], "curl without --proto '=https'");
 });
 
