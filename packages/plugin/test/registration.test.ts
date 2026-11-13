@@ -135,13 +135,27 @@ describe("registerBridgeRoutes — legacy LRA shapes", () => {
     expect(stack.map((l) => l.route?.path)).toEqual(["/other"]);
   });
 
-  it("addRoute builder: mounts with the prefix", () => {
+  it("express extension router: releasing an older registration leaves a newer one that reuses the same handlers", () => {
+    const stack: { route?: { path: string; stack: { handle: unknown }[] } }[] = [];
+    const mount = (path: string, h: unknown) =>
+      stack.push({ route: { path, stack: [{ handle: h }] } });
+    const lra = { requestHandler: { apiExtensionRouter: { get: mount, post: mount, stack } } };
+    const shared = routes("v1");
+    const older = registerBridgeRoutes(lra as never, MANIFEST, shared);
+    registerBridgeRoutes(lra as never, MANIFEST, shared);
+    older?.release();
+    expect(stack).toHaveLength(2);
+  });
+
+  it("addRoute builder: mounts with the prefix, calling addRoute on its own object", () => {
     const paths: string[] = [];
     const builder = { get: () => builder, post: () => builder };
     const lra = {
       api: {
-        addRoute: (p: string) => {
-          paths.push(p);
+        paths,
+        // A method that needs its receiver, as a class method on LRA's api object would.
+        addRoute(this: { paths: string[] }, p: string) {
+          this.paths.push(p);
           return builder;
         },
       },

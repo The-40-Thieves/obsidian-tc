@@ -25,9 +25,7 @@ interface PublicApiHandle {
   addRoute(path: string): AddRouteBuilder;
   unregister?(): void;
 }
-interface ExpressLayer {
-  route?: { stack?: { handle?: unknown }[] };
-}
+type ExpressLayer = object;
 interface ExtensionRouter {
   get(path: string, handler: Handler): void;
   post(path: string, handler: Handler): void;
@@ -79,8 +77,11 @@ export function registerBridgeRoutes(
 
   const router = lra.requestHandler?.apiExtensionRouter;
   if (router) {
-    const ours = new Set<unknown>(routes.map((r) => r.handler));
+    // Remember the exact layers this call mounted, so release() cannot touch a later registration
+    // that reuses the same handler functions.
+    const before = new Set(router.stack ?? []);
     for (const r of routes) router[r.method](BRIDGE_PREFIX + r.path, r.handler);
+    const mounted = new Set((router.stack ?? []).filter((layer) => !before.has(layer)));
     return {
       count: routes.length,
       via: "extension-router",
@@ -88,15 +89,15 @@ export function registerBridgeRoutes(
         const stack = router.stack;
         if (!stack) return;
         for (let i = stack.length - 1; i >= 0; i--) {
-          if (stack[i]?.route?.stack?.some((s) => ours.has(s.handle))) stack.splice(i, 1);
+          if (mounted.has(stack[i] as ExpressLayer)) stack.splice(i, 1);
         }
       },
     };
   }
 
-  const addRoute = lra.api?.addRoute;
-  if (addRoute) {
-    for (const r of routes) addRoute(BRIDGE_PREFIX + r.path)[r.method](r.handler);
+  const api = lra.api;
+  if (typeof api?.addRoute === "function") {
+    for (const r of routes) api.addRoute(BRIDGE_PREFIX + r.path)[r.method](r.handler);
     // The legacy builder offers no removal; a restart of Obsidian clears it.
     return { count: routes.length, via: "add-route", release: () => {} };
   }

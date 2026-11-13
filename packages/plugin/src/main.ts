@@ -45,6 +45,8 @@ interface AnyEventSource {
 
 export default class TcBridge extends Plugin {
   private registration: BridgeRegistration | null = null;
+  /** Set by onunload; onload awaits the migration, and an unload can land during that await. */
+  private unloaded = false;
 
   override async onload(): Promise<void> {
     // THE-282: startup shape self-check over the Obsidian internals this plugin duck-types.
@@ -75,7 +77,7 @@ export default class TcBridge extends Plugin {
         ((this.app as unknown as AppWithPlugins).plugins?.enabledPlugins?.has(OLD_PLUGIN_ID) ??
           false),
     });
-    if (!proceed) return;
+    if (!proceed || this.unloaded) return;
 
     const routes = buildRoutes(this.app, this.manifest.version, shapeWarnings);
     if (shapeWarnings.length)
@@ -94,6 +96,7 @@ export default class TcBridge extends Plugin {
   }
 
   override onunload(): void {
+    this.unloaded = true;
     this.registration?.release();
     this.registration = null;
   }
