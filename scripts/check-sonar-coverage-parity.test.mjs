@@ -75,7 +75,7 @@ test("parseVitestCoverageExcludes: returns [] when there is no coverage block", 
 test("parseSonarProperty: splits the comma list and ignores comments and other keys", () => {
   const props = [
     "# a comment mentioning sonar.coverage.exclusions=not-real",
-    "sonar.projectKey=The-40-Thieves_obsidian-tc",
+    "sonar.projectKey=The-40-Thieves_reliquary-tc",
     "sonar.coverage.exclusions=scripts/**, packages/server/src/cli.ts ,docs/**",
   ].join("\n");
   assert.deepEqual(parseSonarProperty(props, "sonar.coverage.exclusions"), [
