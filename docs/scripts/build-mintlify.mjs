@@ -45,7 +45,7 @@ cpSync(pub, out, {
 const toolPages = readdirSync(toolDir)
   .filter((f) => f.endsWith(".md"))
   .map((f) => `${TOOL_DIR}/${f.slice(0, -3)}`)
-  .sort();
+  .sort((a, b) => a.localeCompare(b));
 if (toolPages.length === 0) fail(`${TOOL_DIR} has no pages; run \`bun run gen\` first`);
 
 const configPath = join(out, "docs.json");
@@ -78,10 +78,21 @@ const COMPONENT_LINE = /^\s*<\/?[A-Z][\w.]*(\s|>|\/>|$)/;
 // or one of a few inline HTML tags; anything else (`Promise<T>`, `<=`, `<cacheDir>`) is text.
 const REAL_TAG =
   /^<(?:!--|\/?(?:Note|Tip|Warning|Danger|Info|Check|Card|Columns|Steps|Step|Tabs|Tab|Accordion|AccordionGroup|CodeGroup|Frame)\b|https?:\/\/|\/?(?:br|kbd|sup|sub|details|summary)\b)/;
+// `[[target]]` -> `` `[[target]]` ``. Called with the text after a `[[`; a plain scan, not a
+// regex, so a long run of unclosed `[[` cannot backtrack.
+const wikilinkAsCode = (rest) => {
+  const end = rest.indexOf("]]");
+  const inner = end === -1 ? "" : rest.slice(0, end);
+  if (inner === "" || inner.includes("\n") || inner.includes("]")) return `[[${rest}`;
+  return `\`[[${inner}]]\`${rest.slice(end + 2)}`;
+};
 const proseSafe = (segment) =>
   segment
     .replace(/[{}]/g, (c) => `\\${c}`)
-    .replace(/\[\[([^\]\n]+)\]\]/g, "`[[$1]]`")
+    .replace(/\[\[/g, "\u0000")
+    .split("\u0000")
+    .map((part, i) => (i === 0 ? part : wikilinkAsCode(part)))
+    .join("")
     .replace(/</g, (c, i, s) => (REAL_TAG.test(s.slice(i)) ? c : "&lt;"));
 
 // Heading IDs: Starlight slugged headings with github-slugger, and Mintlify slugs them its own way,
@@ -98,8 +109,27 @@ const stripTags = (s) => {
   } while (out !== prev);
   return out.replace(/[<>]/g, "");
 };
-const headingText = (raw) =>
-  stripTags(raw.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[`*_~]/g, "")); // links -> text
+// `[text](url)` and `![alt](url)` -> their text, by scanning rather than a backtracking regex.
+const linkText = (s) => {
+  let out = "";
+  let i = 0;
+  for (;;) {
+    const open = s.indexOf("[", i);
+    const close = open === -1 ? -1 : s.indexOf("](", open + 1);
+    const end = close === -1 ? -1 : s.indexOf(")", close + 2);
+    if (end === -1) return out + s.slice(i);
+    const label = s.slice(open + 1, close);
+    if (label.includes("[") || label.includes("]")) {
+      out += s.slice(i, open + 1);
+      i = open + 1;
+      continue;
+    }
+    const bang = open > i && s[open - 1] === "!" ? 1 : 0;
+    out += s.slice(i, open - bang) + label;
+    i = end + 1;
+  }
+};
+const headingText = (raw) => stripTags(linkText(raw).replace(/[`*_~]/g, ""));
 const githubSlug = (text) =>
   text
     .toLowerCase()
@@ -133,10 +163,11 @@ function mdxSafe(text) {
           .split(/(`+[^`]*?`+)/)
           .map((part, i) => (i % 2 === 1 ? part : proseSafe(part)))
           .join("");
-      const h = line.match(/^(#{1,6})\s+(.+?)\s*$/);
-      if (h && !/\{#[\w-]+\}$/.test(h[2])) {
-        const slug = uniqueSlug(githubSlug(headingText(h[2])));
-        return slug ? `${h[1]} ${safe(h[2])} {#${slug}}` : `${h[1]} ${safe(h[2])}`;
+      const h = line.match(/^(#{1,6})[ \t](.*)$/);
+      const title = h ? h[2].trim() : "";
+      if (h && title !== "" && !/\{#[\w-]+\}$/.test(title)) {
+        const slug = uniqueSlug(githubSlug(headingText(title)));
+        return slug ? `${h[1]} ${safe(title)} {#${slug}}` : `${h[1]} ${safe(title)}`;
       }
       return safe(line);
     });
