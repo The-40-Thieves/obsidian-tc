@@ -49,7 +49,7 @@ const repo = (rel: string): string => `${repoRoot}/${rel}`;
 const toolDocs = extractTools();
 // The docs-site catalog links each row to its per-tool page root-relatively (so the built-site link
 // check resolves it); the wiki lives on another host, so its copy links absolutely.
-const SITE_ORIGIN = "https://obsidian-tc.the40thieves.io";
+const SITE_ORIGIN = "https://reliquary-tc.the40thieves.io";
 const toolsMd = renderTools(toolDocs, TOOL_PAGES_URL_BASE);
 const toolsWikiMd = renderTools(toolDocs, `${SITE_ORIGIN}${TOOL_PAGES_URL_BASE}`);
 const configMd = renderConfig(extractConfig());
