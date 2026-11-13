@@ -53,8 +53,11 @@ puts you under Apache-2.0.
 
 ## Contributing
 
-Contributions are accepted under the Developer Certificate of Origin and are licensed to the
-project and its users under Apache-2.0 (§5 of the licence). Sign-off details are in
+Contributors sign [The 40 Thieves Contributor License Agreement](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CLA.md)
+once, and sign off every commit under the Developer Certificate of Origin. The agreement gives the
+maintainer a permanent copyright and patent license to each contribution, including the right to
+license it under other terms in the future; contributors keep their copyright. This does not change
+the Apache-2.0 licence you receive the software under. Details are in
 [CONTRIBUTING.md § License and Sign-off (DCO)](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CONTRIBUTING.md#license-and-sign-off-dco).
 
 ## See also

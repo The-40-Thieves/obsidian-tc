@@ -21,5 +21,6 @@ How was this verified?
 - [ ] Documentation updated (if user-facing)
 - [ ] CHANGELOG entry added (if user-facing)
 - [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
+- [ ] I have signed the [Contributor License Agreement](../CLA.md) (the `cla` check asks on your first PR)
 - [ ] All commits are signed off (DCO) — `git commit -s` / see [CONTRIBUTING](../CONTRIBUTING.md#license-and-sign-off-dco)
 - [ ] Code of Conduct understood
