@@ -923,7 +923,7 @@ surfaces as a **Tool Execution Error** (`isError: true` with human-readable text
 plus the structured error as `structuredContent`), so a model can self-correct
 rather than seeing a protocol error.
 
-:::note
+<Note>
 Per-tool reference pages auto-generated from the live `ToolRegistry` and its Zod
 schemas are a deferred follow-up. This page is the curated overview.
-:::
+</Note>

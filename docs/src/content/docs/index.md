@@ -1,18 +1,16 @@
 ---
 title: reliquary-tc
 description: A turbocharged Model Context Protocol server for Obsidian.
-template: splash
-hero:
-  tagline: A turbocharged MCP server for Obsidian.
-  actions:
-    - text: Getting Started
-      link: /getting-started/install/
-      icon: right-arrow
-    - text: GitHub
-      link: https://github.com/the-40-thieves/reliquary-tc
-      icon: external
-      variant: minimal
 ---
+
+<Columns cols={2}>
+  <Card title="Getting started" icon="arrow-right" href="/getting-started/install">
+    Install reliquary-tc and connect your first MCP client.
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/the-40-thieves/reliquary-tc">
+    Source, issues and releases.
+  </Card>
+</Columns>
 
 ![reliquary-tc quickstart: zero-config boot, search_text, read_note, and a write_note overwrite that requires confirmation](/demo/quickstart-storyboard.svg)
 

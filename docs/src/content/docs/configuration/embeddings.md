@@ -34,7 +34,7 @@ Runtime: [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingfac
 v4 (Transformers.js) running on CPU, via the optional
 `@the-40-thieves/reliquary-tc-embedder-local` package — the same "small optional package, resolved
 at runtime, never a hard dependency of the server" shape as the [local
-reranker](/configuration/config-yaml/#reranker). It is reachable from the npm install (once the embedder is installed), the
+reranker](/configuration/config-reference/#reranker). It is reachable from the npm install (once the embedder is installed), the
 standalone `bun --compile` binary (compiled in) and the one-click `.mcpb` bundle (bundled), with the
 one exception of the macOS x64 binary (see [Availability by install
 method](#availability-by-install-method) below).

@@ -1,8 +1,6 @@
 ---
 title: API Reference
 description: Connect to reliquary-tc over MCP (stdio or HTTP), discover and call tools through the triad facade, and authenticate.
-sidebar:
-  order: 2
 ---
 
 reliquary-tc **is an MCP server** — its API is the [Model Context Protocol](https://modelcontextprotocol.io) (JSON-RPC 2.0) spoken over **stdio** or **Streamable HTTP**. Any MCP client (Claude Code / Desktop, Cursor, VS Code, or your own) talks to it the same way: negotiate, list tools, call tools. This is the callable reference; the [Tool Reference](/tools/) is the surface overview (facade + domains), and the [configuration reference](/configuration/config-yaml/) documents every option.

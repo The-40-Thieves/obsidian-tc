@@ -9,7 +9,7 @@ sub-issues.
 code ──(extractors)──▶ docs-model.json ──(renderers)──▶ markdown
                                                           │
                        inject.ts ───────────────┼─▶ wiki / docs pages  (marker regions, filled at build)
-                       astro ──────────────────┼─▶ docs/ site
+                       mintlify ───────────────┼─▶ docs/ site
                        wiki publisher ─────────┴─▶ reliquary-tc.wiki.git
                                                           │
                        drift gate + coverage lint enforces regeneration in CI
@@ -51,8 +51,9 @@ config key without regenerating fails.
 
 ## Per-tool pages (build time, not committed)
 
-`tool-pages.ts` writes one Starlight page per registered tool into the gitignored
-`docs/src/content/docs/tools/reference/`; `docs/package.json` runs it before `astro build`/`dev`.
+`tool-pages.ts` writes one page per registered tool into the gitignored
+`docs/src/content/docs/tools/reference/`; `docs/package.json` runs it in `build` and `dev`, before
+`scripts/build-mintlify.mjs` assembles the Mintlify site.
 Only the combined catalog is committed (its rows link to the pages), so a new tool never conflicts
 on ~170 generated files. `bun run docgen:tool-pages-check` (here) or `bun run check:tool-pages`
 (in `docs/`, after a build, also counts the built pages) fails if pages, registry and catalog

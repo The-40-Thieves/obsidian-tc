@@ -1,4 +1,4 @@
-// docgen — per-tool reference pages. ToolDoc -> one Starlight page each, generated at DOCS BUILD time
+// docgen — per-tool reference pages. ToolDoc -> one docs-site page each, generated at DOCS BUILD time
 // (scripts/docgen/tool-pages.ts, run by `docs`'s build) into a gitignored directory. Nothing here is
 // committed per tool: only the combined catalog is, and it links to these pages.
 

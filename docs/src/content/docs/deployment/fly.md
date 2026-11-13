@@ -3,9 +3,9 @@ title: Fly.io
 description: Deploy reliquary-tc on Fly.io from fly.toml, with one volume at /data, generated secrets and a health check.
 ---
 
-:::caution
+<Warning>
 This app config needs reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
-:::
+</Warning>
 
 The repository's `fly.toml` is a Fly.io app config. `fly launch --from` creates an app from it: one
 Machine runs the published image `ghcr.io/the-40-thieves/reliquary-tc:latest` with a volume mounted at

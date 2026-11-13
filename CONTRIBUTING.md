@@ -22,7 +22,7 @@ reliquary-tc is a polyglot monorepo. The packages are:
 - `packages/shared/` — Shared TypeScript types and Zod schemas.
 - `services/` — Python sidecar services (`bge-m3-service`, `docs-ingest`, `qwen-tei`). Optional at
   runtime; the server falls back when they are not reachable.
-- `docs/` — Astro Starlight documentation site.
+- `docs/` — Mintlify documentation site (pages in `docs/src/content/docs`, config in its `docs.json`).
 - `examples/` — Example integrations (Claude Desktop, Claude Code, Cursor, Docker, agents).
 
 Python is confined to `services/` and is not part of the server, plugin, shared, or native build.

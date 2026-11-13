@@ -79,7 +79,7 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
     marker: "stats",
     content: renderStats(extractStats()),
   },
-  // Astro docs site (THE-474) — Starlight autogenerate slots these into the Tools / Configuration nav.
+  // Docs site (THE-474) — listed in the Tools / Configuration groups of docs/src/content/docs/docs.json.
   {
     rel: "docs/src/content/docs/tools/tool-catalog.md",
     file: repo("docs/src/content/docs/tools/tool-catalog.md"),

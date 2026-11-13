@@ -1,0 +1,110 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "reliquary-tc",
+  "description": "A turbocharged Model Context Protocol server for Obsidian.",
+  "colors": {
+    "primary": "#7C3AED",
+    "light": "#A78BFA",
+    "dark": "#6D28D9"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Overview",
+        "pages": ["index", "licensing", "roadmap"]
+      },
+      {
+        "group": "Getting started",
+        "pages": [
+          "getting-started/install",
+          "getting-started/first-run",
+          "getting-started/concepts",
+          "getting-started/mcp-clients",
+          "getting-started/memory-you-own",
+          "getting-started/compare",
+          "getting-started/compatibility"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": ["guides/external-capture-import", "guides/vault-conventions"]
+      },
+      {
+        "group": "Tools",
+        "pages": [
+          "tools/index",
+          "tools/api-reference",
+          "tools/tool-catalog",
+          "tools/error-catalog",
+          {
+            "group": "Per-tool pages",
+            "expanded": false,
+            "pages": []
+          }
+        ]
+      },
+      {
+        "group": "Deployment",
+        "pages": [
+          "deployment/index",
+          "deployment/client-recipes",
+          "deployment/docker",
+          "deployment/fly",
+          "deployment/home-server",
+          "deployment/hosted-clients",
+          "deployment/openapi-bridge",
+          "deployment/railway",
+          "deployment/render",
+          "deployment/self-hosted-paas",
+          "deployment/vps"
+        ]
+      },
+      {
+        "group": "Security",
+        "pages": [
+          "security/auth-model",
+          "security/acls",
+          "security/hitl-elicit",
+          "security/rate-limit-backends",
+          "security/write-provenance"
+        ]
+      },
+      {
+        "group": "Observability",
+        "pages": [
+          "observability/otel",
+          "observability/prometheus",
+          "observability/morgiana",
+          "observability/performance-benchmarks"
+        ]
+      },
+      {
+        "group": "Configuration",
+        "pages": [
+          "configuration/config-reference",
+          "configuration/config-yaml",
+          "configuration/embeddings",
+          "configuration/embedding-model-migration",
+          "configuration/inference-gateway",
+          "configuration/storage-state",
+          "configuration/telemetry"
+        ]
+      },
+      {
+        "group": "Contributing",
+        "pages": ["contributing/index", "contributing/decisions-index"]
+      },
+      {
+        "group": "V2 preview",
+        "pages": ["v2-preview/index"]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/The-40-Thieves/reliquary-tc"
+    }
+  }
+}

@@ -3,9 +3,9 @@ title: Licensing
 description: What the Apache-2.0 licence lets you do with reliquary-tc, what it asks in return, and how the earlier AGPL-3.0 releases fit in.
 ---
 
-:::caution
+<Warning>
 This page is an explanation, not legal advice. Have counsel review before relying on it.
-:::
+</Warning>
 
 reliquary-tc is licensed under the **Apache License, Version 2.0** (Apache-2.0; see
 [LICENSE](https://github.com/The-40-Thieves/reliquary-tc/blob/main/LICENSE) and

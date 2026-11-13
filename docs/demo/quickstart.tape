@@ -14,7 +14,7 @@
 # which regenerates docs/public/demo/quickstart.gif (kept under the 2 MB budget via Framerate/
 # Width/Height below — re-check the file size after a re-render and tighten those if it grows past
 # it). Both files live under docs/public/ (not docs/demo/, where this tape itself lives) because
-# that is Astro/Starlight's static-asset directory — it is what makes the docs-home embed at
+# scripts/build-mintlify.mjs copies it to the site root — it is what makes the docs-home embed at
 # /demo/quickstart-storyboard.svg (and, once rendered, /demo/quickstart.gif) actually servable.
 #
 # Prerequisite for a real run: the Claude Code CLI (`claude mcp add`/`claude -p` — the exact client

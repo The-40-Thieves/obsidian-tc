@@ -17,7 +17,7 @@
 # which regenerates docs/public/demo/memory-two-sessions.gif (kept under the 2 MB budget via
 # Framerate/Width/Height below — re-check the file size after a re-render and tighten those if it
 # grows past it). Both files live under docs/public/ (not docs/demo/, where this tape itself lives)
-# because that is Astro/Starlight's static-asset directory — see quickstart.tape's own header for
+# because scripts/build-mintlify.mjs copies it to the site root — see quickstart.tape's own header for
 # why. Every command below, and the storyboard SVG's panel text, was captured from REAL runs of the
 # built server's `memory import` CLI and its create_entity/get_entity/query_entity_graph/
 # search_text tools against a scratch copy of examples/scratch-vault's basic-memory fixture set

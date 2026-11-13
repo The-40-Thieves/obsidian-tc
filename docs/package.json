@@ -8,30 +8,17 @@
     "gen:decisions-index": "cd .. && node scripts/gen-decisions-index.mjs",
     "gen:tool-pages": "bun ../packages/server/scripts/docgen/tool-pages.ts",
     "gen": "bun run gen:regions && bun run gen:decisions-index && bun run gen:tool-pages",
+    "assemble": "node scripts/build-mintlify.mjs",
+    "build": "bun run gen && bun run assemble",
+    "check": "cd dist && mint validate --no-build && mint broken-links --check-anchors",
     "check:tool-pages": "bun ../packages/server/scripts/docgen/tool-pages.ts --check --dist dist",
-    "dev": "bun run gen && astro dev",
-    "start": "bun run gen && astro dev",
-    "build": "bun run gen && astro check && astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "dev": "bun run build && cd dist && mint dev"
   },
-  "dependencies": {
-    "@astrojs/check": "^0.9.12",
-    "@astrojs/starlight": "^0.42.7",
-    "astro": "^7.4.2",
-    "sharp": "^0.35.5",
-    "typescript": "^6.0.3"
+  "devDependencies": {
+    "mint": "4.3.23"
   },
   "overrides": {
-    "fast-uri": ">=3.1.9 <4",
-    "js-yaml": ">=4.3.1 <5",
-    "nanoid": ">=3.3.17 <4",
-    "postcss": ">=8.5.23 <9",
-    "postcss-selector-parser": ">=7.1.6 <8",
-    "sharp": ">=0.35.0 <0.36",
-    "svgo": ">=4.0.2 <5",
-    "undici": ">=8.12.2 <9",
-    "yaml": ">=2.8.3 <3",
-    "zod": ">=4.6.6 <5"
+    "js-yaml": ">=4.3.2 <5",
+    "sharp": ">=0.35.5 <0.36"
   }
 }

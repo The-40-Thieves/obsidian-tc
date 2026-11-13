@@ -3,15 +3,15 @@ title: Render
 description: Deploy reliquary-tc on Render from a Blueprint, with a persistent disk, generated secrets and a health check.
 ---
 
-:::caution
+<Warning>
 These templates need reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
-:::
+</Warning>
 
 The repository's `render.yaml` is a Render Blueprint. It creates one web service from the published
 image `ghcr.io/the-40-thieves/reliquary-tc:latest` with a persistent disk at `/data`. The image's
 ENTRYPOINT boots the server from `RELIQUARY_TC_CONFIG`, and the server serves HTTP on the port Render
 injects as `PORT`. Nothing here needs a shell on the host, but the config file must be written to
-the disk before the first boot (see [Config file](#config-file)).
+the disk before the first boot (see step 4 of [Create the service](#create-the-service)).
 
 The Blueprint uses the image rather than building the repository's `Dockerfile`, so the release that
 CI tested is the one that runs, and Render runs no build.

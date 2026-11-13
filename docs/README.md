@@ -1,9 +1,28 @@
 # Documentation
 
-The reliquary-tc documentation site is an [Astro Starlight](https://starlight.astro.build)
-site whose source lives in [`src/`](./src) — install, configuration, tools, security, and
-observability guides for operators. Build and preview it with the scripts in
-[`package.json`](./package.json); CI publishes it from `.github/workflows/ci-docs.yml`.
+The reliquary-tc documentation site is a [Mintlify](https://mintlify.com) site whose pages live in
+[`src/content/docs`](./src/content/docs), with its navigation and settings in that folder's
+`docs.json` — install, configuration, tools, security, and observability guides for operators.
+
+Some pages are generated from the code and never committed (the per-tool reference pages, the
+decisions index, and the filled docgen regions), and Mintlify builds straight from a git tree with
+no build step. So the site is assembled before it is published:
+
+```bash
+bun install          # in docs/
+bun run build        # generate pages, then assemble the finished site in dist/
+bun run check        # mint validate + mint broken-links (anchors included) on dist/
+bun run dev          # build, then preview dist/ locally with `mint dev`
+```
+
+`scripts/build-mintlify.mjs` copies the pages and `public/` into `dist/`, lists every generated
+tool page in the navigation, and makes plain-Markdown constructs MDX-safe in the copy (HTML
+comments, `{`/`}`, bare `<`, `[[wikilinks]]`) while pinning each heading to the anchor ID the old
+site used. On `main`, `.github/workflows/ci-docs.yml` publishes `dist/` to the `docs-site` branch,
+and The 40 Thieves Mintlify hub pulls that branch in under `/reliquary-tc`.
+
+Write pages as plain Markdown. For callouts use Mintlify components such as `<Note>`, `<Tip>` and
+`<Warning>`, and use root-relative links (`/configuration/telemetry`), not `../` paths.
 
 This top-level `docs/` directory also holds the G2 design specifications and the operator
 runbooks (`QUICKSTART.md`, `RELEASING.md`, `PORTABILITY.md`, `SYNC.md`,
@@ -15,15 +34,3 @@ runbooks (`QUICKSTART.md`, `RELEASING.md`, `PORTABILITY.md`, `SYNC.md`,
 - `G2.4-observability.md` — OpenTelemetry, Prometheus, and MORGIANA events
 - `G2.4-security.md` — Auth, ACLs, and runtime governance
 - `G2.5-release-engineering.md` — Build, CI, versioning, and distribution
-
-## TypeScript pin
-
-`docs/` is a separate install root (its own `bun.lock`, not part of the root workspace) and stays
-on TypeScript **^6.0.3** (`package.json`), one major behind the root/`packages/shared` pin of
-**7.0.2**. This is deliberate, not drift: `@astrojs/check` is pinned `^0.9.9`, and its
-`peerDependencies` declare `"typescript": "^5.0.0 || ^6.0.0"`. The latest published version
-(0.9.10) has the same range — no released `@astrojs/check` admits TypeScript 7 — and `astro
-check` runs on the `build` script's path (`astro check && astro build`), so bumping would break
-the docs build. **Revisit when `@astrojs/check` admits ^7.** Until then, a type-level example in
-the docs could be valid under TS 6 and wrong against the shipped `^7.0.2` types used everywhere
-else in the repo.

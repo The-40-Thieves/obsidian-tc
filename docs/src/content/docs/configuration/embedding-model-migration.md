@@ -36,7 +36,7 @@ Treat a model change like a schema migration: plan it, run a full re-embed, and 
    process sharing this `cacheDir` before taking a consistent backup of the directory and your
    config. `cache.db` contains durable write provenance and the source-of-truth memory entity graph;
    a vault reindex cannot restore them. Keep `experiential.db`, `<cacheDir>/auth.db`, `auth-keys/` and
-   `server-secrets/` too. See [Storage state and index resets](../storage-state/).
+   `server-secrets/` too. See [Storage state and index resets](/configuration/storage-state/).
 
 2. **Clear only the index rows through the existing tool.** Start one administrative server with
    the old config, keep ordinary clients and writes paused, and call `reset_vault_cache` for each
