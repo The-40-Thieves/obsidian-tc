@@ -200,8 +200,8 @@ Official app: [obsidian.md](https://obsidian.md).
 
 Apache-2.0. See [LICENSE](./LICENSE), [NOTICE](./NOTICE) and the
 [licensing page](https://reliquary-tc.the40thieves.io/licensing/). Releases up to 1.34.x stay
-AGPL-3.0-only. Contributions under the [DCO](https://developercertificate.org/); sign-off in
-[CONTRIBUTING.md](./CONTRIBUTING.md#license-and-sign-off-dco).
+AGPL-3.0-only. Contributors sign the [CLA](./CLA.md) once and the [DCO](https://developercertificate.org/)
+on every commit; see [CONTRIBUTING.md](./CONTRIBUTING.md#license-and-sign-off-dco).
 
 ### Contributing
 

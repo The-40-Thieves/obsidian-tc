@@ -460,9 +460,13 @@ The current runbook lives at `docs/RELEASING.md`.
 
 ## License and Sign-off (DCO)
 
-reliquary-tc is licensed under the [Apache License 2.0](./LICENSE); see also [NOTICE](./NOTICE). Releases up to and including 1.34.x were licensed AGPL-3.0-only and keep that licence. Your contribution is licensed to the project and its users under Apache-2.0 (section 5 of the licence).
+reliquary-tc is licensed under the [Apache License 2.0](./LICENSE); see also [NOTICE](./NOTICE). Releases up to and including 1.34.x were licensed AGPL-3.0-only and keep that licence.
 
-Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/) (DCO), not a CLA. By signing off a commit you certify the DCO: that you wrote the change or otherwise have the right to submit it under the project's license.
+Contributions need two things: a signed contributor license agreement, once, and a DCO sign-off on every commit.
+
+**Contributor License Agreement.** Before your first pull request can merge, sign [The 40 Thieves Contributor License Agreement](./CLA.md). It gives the maintainer a permanent copyright and patent license to your contribution, including the right to license it under other terms, open source or commercial, in the future. You keep the copyright. The `cla` check comments on your first pull request with the exact sentence to post; posting it signs the agreement, and the signature is recorded on the `cla-signatures` branch. If you contribute as part of your job, your employer also signs the [Corporate CLA](./CLA-CORPORATE.md).
+
+**Developer Certificate of Origin.** By signing off a commit you certify the [DCO](https://developercertificate.org/): that you wrote the change or otherwise have the right to submit it.
 
 **Sign-off is required.** Every non-merge commit in a pull request must carry a `Signed-off-by:` trailer whose name and email match the commit author, e.g.:
 
