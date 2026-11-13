@@ -36,7 +36,11 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-export type BridgeCompatIssueKind = "api-major-skew" | "plugin-too-old" | "plugin-version-unknown";
+export type BridgeCompatIssueKind =
+  | "api-major-skew"
+  | "plugin-too-old"
+  | "plugin-version-unknown"
+  | "plugin-version-mismatch";
 
 export interface BridgeCompatIssue {
   kind: BridgeCompatIssueKind;
@@ -58,6 +62,7 @@ export interface BridgeCompatResult {
 export function checkBridgeCompat(
   snap: CapabilitySnapshot,
   supported: { minPluginVersion: string } = SUPPORTED_BRIDGE,
+  opts: { serverVersion?: string } = {},
 ): BridgeCompatResult {
   if (snap.companion !== "reachable") return { compatible: true, issues: [] };
 
@@ -83,6 +88,17 @@ export function checkBridgeCompat(
       kind: "plugin-too-old",
       breaking: true,
       message: `companion plugin ${snap.pluginVersion} is older than the supported minimum ${supported.minPluginVersion}; update the companion plugin inside Obsidian.`,
+    });
+  } else if (
+    opts.serverVersion !== undefined &&
+    compareVersions(snap.pluginVersion, opts.serverVersion) !== 0
+  ) {
+    // The plugin and server ship together at the same version. A difference works while the API
+    // major matches, but it means one side was updated without the other.
+    issues.push({
+      kind: "plugin-version-mismatch",
+      breaking: false,
+      message: `companion plugin ${snap.pluginVersion} does not match server ${opts.serverVersion}; they ship together, so update whichever is older.`,
     });
   }
 

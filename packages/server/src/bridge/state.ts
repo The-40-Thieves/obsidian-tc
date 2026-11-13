@@ -12,6 +12,7 @@ export type BridgeMode = "live" | "headless" | "degraded";
 export type BridgeReason =
   | "companion-reachable"
   | "version-skew"
+  | "version-mismatch"
   | "companion-unreachable"
   | "plugin-not-installed"
   | "plugin-disabled"
@@ -51,6 +52,8 @@ function isTlsTrustCode(code: string | undefined): boolean {
 export interface BridgeStateHints {
   /** What THE-522 found on disk for obsidian-local-rest-api, if available. */
   restApiOnDisk?: RestApiOnDisk;
+  /** This server's version; when given, a reachable companion on a different version is reported. */
+  serverVersion?: string;
 }
 
 function carry(
@@ -75,12 +78,20 @@ export function bridgeState(
   hints: BridgeStateHints = {},
 ): BridgeStateReport {
   if (snap.companion === "reachable") {
-    const compat = checkBridgeCompat(snap);
+    const compat = checkBridgeCompat(snap, undefined, { serverVersion: hints.serverVersion });
     if (!compat.compatible) {
       return carry(snap, {
         state: "degraded",
         reason: "version-skew",
         remediation: compat.issues.find((i) => i.breaking)?.message,
+      });
+    }
+    const mismatch = compat.issues.find((i) => i.kind === "plugin-version-mismatch");
+    if (mismatch) {
+      return carry(snap, {
+        state: "live",
+        reason: "version-mismatch",
+        remediation: mismatch.message,
       });
     }
     return carry(snap, { state: "live", reason: "companion-reachable" });

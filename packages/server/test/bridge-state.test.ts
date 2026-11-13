@@ -149,3 +149,18 @@ describe("THE-523 bridgeState", () => {
     expect(s.causeCode).toBeUndefined();
   });
 });
+
+describe("bridgeState — plugin vs server version", () => {
+  it("stays live but names the mismatch when the plugin and server versions differ", () => {
+    const s = bridgeState(snap({ pluginVersion: "1.34.0" }), { serverVersion: "2.0.1" });
+    expect(s.state).toBe("live");
+    expect(s.reason).toBe("version-mismatch");
+    expect(s.remediation).toContain("1.34.0");
+    expect(s.remediation).toContain("2.0.1");
+  });
+
+  it("reports companion-reachable when the versions match", () => {
+    const s = bridgeState(snap({ pluginVersion: "2.0.1" }), { serverVersion: "2.0.1" });
+    expect(s.reason).toBe("companion-reachable");
+  });
+});

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BridgeFetch } from "../src/bridge";
 import { type FakeRoute, fakeBridgeTransport } from "../src/bridge/fake";
 import {
+  BRIDGE_REACHABLE_REFRESH_TICKS,
   BRIDGE_REPROBE_INTERVAL_MS,
   registerBridgeReprobe,
   reprobeVaultIds,
@@ -186,6 +187,54 @@ describe("bridge live mode follows the companion probe", () => {
 
     await vi.advanceTimersByTimeAsync(5 * BRIDGE_REPROBE_INTERVAL_MS);
     expect(state.probes).toBe(probesAfterBoot);
+    await sched.stop();
+  });
+
+  it("re-probes a reachable vault on the slower refresh cadence, picking up a plugin enabled after boot", async () => {
+    const { bridges, state } = await boot(REACHABLE);
+    const probesAfterBoot = state.probes;
+    expect(bridges.capabilities.get("main").plugins.templater?.installed).toBeFalsy();
+
+    vi.useFakeTimers();
+    const sched = reprobeScheduler(bridges);
+    sched.start();
+    state.route = {
+      body: {
+        ok: true,
+        result: {
+          plugin_version: "1.0.0",
+          obsidianTcApiVersion: "1",
+          capabilities: {
+            dataview: { installed: true, version: "0.5.66" },
+            templater: { installed: true, version: "2.26.0" },
+          },
+        },
+      },
+    };
+    await vi.advanceTimersByTimeAsync(BRIDGE_REACHABLE_REFRESH_TICKS * BRIDGE_REPROBE_INTERVAL_MS);
+
+    expect(state.probes).toBe(probesAfterBoot + 1);
+    expect(bridges.capabilities.get("main").plugins.templater?.installed).toBe(true);
+    await sched.stop();
+  });
+
+  it("a reachable companion that goes away is marked unreachable on the slow refresh, then recovers on the fast cadence", async () => {
+    const { bridges, state } = await boot(REACHABLE);
+    expect(openBridge(bridges.m4Deps, "main", "dataview").client).toBeDefined();
+
+    vi.useFakeTimers();
+    const sched = reprobeScheduler(bridges);
+    sched.start();
+    state.route = UNREACHABLE;
+    await vi.advanceTimersByTimeAsync(BRIDGE_REACHABLE_REFRESH_TICKS * BRIDGE_REPROBE_INTERVAL_MS);
+    expect(bridges.capabilities.get("main").companion).toBe("unreachable");
+    expect(codeOf(() => openBridge(bridges.m4Deps, "main", "dataview"))).toBe(
+      "requires_live_obsidian",
+    );
+
+    state.route = REACHABLE;
+    await vi.advanceTimersByTimeAsync(BRIDGE_REPROBE_INTERVAL_MS);
+    expect(openBridge(bridges.m4Deps, "main", "dataview").client).toBeDefined();
     await sched.stop();
   });
 

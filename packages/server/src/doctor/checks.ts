@@ -262,12 +262,18 @@ export function bridgeCheck(reports: { vaultId: string; report: BridgeStateRepor
           ? `${report.state} (${report.reason}: ${report.causeCode})`
           : `${report.state} (${report.reason})`;
       }
+      // Degraded first, then live-but-out-of-sync (version-mismatch): the remediation is the first's.
       const degraded = reports.filter((r) => r.report.state === "degraded");
-      if (degraded.length > 0) {
-        const first = degraded[0];
+      const outOfSync = reports.filter((r) => r.report.reason === "version-mismatch");
+      const flagged = [...degraded, ...outOfSync];
+      if (flagged.length > 0) {
+        const first = flagged[0];
+        const lead = degraded.length
+          ? `${degraded.length} vault(s) degraded`
+          : `${outOfSync.length} vault(s) out of sync with the server`;
         return {
           status: "warning",
-          summary: `${degraded.length} vault(s) degraded: ${degraded
+          summary: `${lead}: ${flagged
             .map(
               (d) =>
                 `${d.vaultId} [${d.report.reason}${d.report.causeCode ? `: ${d.report.causeCode}` : ""}]`,

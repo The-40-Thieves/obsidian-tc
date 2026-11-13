@@ -8,7 +8,8 @@
 // without a live Obsidian.
 
 /** THE-282: the companion API major this server speaks. Hand-mirrored with API_VERSION in
- *  packages/plugin/src/routes.ts (the plugin cannot import server code) — bump BOTH together. */
+ *  packages/plugin/src/routes/probe.ts (the plugin cannot import server code) and with
+ *  SUPPORTED_BRIDGE.expectedApi; test/bridge-api-version-parity.test.ts holds all three equal. */
 export const EXPECTED_COMPANION_API = "1";
 
 export interface PluginCapability {
