@@ -33,7 +33,7 @@ interface AppWithPlugins {
     plugins: Record<string, LocalRestApiPlugin | undefined>;
     // Undocumented Obsidian internal (not in the public d.ts, same as `plugins.plugins` above):
     // the set of currently-ENABLED plugin ids, keyed the same as `plugins.plugins`. Used only by
-    // the conflict guard (THE-943) to detect the old `obsidian-tc` id still running alongside
+    // the conflict guard (THE-943) to detect the old id (OLD_PLUGIN_ID) still running alongside
     // this one. Duck-typed with the same fail-open posture as the rest of this file: if the shape
     // has moved, isOldPluginEnabled() below reports "not enabled" rather than blocking startup.
     enabledPlugins?: { has(id: string): boolean };
