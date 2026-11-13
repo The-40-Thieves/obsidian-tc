@@ -76,3 +76,34 @@ describe("THE-523 checkBridgeCompat", () => {
     expect(r.compatible).toBe(true);
   });
 });
+
+describe("checkBridgeCompat — plugin vs server version", () => {
+  it("adds a soft mismatch issue naming both versions when they differ", () => {
+    const r = checkBridgeCompat(snap({ pluginVersion: "1.34.0" }), SUPPORTED_BRIDGE, {
+      serverVersion: "2.0.1",
+    });
+    expect(r.compatible).toBe(true);
+    const issue = r.issues.find((i) => i.kind === "plugin-version-mismatch");
+    expect(issue?.breaking).toBe(false);
+    expect(issue?.message).toContain("1.34.0");
+    expect(issue?.message).toContain("2.0.1");
+  });
+
+  it("adds no mismatch issue when the versions match (a leading v is tolerated)", () => {
+    const r = checkBridgeCompat(snap({ pluginVersion: "v2.0.1" }), SUPPORTED_BRIDGE, {
+      serverVersion: "2.0.1",
+    });
+    expect(r.issues).toEqual([]);
+  });
+
+  it("does not compare when no server version is given", () => {
+    expect(checkBridgeCompat(snap({ pluginVersion: "1.34.0" })).issues).toEqual([]);
+  });
+
+  it("reports only plugin-too-old, not also a mismatch, below the floor", () => {
+    const r = checkBridgeCompat(snap({ pluginVersion: "1.6.0" }), SUPPORTED_BRIDGE, {
+      serverVersion: "2.0.1",
+    });
+    expect(r.issues.map((i) => i.kind)).toEqual(["plugin-too-old"]);
+  });
+});

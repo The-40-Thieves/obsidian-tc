@@ -293,7 +293,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       });
       return {
         vaultId: v.id,
-        report: bridgeState(snap, { restApiOnDisk: restApiOnDisk(profile, v.path) }),
+        report: bridgeState(snap, {
+          restApiOnDisk: restApiOnDisk(profile, v.path),
+          serverVersion: profile.serverVersion,
+        }),
       };
     }),
   );

@@ -11,6 +11,7 @@ import type {
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
 } from "@the-40-thieves/reliquary-tc-shared";
+import { version as SERVER_VERSION } from "../../package.json";
 import {
   type BridgeClient,
   type BridgeFetch,
@@ -47,6 +48,11 @@ export interface BridgeWiringDeps {
 /** Background re-probe cadence for a bridged vault whose companion is not reachable. It is also
  *  the cooldown between two probes of the same vault. */
 export const BRIDGE_REPROBE_INTERVAL_MS = 60_000;
+
+/** A REACHABLE vault is re-probed every this many ticks (10 minutes at the default interval), so a
+ *  community plugin enabled after boot, or a companion that went away, is picked up without a
+ *  manual refresh_plugin_capabilities. One loopback GET per vault per refresh. */
+export const BRIDGE_REACHABLE_REFRESH_TICKS = 10;
 
 export interface BridgeReprobeDeps {
   capabilities: CapabilityCache;
@@ -129,7 +135,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     // THE-523 version handshake: warn ONCE per vault on a server↔plugin skew, with the specific
     // incompatibility, instead of letting a route diverge silently. A reachable-but-incompatible
     // companion is the only case that logs; missing/unreachable is bridge STATE, reported elsewhere.
-    const compat = checkBridgeCompat(snap);
+    const compat = checkBridgeCompat(snap, undefined, { serverVersion: SERVER_VERSION });
     if (compat.issues.length > 0) {
       process.stderr.write(`${formatCompatWarning(v.id, compat)}\n`);
     }
@@ -197,18 +203,22 @@ export function reprobeVaultIds(
 }
 
 /** Re-probe each bridged vault whose companion is not reachable, once per cooldown, until it
- *  answers. A reachable vault is skipped, so the job goes idle on its own. The scheduler's timer
- *  is unref'd and stopped with it, so this never holds the process open. No vault, no job. */
+ *  answers. A reachable vault is re-probed only every BRIDGE_REACHABLE_REFRESH_TICKS ticks, to
+ *  pick up plugin changes and a companion that went away. The scheduler's timer is unref'd and
+ *  stopped with it, so this never holds the process open. No vault, no job. */
 export function registerBridgeReprobe(scheduler: Scheduler, deps: BridgeReprobeDeps): void {
   if (deps.vaultIds.length === 0) return;
+  let tick = 0;
   scheduler.register({
     name: "bridge-reprobe",
     intervalMs: BRIDGE_REPROBE_INTERVAL_MS,
     run: async (signal) => {
+      tick++;
+      const refreshReachable = tick % BRIDGE_REACHABLE_REFRESH_TICKS === 0;
       for (const vaultId of deps.vaultIds) {
         // stop() aborts the tick: no further vault starts a probe after it.
         if (signal.aborted) return;
-        if (deps.capabilities.get(vaultId).companion === "reachable") continue;
+        if (deps.capabilities.get(vaultId).companion === "reachable" && !refreshReachable) continue;
         // Compare-and-set: a manual refresh that lands while this probe is in flight is newer.
         const before = deps.capabilities.get(vaultId);
         const next = await deps.reprobe(vaultId);

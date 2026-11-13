@@ -200,6 +200,23 @@ describe("THE-523 bridge.state doctor check", () => {
     expect(r.remediation).toMatch(/reload/i);
   });
 
+  it("warns on a live vault whose companion version differs from the server's", async () => {
+    const { bridgeCheck } = await import("../src/doctor/checks");
+    const r = await bridgeCheck([
+      {
+        vaultId: "a",
+        report: {
+          state: "live",
+          reason: "version-mismatch",
+          remediation: "companion plugin 1.34.0 does not match server 2.0.1",
+        },
+      },
+    ]).run({ serverVersion: "2.0.1" });
+    expect(r.status).toBe("warning");
+    expect(r.summary).toContain("version-mismatch");
+    expect(r.remediation).toContain("1.34.0");
+  });
+
   it("is ok with no vaults configured", async () => {
     const { bridgeCheck } = await import("../src/doctor/checks");
     const r = await bridgeCheck([]).run({ serverVersion: "1.10.0" });
