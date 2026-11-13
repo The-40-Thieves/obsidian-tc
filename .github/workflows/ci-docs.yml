@@ -34,9 +34,9 @@ on:
 permissions:
   contents: read
 
-# Serialize Pages deploys; never cancel an in-flight one (a cancelled deploy can wedge the env).
+# Serialize publishes to the docs-site branch; never cancel one mid-push.
 concurrency:
-  group: pages
+  group: docs-site
   cancel-in-progress: false
 
 jobs:
@@ -46,70 +46,79 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # bun + the ROOT install: the build's first step generates the per-tool pages from the live
-      # tool registry, which needs the server package's dependencies. bun-version is the action's
-      # default (1.4.4). Node too: astro 7.4 refuses the runner's preinstalled Node 22.23.3
-      # (engines >=22.23.4), so the build runs on the setup-repo target.
+      # tool registry, which needs the server package's dependencies. Node 24, not the default 26:
+      # the mint CLI does not support Node 25+.
       - uses: ./.github/actions/setup-repo
         with:
           node-required: 'true'
+          node-version: '24'
       - name: Install
         working-directory: docs
         run: bun install --frozen-lockfile --ignore-scripts
-      - name: Build (fill generated regions, decisions index, tool pages; astro check; astro build)
+      # Generated pages are never committed, and Mintlify builds from a git tree with no build
+      # step, so the finished site is assembled here (scripts/build-mintlify.mjs) into docs/dist.
+      - name: Build (fill generated regions, decisions index, tool pages; assemble the site)
         working-directory: docs
         run: bun run build
       # Invariant: one generated page per registered tool (count == registry), no stale page, every
-      # catalog row links to an existing page, and the built site has all of them.
-      - name: tool pages match the registry (count, links, built site)
+      # catalog row links to an existing page, and the assembled site has all of them.
+      - name: tool pages match the registry (count, links, assembled site)
         working-directory: docs
         run: bun run check:tool-pages
-      # Link-check the BUILT site, which is the only place these links can be resolved at all.
-      # ci-quality's lychee job checks source markdown and deliberately EXCLUDES docs/src, because
-      # a root-relative link like /tools/api-reference/ has no meaning relative to a .md file — it
-      # resolves against the deployed site root. So that class of link was unchecked everywhere.
-      #
-      # Its first run found three real 404s: /reliquary-tc/tools/, /reliquary-tc/tools/api-reference/
-      # and /reliquary-tc/configuration/config-yaml/ — stale prefixes from when this was a GitHub
-      # Pages PROJECT site, left behind when it moved to a custom domain at the root. Plus a
-      # /favicon.svg referenced by every page with no such file in the output.
-      #
-      # --offline: internal links only. External URLs rot for reasons unrelated to any PR, and a
-      # gate that fails on someone else's outage teaches people to ignore it.
-      - name: install lychee v0.24.2 (pinned binary + checksum)
-        run: |
-          mkdir -p "$RUNNER_TEMP/lychee-bin"
-          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
-            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
-          echo "73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP/lychee-bin" \
-            --strip-components=1 lychee-x86_64-unknown-linux-musl/lychee
-          echo "$RUNNER_TEMP/lychee-bin" >> "$GITHUB_PATH"
-      - name: lychee — link-check the built site (root-relative links resolve here)
+      # mint validate --no-build: MDX parses, docs.json is valid, every navigation entry exists,
+      # no foreign syntax. mint broken-links --check-anchors: every internal link and #anchor
+      # resolves. Both run offline. Mintlify itself runs the full build when it deploys.
+      - name: mint validate + broken-links
         working-directory: docs
-        run: lychee --offline --no-progress --root-dir "$PWD/dist" 'dist/**/*.html'
-      # On main, hand the built site to the deploy job as a Pages artifact. On PRs the build
-      # above is the compile check; nothing is uploaded or deployed.
-      - name: Upload Pages artifact
+        run: bun run check
+      - name: Upload the assembled site
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
+          name: docs-site
           path: docs/dist
+          include-hidden-files: false
+          retention-days: 7
 
-  # Publish only from main; PRs stop at the build check above. Replaces the legacy
-  # "deploy from branch" Jekyll build of the repo root (which mis-rendered the monorepo).
-  deploy:
-    name: deploy to GitHub Pages
+  # Publish only from main; PRs stop at the checks above. The docs-site branch holds nothing but the
+  # assembled site, one commit per publish (never force-pushed). The Mintlify hub repository pulls
+  # it in under /reliquary-tc with mintlify/multirepo-action.
+  publish:
+    name: publish to docs-site branch
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      contents: write
     steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docs-site
+          path: ${{ runner.temp }}/dist
+      - name: Commit the site to docs-site
+        env:
+          SITE: ${{ runner.temp }}/site
+          DIST: ${{ runner.temp }}/dist
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin docs-site >/dev/null; then
+            git fetch --depth=1 origin docs-site
+            git worktree add -B docs-site "$SITE" FETCH_HEAD
+          else
+            git worktree add --orphan -b docs-site "$SITE"
+          fi
+          cd "$SITE"
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R "$DIST/." .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "docs-site already matches ${GITHUB_SHA}"
+            exit 0
+          fi
+          git commit -s -m "docs-site: publish ${GITHUB_SHA::12}"
+          git push origin docs-site

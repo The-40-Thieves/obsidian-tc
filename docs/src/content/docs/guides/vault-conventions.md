@@ -8,13 +8,13 @@ values and tags are allowed, and how serious each violation is. The rules live i
 A rule set marked `block` refuses a write that would add a violation. Every other violation is reported
 as a warning on the write's result.
 
-:::note
+<Note>
 Severity is an integrity aid for a well-behaved vault. It is not a security boundary: any caller who can
 write a `SCHEMA.md` can change or remove its rules, and a folder ACL alone does not stop a caller who writes notes in a folder
 from creating a `SCHEMA.md` there. Set `conventions.protectSchemaFiles: true` on the vault to require the `admin:conventions` scope (also granted by `admin:*`, `*` or `admin`)
 for every create, edit, delete, move or rename of a `SCHEMA.md`. Blocking stops callers who cannot write a `SCHEMA.md`. The key binds only callers whose token lacks `admin:conventions`; a stdio caller or an `auth.mode: none` caller holds `*`, so it does nothing for them. The folder convention
 section of `SECURITY.md` in the repository has the ACL details.
-:::
+</Note>
 
 ## Where the rules live
 

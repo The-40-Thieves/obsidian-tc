@@ -15,7 +15,7 @@ export const GENERATED_DOC_FILES = [
   "docs/wiki/Configuration.md",
   "docs/wiki/Home.md",
   "docs/wiki/Plugin-Bridges.md",
-  // Astro docs site (THE-474).
+  // Docs site (THE-474).
   "docs/src/content/docs/tools/tool-catalog.md",
   "docs/src/content/docs/configuration/config-reference.md",
   // THE-470: the error catalog, generated from the shared `err` factory map + recoveryFor().

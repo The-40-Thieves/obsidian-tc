@@ -7,12 +7,14 @@ Every number on this page was recorded by `packages/server/eval/perf` on a GitHu
 `ubuntu-latest` runner, committed to the repository as a baseline, and gated on each subsequent
 push. Nothing here was measured by hand.
 
-:::note[What makes these reproducible rather than merely published]
+<Note>
+**What makes these reproducible rather than merely published**
+
 The harness **refuses to record** a run whose own calibration channels look contended. That refusal
 is the feature: a benchmark that always produces a number produces a number even when the machine
 was busy. The gate, the thresholds and the raw sample series are all in the repository, so a third
 party can re-run the same workflow and compare like for like.
-:::
+</Note>
 
 ## Method
 
@@ -41,7 +43,9 @@ party can re-run the same workflow and compare like for like.
 
 Both recordings used well under a sixth of the variance they were allowed.
 
-:::caution[The sampling is biased, and that has to be said]
+<Warning>
+**The sampling is biased, and that has to be said**
+
 Reporting only runs that clear a variance gate is a **selected sample** of runner conditions. Stated
 honestly: **6 of 6 isolated dispatches cleared the gate, and 0 of 2 batched dispatches did.**
 
@@ -49,7 +53,7 @@ The two failures are methodology, not the runner. GitHub holds only **one** pend
 concurrency group, so firing five dispatches at once cancelled three and let two race each other —
 they recorded io CV 0.641 and 1.642, 3.6× and 9.2× the sequential maximum, and were refused.
 **Dispatch sequentially, or the measurement measures itself.**
-:::
+</Warning>
 
 ## Scenarios
 
@@ -98,13 +102,15 @@ across 200 chunks, ~7.0 per chunk** — and the cost lands on ingest:
 | peak RSS | 144.52 MB | 167.68 MB | +16.0% |
 | nDCG@10 | 0.8414 | 0.8577 | — |
 
-:::caution[Do not read the nDCG column as a densification win]
+<Warning>
+**Do not read the nDCG column as a densification win**
+
 These are two separate baseline recordings on a **synthetic 100-note corpus**, not a paired A/B with
 a significance test. The retrieval ship rule for this project is a paired permutation test on a
 real golden set, and by that rule deterministic densification measured **flat** — see
 [the published negative result](https://github.com/the-40-thieves/reliquary-tc/blob/main/docs/EVALUATION.md#published-negative-results).
 The number above is a regression tripwire, not evidence.
-:::
+</Warning>
 
 ## What these numbers are not
 

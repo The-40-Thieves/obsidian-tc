@@ -3,9 +3,9 @@ title: VPS (cloud-init)
 description: Set up reliquary-tc on a new Ubuntu 24.04 server from cloud-init user data, with Docker, Caddy, a generated JWT secret and a certificate for your domain.
 ---
 
-:::caution
+<Warning>
 This setup needs reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
-:::
+</Warning>
 
 The repository's `deploy/cloud-init.yaml` is cloud-config user data for a new Ubuntu 24.04 server. On
 first boot it installs Docker and Compose from Ubuntu's archive, Caddy from Caddy's own apt repository (the key is pinned in the file), writes the shared

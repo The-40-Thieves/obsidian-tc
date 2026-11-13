@@ -1,8 +1,6 @@
 ---
 title: Error Catalog
 description: Every canonical error code reliquary-tc can return, generated from the shared error factory so it cannot drift from the running server.
-sidebar:
-  order: 4
 ---
 
 The complete error vocabulary, generated from the `err` factory map in
@@ -14,10 +12,10 @@ Errors arrive in the standard MCP error shape. The `code` below is what appears 
 payload; it is stable across releases and is what a client should branch on. Messages are defaults
 and may be replaced at the throw site with something more specific about the failure.
 
-:::note
+<Note>
 This table is generated from the error factory (`bun run docgen:render`). Do not hand-edit the
 region between the markers — add the error to the shared `err` map and regenerate.
-:::
+</Note>
 
 <!-- BEGIN GENERATED: errors -->
 

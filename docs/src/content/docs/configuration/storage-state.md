@@ -34,7 +34,7 @@ outside the tool's reset table set.
 
 The tool does not itself perform a reindex. Follow it with `index_vault` or completed boot
 reconciliation, and verify retrieval. For a model or dimension change, follow the coordinated
-[embedding migration procedure](../embedding-model-migration/), including all processes and vaults
+[embedding migration procedure](/configuration/embedding-model-migration/), including all processes and vaults
 that share the database.
 
 For cleanup of superseded embedding generations only, use `include.chunks: false` and

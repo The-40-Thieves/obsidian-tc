@@ -22,7 +22,7 @@ export interface ToolPagesInput {
   contents: Map<string, string>;
   /** The committed catalog markdown (the docs-site copy, with page links). */
   catalog: string;
-  /** Page directories found in the built site (`<slug>`), when a build has run. */
+  /** Page slugs found in the assembled site (`<slug>.md`), when a build has run. */
   dist?: string[];
 }
 

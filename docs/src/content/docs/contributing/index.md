@@ -18,7 +18,7 @@ reliquary-tc is a Bun workspace monorepo:
 | `packages/shared` | Zod schemas and shared types |
 | `packages/native` | the napi-rs native module (vector ops, BM25) + pure-JS fallback |
 | `packages/plugin` | the companion Obsidian plugin |
-| `docs` | this Astro Starlight site (standalone, not in the workspace) |
+| `docs` | this Mintlify site (standalone, not in the workspace) |
 
 ## Toolchain
 

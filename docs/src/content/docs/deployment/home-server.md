@@ -3,9 +3,9 @@ title: Home server
 description: Run reliquary-tc on a home server with Umbrel, CasaOS / ZimaOS or Unraid, from the templates in deploy/homeserver, on your local network with a bearer token.
 ---
 
-:::caution
+<Warning>
 These templates need reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which does not read the `RELIQUARY_TC_ALLOWED_HOSTS` and `RELIQUARY_TC_AUDIENCE` settings the templates rely on, so the app will not start. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
-:::
+</Warning>
 
 The repository ships three templates under `deploy/homeserver/`: an Umbrel community app, a CasaOS /
 ZimaOS compose app and an Unraid Community Applications XML. All three run the same published image as

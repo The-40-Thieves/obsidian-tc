@@ -1,7 +1,8 @@
-# Astro / Starlight build artifacts and dependencies
+# Assembled Mintlify site (scripts/build-mintlify.mjs) and dependencies
 dist/
-.astro/
 node_modules/
+# Left behind by the retired Astro build; ignored so an old checkout stays clean.
+.astro/
 
 # Per-tool reference pages: generated from the live tool registry on every docs build
 # (packages/server/scripts/docgen/tool-pages.ts). Only the combined catalog is committed.

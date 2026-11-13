@@ -8,10 +8,10 @@ activity, or highlights from a read-later service — through the same
 **staged-and-reviewed** pipeline every capture producer uses: nothing lands in your
 vault until you explicitly approve it.
 
-:::note
+<Note>
 Both importers are **inert by default**. If you never configure a source, neither
 CLI command makes a network call or changes anything.
-:::
+</Note>
 
 ## The pipeline
 
@@ -139,11 +139,11 @@ Tailscale/WireGuard-style overlay, or a LAN you trust), not the open internet:
 2. Point `pensieve.baseUrl` at that address, e.g.
    `"http://100.x.x.x:8839"`.
 
-:::caution
+<Warning>
 Pensieve's API has **no authentication** — access control is entirely up to
 whatever network it's reachable on. Only expose it on a private network/VPN
 (Tailscale, WireGuard, a trusted LAN), never on the open internet.
-:::
+</Warning>
 
 ### `--machine` labeling
 
@@ -257,14 +257,14 @@ never re-stages the same highlight twice.
   makes a network call; without Pensieve running, there is nothing to import in
   the first place.
 
-:::caution
+<Warning>
 **Pensieve stores unredacted screenshots and OCR text on the machine it runs on.**
 reliquary-tc's redaction only applies to what gets staged into `capture_queue` —
 Pensieve's own local database (`~/.memos/`) keeps the raw, unredacted capture
 history it recorded, by design (that's what lets you browse it in Pensieve's own
 web UI). Enable full-disk encryption on that machine (FileVault on macOS,
 BitLocker on Windows) so that data isn't sitting in the clear.
-:::
+</Warning>
 
 ## When Pensieve is unreachable
 

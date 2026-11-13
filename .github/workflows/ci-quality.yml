@@ -10,7 +10,7 @@ name: ci-quality
 #     derived from reading the actual findings. Residual is now 0 repo-wide.
 #
 #   lychee, unconfigured: 318 "errors", none of them link rot. They are root-relative links in the
-#     Astro content collection (/tools/, /roadmap/) which resolve against the BUILT site, not the
+#     docs site's pages (/tools/, /roadmap/) which resolve against the BUILT site, not the
 #     source tree. Excluding docs/src takes it to 0 while still covering the wiki, plans and guides.
 #
 #   hadolint, unconfigured: 0 findings on the repo's single Dockerfile. Verified it is not a no-op

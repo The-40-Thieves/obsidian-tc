@@ -4,7 +4,7 @@
 //   bun scripts/docgen/tool-pages.ts --check            verify pages + registry + catalog agree
 //   bun scripts/docgen/tool-pages.ts --check --dist D   also count the pages in the built site D
 //
-// The pages are build output: `docs/package.json` runs this before `astro build`, into a
+// The pages are build output: `docs/package.json` runs this before assembling the site, into a
 // gitignored directory. The combined catalog is a generated region filled at build time too (the
 // committed region is canonical-empty), so --check renders the catalog IN MEMORY from the registry
 // rather than reading a file that only exists after `docgen:render`.
@@ -45,12 +45,15 @@ let distPages: string[] | undefined;
 if (dist !== undefined) {
   const root = `${dist}/tools/reference`;
   if (!existsSync(root)) {
-    process.stderr.write(`tool-pages: built site has no ${root} — did the build run?\n`);
+    process.stderr.write(
+      `tool-pages: assembled site has no ${root} — did \`bun run build\` run?\n`,
+    );
     process.exit(1);
   }
+  // The assembled Mintlify site keeps each page as `<slug>.md` (Mintlify renders it at deploy).
   distPages = readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => e.name.slice(0, -3));
 }
 
 const problems = checkToolPages({
