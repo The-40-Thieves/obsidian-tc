@@ -104,11 +104,8 @@ describe("ci-first-run-smoke.yml", () => {
     const listed = wf.env.EXPECTED_FAILURES.split(/\s+/).filter(Boolean);
     expect(new Set(listed).size, "duplicate entry in EXPECTED_FAILURES").toBe(listed.length);
     for (const cell of listed) expect(cells.has(cell), `${cell} is not a matrix cell`).toBe(true);
-    // The npm and npm-local cells install the published reliquary-tc, which is not on npm until the
-    // first 2.0.0 release. Restore the empty list once it is.
-    expect(listed.sort()).toEqual(
-      ["npm", "npm-local"].flatMap((p) => os.map((o) => `${p}/${o}`)).sort(),
-    );
+    // Every cell passes today, so nothing is excused: a new entry must come with its reason.
+    expect(listed).toEqual([]);
     expect([...parseExpectedFailures(wf.env.EXPECTED_FAILURES)].sort()).toEqual([...listed].sort());
   });
 

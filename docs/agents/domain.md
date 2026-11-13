@@ -51,7 +51,7 @@ Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
 
 ## Not to be confused with
 
-`docs/` is also the Astro workspace that publishes obsidian-tc.the40thieves.io. The published site
+`docs/` is also the Astro workspace that publishes reliquary-tc.the40thieves.io. The published site
 reads only from `docs/src/content/docs`, so `docs/agents/` and `docs/adr/` are agent- and
 maintainer-facing, and do not appear on the website.
 

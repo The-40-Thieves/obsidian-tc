@@ -18,7 +18,7 @@ regexes = [
   # `...Key=<value>` reads to the generic-api-key rule as a credential assignment. Allowlisting the
   # VALUE and not the file keeps the rest of sonar-project.properties scanned, so a real credential
   # pasted there later (a `sonar.login=` line, say) still fails this gate.
-  '''The-40-Thieves_obsidian-tc''',
+  '''The-40-Thieves_reliquary-tc''',
 ]
 paths = [
   '''packages/server/test/.*''',

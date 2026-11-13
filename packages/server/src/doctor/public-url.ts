@@ -25,7 +25,7 @@ import type { Check, CheckResult, CheckStatus } from "./types";
 
 export type { PublicUrlDeps, PublicUrlView } from "./public-url-http";
 
-export const PUBLIC_URL_DOC = "https://obsidian-tc.the40thieves.io/deployment/hosted-clients/";
+export const PUBLIC_URL_DOC = "https://reliquary-tc.the40thieves.io/deployment/hosted-clients/";
 const CERT_WARN_MS = 14 * 86_400_000;
 const INIT_BODY = JSON.stringify({
   jsonrpc: "2.0",

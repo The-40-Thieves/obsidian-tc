@@ -38,7 +38,7 @@ export function renderTools(tools: ToolDoc[], pageLinkBase?: string): string {
   const rows = tools.slice().sort((a, b) => a.name.localeCompare(b.name));
   const parts: string[] = [
     `_${rows.length} tools. Access is a coarse hint; the required scopes are authoritative. Profile ` +
-      "is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._",
+      "is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://reliquary-tc.the40thieves.io/tools/#tool-profile)._",
     "",
     "| Tool | Access | Profile | Scopes | Description |",
     "|---|---|---|---|---|",

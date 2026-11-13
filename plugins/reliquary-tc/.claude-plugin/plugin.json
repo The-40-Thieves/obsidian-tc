@@ -7,7 +7,7 @@
     "name": "The 40 Thieves",
     "url": "https://github.com/The-40-Thieves"
   },
-  "homepage": "https://obsidian-tc.the40thieves.io",
+  "homepage": "https://reliquary-tc.the40thieves.io",
   "repository": "https://github.com/The-40-Thieves/reliquary-tc",
   "license": "Apache-2.0",
   "keywords": ["obsidian", "mcp", "notes", "knowledge-base", "memory", "vault"],
@@ -15,7 +15,7 @@
     "config_path": {
       "type": "file",
       "title": "reliquary-tc config file",
-      "description": "Absolute path to your reliquary-tc JSON config (vaults, ACL, transports). See https://obsidian-tc.the40thieves.io/getting-started/first-run/",
+      "description": "Absolute path to your reliquary-tc JSON config (vaults, ACL, transports). See https://reliquary-tc.the40thieves.io/getting-started/first-run/",
       "required": true
     }
   }

@@ -5,7 +5,7 @@ export default defineConfig({
   // Served from the custom domain at the root. DNS: Cloudflare CNAME
   // reliquary-tc -> the-40-thieves.github.io (DNS-only / grey cloud). The public/CNAME
   // file below is what keeps the custom domain bound across Actions deploys.
-  site: 'https://obsidian-tc.the40thieves.io',
+  site: 'https://reliquary-tc.the40thieves.io',
   integrations: [
     starlight({
       title: 'reliquary-tc',

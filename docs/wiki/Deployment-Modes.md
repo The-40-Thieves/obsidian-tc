@@ -189,7 +189,7 @@ this project does not control.
 local/stdio option. Put the HTTP server behind a public HTTPS front with the bundled authorization
 server enabled, then add the `/mcp` URL with **Add custom MCP server** at `chatgpt.com/plugins` and
 choose OAuth. ChatGPT has no static-header option, so the `token mint` step above does not apply.
-See the [client recipe](https://obsidian-tc.the40thieves.io/deployment/client-recipes/#chatgpt-plugins)
+See the [client recipe](https://reliquary-tc.the40thieves.io/deployment/client-recipes/#chatgpt-plugins)
 for the full sign-in flow.
 
 #### Security notes
@@ -277,7 +277,7 @@ docker run -i --rm -v /path/to/vault:/vault \
 ```
 
 Use `:latest` for the current release or pin `:<version>` for a reproducible deployment. The
-[Docker deployment page](https://obsidian-tc.the40thieves.io/deployment/docker/) covers stdio, the
+[Docker deployment page](https://reliquary-tc.the40thieves.io/deployment/docker/) covers stdio, the
 long-lived HTTP Compose bundle, persistent data, authentication, token minting, and image health
 behavior.
 
