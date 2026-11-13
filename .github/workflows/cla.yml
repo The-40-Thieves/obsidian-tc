@@ -35,9 +35,10 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/The-40-Thieves/reliquary-tc/blob/main/CLA.md
           branch: cla-signatures
-          # The maintainer is the grantee; Claude is the maintainer's agent on this repo; bots
-          # author no copyrightable contribution of their own.
-          allowlist: suavecito585,Claude,dependabot[bot],renovate[bot],github-actions[bot],*[bot]
+          # The maintainer is the grantee; Claude is the maintainer's agent on this repo; the named
+          # bots only bump dependencies or run workflows. Bots are listed by name, never `*[bot]`:
+          # anyone can create a GitHub App, so a wildcard would let any app-authored PR skip the CLA.
+          allowlist: suavecito585,Claude,dependabot[bot],renovate[bot],github-actions[bot],codspeed[bot]
           custom-pr-sign-comment: I have read The 40 Thieves Contributor License Agreement and I hereby sign it.
           custom-notsigned-prcomment: >-
             Thank you for your contribution. Before it can be merged, please read
