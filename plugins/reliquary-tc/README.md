@@ -28,7 +28,7 @@ claude plugin install reliquary-tc@the-40-thieves
 
 Claude Code asks for the absolute path of your reliquary-tc JSON config when you enable the plugin,
 and passes it to the server as `RELIQUARY_TC_CONFIG`. To create one, follow
-[First Run](https://obsidian-tc.the40thieves.io/getting-started/first-run/).
+[First Run](https://reliquary-tc.the40thieves.io/getting-started/first-run/).
 
 ## Privacy
 

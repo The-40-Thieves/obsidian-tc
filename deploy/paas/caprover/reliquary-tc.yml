@@ -38,8 +38,8 @@ caproverOneClickApp:
             RELIQUARY_TC_PUBLIC_URL is https://$$cap_appname.$$cap_root_domain.
         end: |-
             Enable HTTPS for $$cap_appname, then copy your notes into the /data/vault volume.
-            Mint a client token with the JWT secret, as described at https://obsidian-tc.the40thieves.io/deployment/self-hosted-paas/
+            Mint a client token with the JWT secret, as described at https://reliquary-tc.the40thieves.io/deployment/self-hosted-paas/
     displayName: reliquary-tc
     isOfficial: false
     description: An MCP server over an Obsidian vault, for AI clients over HTTP.
-    documentation: https://obsidian-tc.the40thieves.io/deployment/self-hosted-paas/
+    documentation: https://reliquary-tc.the40thieves.io/deployment/self-hosted-paas/

@@ -66,14 +66,7 @@ concurrency:
 env:
   # Space-separated `<path>/<os>` cells that fail today, one per line, each with the reason. Empty:
   # every cell is enforced.
-  #
-  # npm/* and npm-local/*: these install the PUBLISHED reliquary-tc, which does not exist on npm until
-  # the first 2.0.0 release (it was published under its pre-rename name before). Remove both
-  # sets as soon as `npm view reliquary-tc version` answers; the XPASS warning will say so too.
-  EXPECTED_FAILURES: >-
-    npm/ubuntu-latest npm/windows-latest npm/macos-latest npm/macos-15-intel npm/macos-26-intel
-    npm-local/ubuntu-latest npm-local/windows-latest npm-local/macos-latest
-    npm-local/macos-15-intel npm-local/macos-26-intel
+  EXPECTED_FAILURES: ""
   # The model weights the local embedder downloads on first use, cached like ci-server.yml's
   # zero-config-smoke-local-embeddings job (same key: bump with model-info.ts's pinned revision).
   EMBEDDER_REVISION: e9b6763023c676ca8431644204f50c2b100d9aab

@@ -121,7 +121,7 @@ The capabilities that pipeline governs, by access scope:
 
 Every tool declares the access scopes it needs (read, write, delete, bulk, execute, admin), and the
 pipeline enforces them. The complete, always-current list grouped by scope is generated from the
-tool registry: the [tool catalog](https://obsidian-tc.the40thieves.io/tools/tool-catalog/).
+tool registry: the [tool catalog](https://reliquary-tc.the40thieves.io/tools/tool-catalog/).
 
 ```mermaid
 flowchart TB
