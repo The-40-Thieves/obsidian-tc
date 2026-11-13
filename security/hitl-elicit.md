@@ -1,0 +1,245 @@
+---
+title: HITL Elicitation & the Governor
+description: Human-in-the-loop confirmation for sensitive actions and the response-size governor.
+---
+
+## Human-in-the-loop elicitation {#human-in-the-loop-elicitation}
+
+Sensitive operations require explicit human confirmation before they run. The
+server issues an MCP **elicitation** request; the action proceeds only once the
+human approves. The approval is bound to the exact vault, tool, argument hash,
+and **issuing caller**, so on a multi-caller HTTP deployment one caller cannot
+redeem another's approval.
+
+**Single-use, precisely: it depends on which mechanism cleared the gate.** The
+`reliquary-tc elicit` CLI token and the legacy server-initiated shim (stdio) are
+genuinely single-use — the CLI token is consumed with `UPDATE ... WHERE
+consumed_at IS NULL`, and the shim's confirmation never leaves the server at
+all, so there is nothing a client could replay. The 2026-07-28 client-driven
+`requestState` (SEP-2260/2322) is **replayable within its TTL** — a deliberate,
+documented trade (see `elicit-request-state.ts`): the codec authenticates and
+expires the state but does not consume it, so a captured `requestState` can
+authorize the same call more than once until it expires. Either way,
+`tc.elicit.consumed` fires once per handler run (not once per approval), and a
+fresh confirmation (`tc.elicit.requested`) is required for the next sensitive
+call.
+
+**A refused call gives its token back only when nothing could have run.** A CLI token is released (left unspent, with its original expiry and bindings) only when the server positively knows the call had no effect: it was refused after the confirmation gate but before the tool's handler was entered (the central folder ACL, a cancellation), or the vault write gate refused it with `convention_blocked` before any write of the call. The corrected call can then be retried with the same token and the same arguments. Every other failure keeps the token single-use: a timeout, a 5xx or an `operation_timeout` from a companion plugin after the request was sent (the action may already have run), a fault after the handler returned, or any error the handler raised itself. Each release is recorded as an `hitl_released` event. A custom `verifyElicit` hook releases only if it implements `release`. A confirmation a tool checks inside its own handler is released through the built-in verifier, whatever `verifyElicit` hook is configured, when the handler's write gate refuses the confirmed call with `convention_blocked` before any write. Today only `update_task` reaches this: it has no conventions preflight, so the write gate judges a note that already breaks a block rule as a new note when the caller lacks `read:notes` or the note is over 1 MiB. The tools that preflight conventions refuse before the confirmation is spent (`write_note`, `move_note`, `copy_note`, `update_frontmatter`, `commit_wiki_page`) never spend the token on that refusal.
+
+**Stale confirmations are refused.** An approval covers the state of the target as it was
+when the request was raised, not just the tool and arguments. Every HITL-gated tool declares
+what its confirmation is about, either the target paths it declares for the folder ACL
+(`pathAcl`) or a `confirmationTargets` function on its definition. When that state changes
+between the request and the redemption, the server answers `replay_drift` and applies nothing.
+The token is spent; re-issue the original call with no token to request a fresh confirmation.
+This holds for every route a confirmation can arrive by: a token minted by `reliquary-tc elicit`,
+the stdio form round trip, the 2026-07-28 `requestState`, and the lean facade's
+`call_capability`.
+
+| Tool | What the confirmation is bound to |
+| --- | --- |
+| `rewrite_link` | the set of notes the rewrite would touch, and their content: a note changing, or a new note gaining a link to the target |
+| `ocr_bulk` | the attachments it would read: a file replaced, or one added under `root` |
+| `git_commit` | HEAD and the staged index (path, mode, blob id); stat-only index refreshes are not drift |
+| `reset_vault_cache` | the chunk and committed-capture counts and the embedding generations it would clear |
+| `delete_entity` | the entity row, its relations and its materialized note |
+| `session_rerun` | the session row and, once the session has ended, its recorded trace |
+| `execute_command`, `trigger_quickadd` | nothing (`confirmationTargets: "none"`) |
+
+Registering a HITL-gated tool with neither `pathAcl` nor `confirmationTargets` throws at
+startup, so a new gated tool cannot silently bind on the arguments alone.
+
+Residuals, stated rather than hidden. `execute_command` and `trigger_quickadd` produce effects
+inside Obsidian that the server cannot observe, so they bind on `args_hash` alone. `git_commit`
+reads the vault's own `.git` on the server host; when the Obsidian Git bridge runs against a
+repository on another machine and the vault has no repo here, that binding is empty. An open
+session's trace is not part of `session_rerun`'s binding, because it grows with the calls around
+the request itself. `reset_vault_cache` leaves out the event log and idempotency keys, which the
+confirmation flow writes itself. A vault with no root wired (some embedded uses) cannot bind
+path-based targets.
+
+**A token minted with no raised request is refused by the CLI.** `reliquary-tc elicit` holds an
+`args_hash`, not the call's arguments, so it cannot recompute what a tool's `confirmationTargets`
+fingerprints; it binds the token to the state recorded when the server raised `elicit_required`
+(for every tool, including the `"none"` ones, which record an empty fingerprint). With no raised
+request behind the hash it would mint a token that redeems on `args_hash` alone, so it exits
+with an error asking you to run the blocked call again first (`--caller` must match the caller
+that was blocked). Library callers of `issueElicitToken` are unchanged: a token issued directly
+with no raised request stays unbound.
+
+The elicitation thresholds are **hardcoded floors** — a client cannot configure
+them away. This keeps the confirmation gate present even under a permissive config.
+
+## What keys the confirmation state {#what-keys-the-confirmation-state}
+
+The `requestState` the HTTP transport mints is signed and expires after the confirmation TTL
+(300 s by default). Its key comes from a per-server secret, `<cacheDir>/server-secrets/wiki-generated.key`
+(random, `0600`, created on first use, the same file that seals generated wiki pages), run through HKDF
+under a label of its own. It does **not** come from `auth.jwtSecret`, so the round trip exists in every
+HTTP auth mode (`jwt` with a secret, `jwt` with only a JWKS or registry keys, `oidc`), and rotating or
+removing `jwtSecret` does not void a pending confirmation. Processes that share a `cacheDir` accept each
+other's states; a server with a different `cacheDir` does not. Deleting `server-secrets/` voids pending
+confirmations (the client is offered a fresh one) and regenerates the wiki pages.
+
+**Which key is in use is logged at startup**: an `elicit:` line on stderr says either that the codec is
+keyed from `<cacheDir>/server-secrets` (stable across restarts) or, when the server was given no
+`cacheDir`, from a per-process random key (confirmations do not survive a restart and are not shared
+between processes). Keep `server-secrets/` on the **same persistent volume as `auth-keys/`** (in a
+container, mount the whole `cacheDir`): a `server-secrets/` that is recreated empty on every start
+silently voids pending confirmations and makes every generated wiki page read as edited.
+
+**`auth.mode: none`.** The round trip works there too, which is only reachable on a loopback bind.
+There is no token to take an identity from, so every request is the one caller `http-local` and a
+confirmation is bound to it: any process on the machine that can reach the port is that caller, and
+can replay a state it captured within the TTL (see below). Use `jwt` or `oidc` when more than one
+principal can reach the port.
+
+**Replay widens with the modes.** A `requestState` is not consumed, so within its TTL (300 s by
+default) the same principal can present it again for the same vault, tool and arguments. Before
+this keying the round trip existed only under `jwt` with a secret; it now also covers `oidc`,
+asymmetric-only `jwt`, and servers that share a `cacheDir`, so the same replay window applies to
+all of them. A consumed-state store would close it; none exists yet.
+
+**Rotating the key.** See [Rotating the server secret](/security/auth-model/#rotating-the-server-secret).
+
+**Upgrading.** A confirmation that was pending when the server was upgraded was keyed from
+`auth.jwtSecret` and is refused once; the client is offered a fresh confirmation, inside the
+window the old one would have had anyway. There is no dual-key verify: it would keep the old
+coupling alive.
+
+## The `inputRequired` round trip, on stdio too {#the-inputrequired-round-trip-on-stdio-too}
+
+A client that advertises the MCP **elicitation** capability (`elicitation/create`,
+SEP-2260/2322) gets the confirmation as an actual protocol round trip — the server
+answers `inputRequired({ requestState, inputRequests: { confirm: … } })`, and the
+call completes once the human answers `accept` with `approve: true`. This works on
+**both** stdio and HTTP, and on **both** protocol eras:
+
+- On a MODERN (2026-07-28) connection, the client drives the round trip itself:
+  it shows the form, resubmits the call echoing back `requestState` and the
+  answer, and the server verifies both before trusting them.
+- On a LEGACY (2025-11-25/2025-06-18) connection, the underlying MCP SDK's
+  low-level `Server` fulfils the round trip *server-side*: it sends the
+  `elicitation/create` request itself, waits for the answer, and re-enters the
+  handler with a verified `requestState` — the client sees nothing different
+  from the modern case except the wire shape. This legacy path is opt-in and
+  **stdio-only** (`legacyElicitationShim`); Streamable HTTP never takes it, since
+  a server-initiated request over stateless HTTP is unverified against real
+  clients and out of scope. A legacy-era HTTP session behaves exactly as it did
+  before this mechanism existed: the plain `elicit_required` error below.
+
+Either way, nothing but `accept` with `approve: true` is an approval, and the call is
+never prompted a second time (a verified `requestState` alone proves the confirmation
+is *authentic*, never that it was *granted* — the server also checks the elicitation's
+own answer before trusting it). The two non-approving answers are told apart, as the
+MCP specification defines them: `decline` is "User explicitly declined the request",
+`cancel` is "User dismissed without making an explicit choice".
+
+- **`decline`** (or `accept` with `approve: false`) is a hard stop. The error's
+  `details.reason` is `approval_declined` and its text says the user declined: do not
+  retry, do not mint a token. The server stops the call at the decline and does not
+  dispatch it again, so a gate that stopped applying while the prompt was open (an
+  overwrite target removed meanwhile) cannot let the refused change run.
+- **`cancel`** means approval was *not obtained*; nobody said no. The write is still
+  refused, but the error's `details.reason` is `approval_not_obtained` and both its text
+  and `recovery` point at the out-of-band `reliquary-tc elicit` route below. This matters
+  for headless clients: Claude Code run non-interactively advertises elicitation and
+  auto-answers `cancel` within milliseconds, with no human in the loop, so the operator
+  approves out of band instead. Codex run non-interactively (`codex exec`) answers `decline`
+  instead, which is the hard stop above: the agent cannot recover, so the user approves by minting
+  the token themselves (see [MCP clients](/getting-started/mcp-clients/#approval-prompts-when-the-client-runs-headless)).
+
+The single-use elicit-token/CLI mechanism below is what a client with no elicitation
+capability, or one that only ever cancels, falls back to.
+
+A client that declares a bare `elicitation: {}` capability (no `form`/`url` sub-key)
+is treated as supporting form mode — the 2025 spec's pre-mode default — not as
+declining elicitation; this applies uniformly, on every transport and era.
+
+## When your client can't render the prompt {#when-your-client-cant-render-the-prompt}
+
+A client with NO elicitation capability at all (or one that auto-cancels the prompt)
+gets no round trip to complete: a call to
+one of the 16 conditionally-gated tools (`move_note` across a folder boundary,
+`delete_note`, `restore_note`, `prune_hub_links`, and others) simply fails with
+an `elicit_required` error and no round trip to complete it. The error text itself
+leads with a directive telling the AGENT to ask the human before running anything —
+it is not an instruction the agent should act on unilaterally:
+
+```json
+{ "code": "elicit_required", "details": { "args_hash": "…" } }
+```
+
+There is no way to weaken this gate, and no reason to route around it by editing the
+vault directly — doing so bypasses the audit trail, the folder ACL, and (for `delete_note`)
+the snapshot `restore_note` depends on, all at once. Instead, mint the confirmation token
+from the command line:
+
+```sh
+reliquary-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--caller <id>] [--state-fp <fp>]
+```
+
+- **`--hash`** is the `args_hash` the `elicit_required` error's `details` carried.
+- **`--tool`** names the tool the confirmation is for (recorded for audit; the binding
+  itself is the args_hash, which already encodes the tool name).
+- **`--vault`** is required when the config lists more than one vault.
+- **`--caller`** defaults to `"stdio"`, the identity every locally-spawned MCP client
+  presents over the trusted stdio transport (`reliquary-tc serve <vault>`) — the common
+  case this command exists for. On an HTTP/`jwt` deployment, pass the same value given
+  to `token mint --sub`.
+- **`--state-fp`** is the `state_fp` the `elicit_required` error's `details` carried (the
+  rendered command already includes it). It pins the token to the state *that* request was
+  raised against. Repeating a blocked call after its target changed records a newer
+  fingerprint under the same args_hash, so a command copied from the earlier refusal would
+  otherwise approve the newer state; with the flag the mint is refused unless the flag
+  names the retained request's own fingerprint (one that was never stored, or that a
+  newer request replaced, is rejected).
+
+The command prints the token, and nothing else, to stdout; send the same call again with
+`elicit_token: <token>` and it proceeds. The token carries every property the mechanism
+above requires: it is bound to the exact vault, args_hash, and caller given (a token minted
+for one call is refused for a different one), single-use, and expires after the configured
+`elicitTtlSeconds` — there is no `--ttl` flag, so a mint can never outlive what the live
+server itself would have issued.
+
+**The caller id is visible.** The refusal's text and its structured `recovery` spell out the
+concrete command, including `--caller <id>`: the calling principal's id (the JWT subject on
+HTTP, `stdio` on stdio) therefore appears in the model-visible error and, once the command is
+pasted, in shell history. It is the same principal that made the call and already sits in the
+audit log; it is not another caller's identity.
+
+**Authorization.** Minting requires opening the same `cache.db` the live server reads
+`elicit_tokens` from — filesystem access to the vault's cache directory. That directory
+already holds `auth.jwtSecret` and every configured provider API key; `token mint` already
+treats read access to it as sufficient authority to issue a bearer credential with wildcard
+scopes. This command asks for nothing stronger: whoever can read that directory could
+already run `reliquary-tc serve` against it and dispatch the exact call being gated, with no
+confirmation at all. There is deliberately no MCP tool for this — a tool would let the model
+under the gate clear its own gate; the CLI keeps it a human-operator action.
+
+## The response governor {#the-response-governor}
+
+A shared **governor** caps the byte size of any single tool response
+(`governor.maxResponseBytes`). When a result would exceed the cap the call is
+**refused** with an `overflow` error (rather than returning an unbounded payload);
+the refusal is counted (`governor_truncations_total`) and emitted as
+`tc.governor.overflow`. This bounds memory and protects clients from
+pathologically large payloads.
+
+`read_notes` is the exception to that refusal: it stays under the cap by paging. It returns the
+notes that fit plus a `next_cursor`, and the caller repeats the same request with `cursor` set until
+`next_cursor` is `null`. Every page makes progress; a note that could never fit is reported as a
+per-path `too_large` error (with its `size` and the `budget`) and skipped. The cursor is HMAC-signed
+and bound to the caller, the tool and the request arguments, expires after ten minutes, and is
+refused as `invalid_input` (`details.reason` is `expired`, `invalid`, `foreign` or
+`request_mismatch`) if replayed by another caller or against a different request. The folder ACL is
+re-checked per note on every page, so a path revoked mid-walk is not served.
+
+An MCP `resources/read` honors the same configured `governor.maxResponseBytes` ceiling
+— lowering it refuses an oversized resource too, not just an oversized tool
+response. A resource's rejection is a plain `invalid_input` error (checked via a cheap
+`stat()` before the file is read, rather than serializing the result first), so it does
+not increment `governor_truncations_total` or emit `tc.governor.overflow` — those stay
+specific to the tool-dispatch governor stage.
+
+See [Observability](/observability/prometheus/) for the counters these emit.

@@ -1,0 +1,243 @@
+---
+title: Scopes & Folder ACLs
+description: How scopes, folder ACLs, and scope-class rate tiers gate every tool call.
+---
+
+## Scopes {#scopes}
+
+Every tool declares the scopes it requires. A caller's granted scopes (from its
+JWT, or full `*` for trusted stdio) must satisfy them or the call is denied with
+`forbidden` (missing required scope); an unauthenticated call is denied with
+`unauthorized`.
+
+## Folder ACLs {#folder-acls}
+
+Beyond scopes, a **folder ACL** constrains which vault paths a caller may read,
+write, or delete, using glob allow/deny rules (e.g. allow `02-projects/**`, deny
+`99-private/**`). A path outside the whitelist is denied with `acl_denied`
+(counted as `acl_denied_total`, emitted as `tc.acl.denied`). Paths are resolved and
+canonicalized through symlinks before the check and matched Unicode-NFC-insensitively,
+`../` escapes cannot bypass it, and the control directories `.obsidian` / `.git` /
+`.trash` are denied by default. A **hard-linked** regular file (`st_nlink > 1`) is also
+rejected under a folder ACL: a hard link aliases an inode that path canonicalization cannot
+dereference, so it could otherwise serve a file outside the allowed folder. Reads run on the
+opened file descriptor (fstat + read on the same object).
+
+This refusal covers every read of a vault file, not only note reads: the `.obsidian` config
+readers, the `.obsidian/app.json` Excluded-files list the indexer loads, the git metadata
+`git_commit` binds its confirmation to, the session traces and the staged copy a sandboxed
+`session_rerun` replays against. A file with a second directory entry is refused at all of them, and
+a symlink is never followed into a sandbox copy.
+
+**Compatibility.** If you deliberately hard-link (or symlink) a file under `.obsidian`, it now fails
+closed instead of being read. `bookmarks.json` and `workspaces.json` make their tools fail with
+`acl_denied`, naming the file, until the link is replaced by an ordinary single-link file. Periodic
+note settings (`daily-notes.json`, `periodic-notes.json`) and the attachment folder setting fall back
+to their defaults, a plugin whose `manifest.json` is linked is not listed, a linked `app.json` keeps
+the last good Excluded-files list (the doctor reports it), and a linked file under `.git` makes
+`git_commit` refuse rather than fingerprint it. To keep one file shared between vaults, copy it
+instead of linking it. A sandboxed `session_rerun` leaves a hard-linked or symlinked file out of its
+copy, so the replay of a call that read it fails there as it does live.
+
+### Memory entities follow the read ACL {#memory-entities-follow-the-read-acl}
+
+`get_entity` and `query_entity_graph` hold `read:memory`, and the folder read ACL applies to them
+as well. An entity's own projection note is `<memory folder>/<type>/<name>.md` (default folder
+`memory`), and that note renders the same observations and `[[links]]` the tools return, so an
+entity is readable exactly when `read_note` could read that note: the same check `read_note` runs,
+not a copy of it. That is the hard-denied roots (`.obsidian`, `.git`, `.trash`), `readPaths`,
+`strictReadDefault`, any rule-scopes on its path, symlink resolution (the real path is what the ACL
+sees, so a memory folder reached through a symlink into an unreadable directory hides its entities)
+and the hard-link refusal. A path that cannot be resolved (an invalid or `..` path) fails closed,
+and there is no shortcut for a vault with no `readPaths`. This holds for entities created with
+`materialize: false` too (no file exists, the path is computed) and uses the entity's current name,
+so a renamed entity is not judged by a stale path.
+
+Denied means missing. An entity the caller cannot read returns the same `entity not found` error a
+nonexistent id returns (the same goes for the write and lifecycle tools that look an entity up:
+`add_observation`, `update_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity`), it does
+not count toward by-name ambiguity, and `get_entity` omits relations to it. `query_entity_graph`
+never traverses an unreadable entity, so entities reachable only through one do not appear, and the
+page, `next_cursor` and `total_returned` are computed after that filtering.
+
+**Writes are gated on the same path, in both modes.** `write:memory` alone is not enough: every
+memory write tool also needs the folder write ACL on the entity's projection path, whether or not a
+note is materialized, because `materialize: false` only skips the file while the row (the source of
+truth, and what `get_entity` returns) is still created, extended, linked, renamed or removed.
+`create_entity`, `add_observation`, `link_entities`, `unlink_entities` and `rename_entity` (the new
+path, plus delete on the old path when the name changes) need `write` on that path, and
+`delete_entity` needs `delete`. A relation has two ends: the edge is the source's outgoing relation
+and the target's incoming one in `get_entity`, so `link_entities` and `unlink_entities` need `write`
+on BOTH the source's and the target's projection path, in both modes (a caller who can write only
+the source cannot add or remove an edge into an entity they cannot write). The one deliberate
+exception is `delete_entity`: deleting an entity you may
+delete removes its edges together with it, including edges from or to entities you cannot write,
+because the edge cannot outlive its endpoint. For `create_entity` the check runs right after the
+read check and before any collision lookup, so a denial is a function of the path alone: an
+existing and an absent entity in an unwritable folder get the identical `acl_denied`, and no row is
+created. A vault with a restricted `writePaths` or `deletePaths` must therefore list the memory
+folder for these tools to work; unrestricted configs are unchanged.
+
+The write and lifecycle tools do not leak around this either. `create_entity` and `rename_entity`
+need read access to the note path they claim, checked before any collision lookup, so "already
+exists" is only said about an entity you could read; an unreadable target folder is `acl_denied`
+whether or not a row exists. `delete_entity` and `rename_entity` count, list and fingerprint only the
+relations `get_entity` shows: an entity whose only relations point at unreadable entities deletes and
+renames exactly like one with none (the hidden edges are removed with it, unreported, and a hidden
+neighbour's note is refreshed only when that is already permitted, never reported or counted). An
+ownership conflict (`note_exists`) never names an owner you cannot read. A type or name of `.` or
+`..` is rejected.
+
+**Accepted residual.** Relations are rendered into the readable entity's own note, which is shared
+vault content and cannot be trimmed per caller. A reader of `Ada`'s note therefore sees the names of
+the entities `Ada` links to, readable or not, like any wiki-link in any readable note; the linked
+entities' observations and data stay hidden. To keep a name private, do not link it from a readable
+entity.
+
+A vault with a restricted `readPaths` that does not list the memory folder therefore hides its
+memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `reliquary-tc doctor
+--probe` reports `memory.read-acl` when existing entities are hidden this way.
+
+### Capture queue follows the read ACL {#capture-queue-follows-the-read-acl}
+
+`list_capture_queue` holds `read:capture`, and the folder read ACL applies to it as well. A queued
+capture's content becomes the body of the note it is committed to, and its `target_path_hint` and
+`committed_path` name that note, so a capture is visible exactly when `read_note` could read every
+note it names, by the same check `read_note` runs on the vault's bound root: the hard-denied roots
+(`.obsidian`, `.git`, `.trash`), `readPaths`, `strictReadDefault`, any rule-scopes on those paths,
+symlink resolution (a hint that names `pub/link/note.md` is judged by where `link` points) and the
+hard-link refusal, evaluated against the ACL of the vault you asked about. A path that does not
+exist yet (an unmaterialized hint) is resolved through its parent directory, and one that cannot be
+resolved (invalid, or a legacy `..` row) fails closed, with no shortcut for a vault with no
+`readPaths`. A capture whose committed note or
+target note is unreadable is left out, with its content preview, tags and paths. Denied means
+missing: `commit_capture` answers the id of an unreadable capture (pending or committed) with the
+same `capture not found` error as an id that was never queued, and the `list_capture_queue` page,
+`next_cursor` and `total_returned` are computed after the filtering, identical to a queue that never
+held that capture. A capture naming no note (an unrouted inbox item) stays visible. This is a
+behaviour change for a vault whose `readPaths` is restricted: captures aimed at folders outside
+`readPaths` no longer appear in the queue for that caller. Add the folder to `readPaths` to see them.
+
+A request examines at most 1000 queue rows. A caller who can enqueue captures aimed at notes it
+cannot read could otherwise make every `list_capture_queue` call do work proportional to that hidden
+volume. When the bound is reached the page so far (possibly empty) is returned with a `next_cursor`
+that resumes the scan; that cursor is opaque and never names a hidden capture. **Accepted residual:**
+how many calls it takes to walk a queue still grows with the number of captures the caller cannot
+see, so hidden volume is observable as latency and as empty continuation pages. No content, path or
+id is revealed. Likewise `reset_vault_cache` (`admin:vault`, destructive, confirmation-gated)
+fingerprints the committed-capture count it is about to delete, so an admin can learn that count; an
+admin can already delete those rows, so this is accepted.
+
+## ACL configuration {#acl-configuration}
+
+The folder ACL is a config block: `acl` at the root (the default for every vault)
+and, optionally, a per-vault `acl` that overrides it. Both share the same shape:
+
+- **`readOnly`** (default `false`) — a vault-wide read-only kill switch; when `true`,
+  every write/delete is refused regardless of scopes.
+- **`defaultScopes`** — scopes **required** to operate on a path that matches no `rules`
+  entry (P1.4). Empty (the default) adds no requirement.
+- **`rules`** — `{ "glob": "…", "scopes": [ … ] }` entries. A rule's `scopes` are the
+  scopes a caller must hold — **in addition to the tool's own required scopes** — to
+  read/write/delete a matching path (P1.4). The **last** matching rule wins (replacing,
+  not merging). Enforced centrally at dispatch on tool *operations*, and by every handler that
+  reads a note itself. Search, listing, graph and plugin-passthrough results, and the counts derived
+  from them, drop a path whose rule-scopes the caller lacks, exactly as `read_notes` would refuse it.
+- **`readPaths` / `writePaths` / `deletePaths`** — optional glob whitelists. When a
+  list is **omitted**, that operation is unrestricted (the M0 default); when
+  **present**, a path must match at least one entry or the call is denied.
+- **`strictReadDefault`** (default `false`) — when `true`, an *undefined* `readPaths`
+  fails **closed** on reads (not just on bridge enumeration).
+
+**Write globs with `/`.** A backslash in any configured path glob (`rules`, the `*Paths` whitelists,
+`egress.excludePaths`, `index.excludePaths`) is read as a separator when the config loads, so
+`"notes\\private\\**"` (JSON for `notes\private\**`) is `notes/private/**`. Checked vault paths are always forward-slash, so before
+this a backslash glob matched nothing: harmless for a whitelist (it failed closed) but a silent
+**fail-open** for a rule or an exclusion, which then protected nothing. `reliquary-tc doctor` also warns
+(`config.path-globs`) about any glob that matches no file in its vault.
+
+**Patterns must be vault-relative.** ACL globs are matched against paths relative to the vault root
+(`Private/x.md`), so a rule written `/Private/**`, `\Private\**`, `C:\notes\**`, `./Private/**`, or with a
+trailing separator (`notes/private/`) can never match a note. The same goes for a `.` or `..` segment
+(`../Private/**`, `Private/./**`, `Private/../**`: checked paths never carry one) and for any control character. Its scopes would be silently bypassed, so
+config load **rejects** these in `rules[].glob` and the three `*Paths` whitelists with the vault-relative
+spelling to use (`Private/**`, `notes/private/**`). The separator is not stripped for you: doing so could
+turn a whitelist entry that granted nothing into a grant. A config with such a pattern fails to start
+until it is rewritten; `reliquary-tc doctor` prints the same error.
+
+Root ACL:
+
+```json
+{
+  "acl": {
+    "readOnly": false,
+    "readPaths": ["**"],
+    "writePaths": ["02-projects/**", "90-memory/**"],
+    "deletePaths": ["02-projects/**"],
+    "strictReadDefault": false
+  }
+}
+```
+
+Per-vault override — the canonical "write vault A, read-only vault B in one process"
+policy. A vault with no `acl` inherits the root ACL as its default:
+
+```json
+{
+  "vaults": [
+    { "id": "work", "path": "/vaults/work",
+      "acl": { "writePaths": ["**"], "deletePaths": ["**"] } },
+    { "id": "reference", "path": "/vaults/reference",
+      "acl": { "readOnly": true } }
+  ]
+}
+```
+
+### The raw-sources folder is immutable {#the-raw-sources-folder-is-immutable}
+
+A vault with a wiki (`vaults[].wiki.folder`) has a raw-sources folder, `wiki.rawFolder` (default `raw` beside
+the wiki folder). The server derives one more rule from it for that vault, on top of any `acl` block: no
+write or delete may touch the folder or anything under it. It is not a config key of its own, so a config
+file cannot switch it off or widen it, and it holds even where `writePaths` or `deletePaths` list the folder.
+The denial is `acl_denied` and says the path is in an immutable folder; reads, search and `inspect_acl` follow
+the ordinary rules (`inspect_acl` reports a write there as denied by the write whitelist, with the folder as
+the matched rule). The rule is checked on the path as written and on the real path it leads to, so a symlink
+cannot carry a write into the folder or out of it. A hard-linked file is refused by the existing aliasing
+guard. See [Ingesting a raw source](/tools/#ingesting-a-raw-source).
+
+Two things keep that rule whole. **Link maintenance does not write there:** `move_note`,
+`bulk_move_notes` and `move_attachment` repoint links in every linking note outside the write whitelist
+(a deliberate carve-out), but never in a raw note. The move goes ahead and the raw notes that link the
+moved target keep their old links; the result reports them (`immutable_not_updated` for notes the caller
+may read, `immutable_not_updated_hidden` as a bare count for the rest, and an `immutable_warning`).
+**A symlinked raw folder is locked under both names:** if `raw` is a symlink to another in-vault folder
+the rule covers that folder too, and the wiki folder must not be the same directory by filesystem
+identity (the server refuses to start). The real folder is resolved when the server starts, so a symlink
+made afterwards takes effect at the next restart. A raw folder that leaves the vault, or whose identity
+cannot be established, locks nothing extra and cannot be ingested from. Folder names with `*`, `?` or
+`[` are matched literally.
+
+## Scope classes & rate tiers {#scope-classes--rate-tiers}
+
+Each tool's required scopes resolve to one **scope class**, chosen by
+most-restrictive precedence:
+
+```
+bulk  >  execute  >  admin  >  delete  >  write  >  read
+```
+
+A dispatch-wide token-bucket limiter throttles by class. The default tiers
+(`perMinute` refill, `burst` ceiling):
+
+| Class | Per minute | Burst |
+| --- | --- | --- |
+| read | 600 | 100 |
+| write | 60 | 20 |
+| delete | 60 | 20 |
+| bulk | 10 | 3 |
+| execute | 5 | 1 |
+| admin | 5 | 1 |
+
+A throttled call returns `throttled` ("rate limit exceeded"), increments
+`rate_limit_hits_total`, and emits `tc.rate_limit.hit`. The limiter is
+deterministic (it reads an injected clock), so its behavior is fully testable.
