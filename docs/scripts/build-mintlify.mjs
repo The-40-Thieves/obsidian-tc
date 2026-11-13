@@ -87,11 +87,19 @@ const proseSafe = (segment) =>
 // Heading IDs: Starlight slugged headings with github-slugger, and Mintlify slugs them its own way,
 // so `#remote-key-set-authjwksuri`-style links (in these pages and from outside, to the old site)
 // would stop resolving. Pin every heading to the github-slugger ID with Mintlify's `{#id}` syntax.
+// The text is only ever slugged (githubSlug drops every `<` and `>`), never emitted as HTML; tags are
+// stripped to a fixed point so a nested `<<b>b>` cannot leave a tag-shaped remainder behind.
+const stripTags = (s) => {
+  let prev;
+  let out = s;
+  do {
+    prev = out;
+    out = out.replace(/<[^<>]*>/g, "");
+  } while (out !== prev);
+  return out.replace(/[<>]/g, "");
+};
 const headingText = (raw) =>
-  raw
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links and images -> their text
-    .replace(/[`*_~]/g, "")
-    .replace(/<[^>]+>/g, "");
+  stripTags(raw.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[`*_~]/g, "")); // links -> text
 const githubSlug = (text) =>
   text
     .toLowerCase()
