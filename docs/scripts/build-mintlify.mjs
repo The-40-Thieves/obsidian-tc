@@ -15,7 +15,7 @@
 // CI runs this, checks the result with `mint validate` and `mint broken-links`, and on main
 // publishes <out> to the docs-site branch, which the Mintlify hub repository pulls in.
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -136,6 +136,11 @@ const githubSlug = (text) =>
     .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, "")
     .replace(/ /g, "-");
 
+// Relative links (`](../x/)`) resolve differently once the hub mounts this site under
+// /reliquary-tc, and the hub's sync only rewrites root-relative links, so they are refused here.
+const relativeLinks = [];
+let currentFile = "";
+
 function mdxSafe(text) {
   const fm = text.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
   const head = fm ? fm[0] : "";
@@ -161,7 +166,11 @@ function mdxSafe(text) {
       const safe = (s) =>
         s
           .split(/(`+[^`]*?`+)/)
-          .map((part, i) => (i % 2 === 1 ? part : proseSafe(part)))
+          .map((part, i) => {
+            if (i % 2 === 1) return part;
+            if (part.includes("](./") || part.includes("](../")) relativeLinks.push(currentFile);
+            return proseSafe(part);
+          })
           .join("");
       const h = line.match(/^(#{1,6})[ \t](.*)$/);
       const title = h ? h[2].trim() : "";
@@ -182,11 +191,18 @@ const walkFiles = (dir) =>
 let rewritten = 0;
 for (const file of walkFiles(out).filter((f) => f.endsWith(".md") || f.endsWith(".mdx"))) {
   const before = readFileSync(file, "utf8");
+  currentFile = relative(out, file);
   const after = mdxSafe(before);
   if (after !== before) {
     writeFileSync(file, after);
     rewritten++;
   }
+}
+
+if (relativeLinks.length > 0) {
+  fail(
+    `relative links in ${[...new Set(relativeLinks)].join(", ")}: use root-relative paths such as /security/auth-model/`,
+  );
 }
 
 process.stderr.write(
