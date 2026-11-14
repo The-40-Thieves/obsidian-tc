@@ -47,7 +47,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(ROOT, "packages/server/src/db/sqlite-embedded.ts");
+const DEFAULT_OUT = join(ROOT, "packages/server/src/db/sqlite-embedded.ts");
 
 // Pinned. NOTE THE HASH ALGORITHM: sqlite.org's download.html PRODUCT lines publish SHA3-256, not
 // SHA-256 — pinning the published digest with a SHA-256 checker fails on a byte-perfect download.
@@ -97,6 +97,53 @@ const flag = (name) => {
   const i = argv.indexOf(name);
   return i === -1 ? undefined : argv[i + 1];
 };
+// --out is for the tests, so they never write over the tracked placeholder.
+const OUT = flag("--out") ?? DEFAULT_OUT;
+
+// FTS5 is OFF by default in this SQLite's configure (GH #1515: two releases shipped a macOS binary
+// that logged "no such module: fts5" and lost notes_fts and chunk_fts). sqlite3 keeps its compile
+// options as strings for sqlite3_compileoption_get(), and strip leaves string literals alone, so
+// the option is checked in the bytes that get embedded, for a --dylib as well.
+const FTS5_MARKER = "ENABLE_FTS5";
+const CPU_NAMES = new Map([
+  [0x01000007, "x86_64"],
+  [0x0100000c, "arm64"],
+]);
+
+// The architecture slices of a universal2 (fat) Mach-O, or the whole file when it is thin. Each is
+// checked on its own: one slice with FTS5 must not vouch for the other, which is the one that
+// ships in the binary CI never runs. The fat header is big-endian; 0xcafebabf is the 64-bit form.
+function machoSlices(bytes) {
+  const magic = bytes.length >= 8 ? bytes.readUInt32BE(0) : 0;
+  if (magic !== 0xcafebabe && magic !== 0xcafebabf) return [{ name: "", bytes }];
+  const wide = magic === 0xcafebabf;
+  const entry = wide ? 32 : 20;
+  const slices = [];
+  for (let i = 0; i < bytes.readUInt32BE(4); i++) {
+    const at = 8 + entry * i;
+    if (at + entry > bytes.length) break;
+    const cpu = bytes.readUInt32BE(at);
+    const offset = wide ? Number(bytes.readBigUInt64BE(at + 8)) : bytes.readUInt32BE(at + 8);
+    const size = wide ? Number(bytes.readBigUInt64BE(at + 16)) : bytes.readUInt32BE(at + 12);
+    slices.push({
+      name: `${CPU_NAMES.get(cpu) ?? `cputype 0x${cpu.toString(16)}`} slice of `,
+      bytes: bytes.subarray(offset, offset + size),
+    });
+  }
+  return slices;
+}
+
+function requireFts5(bytes, what) {
+  const slices = machoSlices(bytes);
+  const missing = slices.filter((s) => !s.bytes.includes(FTS5_MARKER));
+  if (slices.length > 0 && missing.length === 0) return;
+  const which = missing.map((s) => `${s.name}${what}`).join(", ") || what;
+  console.error(
+    `gen-embedded-sqlite: ${which} was built without FTS5 (no ${FTS5_MARKER} compile option in it); ` +
+      "full-text search cannot work on it",
+  );
+  process.exit(1);
+}
 
 if (argv.includes("--reset")) {
   emit("", "Empty in source control; only ever non-empty inside a compiled darwin release binary.");
@@ -184,11 +231,16 @@ function buildUniversal() {
     // (aarch64-apple-darwin-cc) that does not exist on macOS, where one clang is driven by -arch.
     // There is deliberately no --enable-load-extension: the flag does not exist, loading is on by
     // default, and this configure accepts unknown flags silently — so it would enforce nothing.
-    sh("sh", ["-c", `./configure --prefix="${prefix}" --host="${host}" --disable-static`], {
-      cwd: src,
-      stdio: "ignore",
-      env: { ...process.env, CC: "clang", CFLAGS: `-arch ${arch}`, LDFLAGS: `-arch ${arch}` },
-    });
+    // --enable-fts5 is a real flag and is needed; requireFts5 below is what enforces it.
+    sh(
+      "sh",
+      ["-c", `./configure --prefix="${prefix}" --host="${host}" --disable-static --enable-fts5`],
+      {
+        cwd: src,
+        stdio: "ignore",
+        env: { ...process.env, CC: "clang", CFLAGS: `-arch ${arch}`, LDFLAGS: `-arch ${arch}` },
+      },
+    );
     sh("make", ["-j3"], { cwd: src, stdio: "ignore" });
     sh("make", ["install"], { cwd: src, stdio: "ignore" });
 
@@ -209,6 +261,7 @@ function buildUniversal() {
     // -S drops debug symbols, -x drops non-global ones; the sqlite3_* API bun:sqlite dlsym()s is
     // global and retained. Measured 5,181,936 -> 1,150,400 bytes on the linux equivalent.
     sh("strip", ["-S", "-x", dylib]);
+    requireFts5(readFileSync(dylib), `the ${arch} slice`);
     console.log(`gen-embedded-sqlite: ${arch} slice ${statSync(dylib).size} bytes`);
     slices.push(dylib);
   }
@@ -250,6 +303,7 @@ if (dylibBytes.length === 0) {
   console.error("gen-embedded-sqlite: dylib is empty — refusing to embed nothing");
   process.exit(1);
 }
+requireFts5(dylibBytes, prebuilt ? `--dylib ${prebuilt}` : "the universal2 dylib");
 
 emit(
   dylibBytes.toString("base64"),

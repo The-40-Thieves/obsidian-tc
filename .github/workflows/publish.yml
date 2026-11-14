@@ -989,6 +989,13 @@ jobs:
             echo "::error::compiled binary reports vec=off — sqlite-vec did not load; it silently fell back to the brute-force scan"
             exit 1
           }
+          # vec=on says nothing about full-text. A SQLite built without FTS5 boots, reports vec=on
+          # and answers searches from disk scans; this startup line is the only sign (v2.0.0 and
+          # v2.0.1 shipped the macOS binaries that way).
+          if echo "$out" | grep -q "notes_fts failed"; then
+            echo "::error::compiled binary reports notes_fts failed — its SQLite has no working FTS5, so full-text search fell back to disk scans"
+            exit 1
+          fi
           # Both migration chains must have produced a database, not just cache.db: the experiential
           # chain is assembled separately in cli.ts and was the second site reading SQL from disk.
           for db in cache.db experiential.db; do

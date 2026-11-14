@@ -6,7 +6,7 @@
 //   bun scripts/first-run-smoke.ts --path binary --artifact dist/reliquary-tc-bun-linux-x64
 //   bun scripts/first-run-smoke.ts --path cli    --artifact packages/server/dist/cli.js  (dev / tests)
 //     [--report <file.json>] [--report-path <label>] [--reconcile-timeout-ms <ms>]
-//     [--model-cache <dir>]
+//     [--model-cache <dir>] [--fts-timeout-ms <ms>]
 //
 // What it does, per path: install/unpack the artifact the way a user gets it, start it against a
 // five-note fixture vault with NO config file (the vault directory is the only argument, as `npx
@@ -21,9 +21,10 @@
 // HOME (scripts/lib/isolated-home.mjs), so the run never reads or writes the operator's real
 // `~/.reliquary-tc`, and the same `--model-cache` shape for CI's model-weights cache.
 //
-// Stages: prepare, node-floor (mcpb only), boot, banner, vec, reconcile, search_semantic,
+// Stages: prepare, node-floor (mcpb only), boot, banner, vec, reconcile, fts, search_semantic,
 // search_vault (info), shutdown. `native` is reported, never failed: the JS fallback is a supported
-// state. `vec=off` IS a failure: it means dense retrieval fell back to the brute-force scan.
+// state. `vec=off` IS a failure: it means dense retrieval fell back to the brute-force scan. So is
+// `fts` anything but available: the build's SQLite has no working FTS5 (GH #1515).
 //
 // The mcpb path is run as a desktop host runs an extension: unpack the bundle, read its
 // manifest's server.mcp_config, expand ${__dirname} / ${user_config.*}, spawn `node` from PATH
@@ -48,6 +49,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { RUNTIME_PACKAGE_PLATFORMS } from "../../../scripts/lib/embedder-runtime-packages.mjs";
 import {
   buildReport,
+  classifyFts,
   classifySemantic,
   expandMcpbVars,
   failureLine,
@@ -88,6 +90,9 @@ const reportPath = arg("--report-path") ?? pathKind;
 const modelCache = arg("--model-cache");
 const reconcileTimeoutMs = Number(arg("--reconcile-timeout-ms") ?? "300000");
 const bootTimeoutMs = Number(arg("--boot-timeout-ms") ?? "120000");
+// How long the fts stage waits out a `recovering` notes_fts (the server's own retry of a startup
+// lock) before calling it a failure.
+const ftsTimeoutMs = Number(arg("--fts-timeout-ms") ?? "60000");
 // `--env KEY=VALUE` (repeatable): extra environment for the child. A test hook for the stub server.
 const extraEnv = Object.fromEntries(
   process.argv.flatMap((a, i) =>
@@ -371,7 +376,7 @@ async function main(): Promise<void> {
 
   if (launch) await exercise(launch);
   else
-    for (const s of ["boot", "banner", "vec", "reconcile", "search_semantic", "shutdown"])
+    for (const s of ["boot", "banner", "vec", "reconcile", "fts", "search_semantic", "shutdown"])
       rec(s, "skip", "prepare failed");
 
   const report = buildReport({
@@ -414,7 +419,7 @@ async function exercise(launch: Launch): Promise<void> {
     rec("boot", "pass", "initialize succeeded over stdio");
   } catch (e) {
     rec("boot", "fail", `${failureLine(stderrText, errText(e))} [${errText(e)}]`);
-    for (const s of ["banner", "vec", "reconcile", "search_semantic"])
+    for (const s of ["banner", "vec", "reconcile", "fts", "search_semantic"])
       rec(s, "skip", "boot failed");
     await shutdown(transport, client, isolated.cleanup, () => closed);
     return;
@@ -485,6 +490,25 @@ async function exercise(launch: Launch): Promise<void> {
       "fail",
       `reconcile=${reconcile} after ${Date.now() - reconcileStart}ms (${statusDetail})${why}`,
     );
+  }
+
+  // fts: read after the reconcile, which is what first writes to notes_fts. `recovering` is the
+  // server retrying a startup lock, so it is polled until it settles or the wait is spent.
+  try {
+    const ftsDeadline = Date.now() + ftsTimeoutMs;
+    let fts: { state?: string; reason?: string; last_error?: string } | undefined;
+    for (;;) {
+      const health = toolPayload(await call("server_health", {})) as
+        | { fts?: typeof fts }
+        | undefined;
+      fts = health?.fts;
+      if (fts?.state !== "recovering" || Date.now() >= ftsDeadline) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const c = classifyFts(fts);
+    rec("fts", c.ok ? "pass" : "fail", c.detail);
+  } catch (e) {
+    rec("fts", "fail", `error: ${errText(e)}`);
   }
 
   // search_semantic: runs even after a degraded reconcile, because what it does then is data.
