@@ -198,7 +198,7 @@ describe("report + 3x5 table", () => {
 });
 
 describe("first-run-smoke.ts against the stub server (watched red AND green)", () => {
-  function runHarness(mode: string) {
+  function runHarness(mode: string, extra: string[] = []) {
     const dir = makeTempDir("first-run-smoke-");
     try {
       const reportFile = join(dir, "report.json");
@@ -217,6 +217,7 @@ describe("first-run-smoke.ts against the stub server (watched red AND green)", (
           "15000",
           "--report",
           reportFile,
+          ...extra,
         ],
         { cwd: PACKAGE_ROOT, timeoutMs: 60_000 },
       );
@@ -246,6 +247,20 @@ describe("first-run-smoke.ts against the stub server (watched red AND green)", (
       "fts: notes_fts unavailable (provision_failed): no such module: fts5",
     );
     expect(status(report, "search_semantic")).toMatchObject({ status: "pass" });
+  });
+
+  it("fts-recovers: a startup lock that clears is waited out, not failed", () => {
+    const { r, report } = runHarness("fts-recovers");
+    expect(r.code, r.stderr).toBe(0);
+    expect(status(report, "fts")).toMatchObject({ status: "pass", detail: "notes_fts available" });
+  });
+
+  it("fts-stuck: a lock that never clears fails once the wait is spent", () => {
+    const { r, report } = runHarness("fts-stuck", ["--fts-timeout-ms", "1200"]);
+    expect(r.code, r.stderr).toBe(1);
+    expect(report.firstFailure).toBe(
+      "fts: notes_fts recovering (lock_contention): database is locked",
+    );
   });
 
   it("no-embedder: exits 1, vec=off and the degraded reconcile reason are the failure lines", () => {

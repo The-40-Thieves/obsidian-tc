@@ -53,6 +53,47 @@ test("a dylib that carries the FTS5 compile option is embedded", () => {
   assert.ok(r.written?.includes(`EMBEDDED_SQLITE_BASE64 = "${bytes.toString("base64")}"`));
 });
 
+/** A universal2 (fat) Mach-O holding the given slices, laid out as lipo writes it. */
+function fat(slices) {
+  const CPU = { x86_64: 0x01000007, arm64: 0x0100000c };
+  const header = Buffer.alloc(8 + 20 * slices.length);
+  header.writeUInt32BE(0xcafebabe, 0);
+  header.writeUInt32BE(slices.length, 4);
+  let offset = header.length;
+  const bodies = slices.map(([arch, text], i) => {
+    const body = Buffer.from(text);
+    header.writeUInt32BE(CPU[arch], 8 + 20 * i);
+    header.writeUInt32BE(offset, 8 + 20 * i + 8);
+    header.writeUInt32BE(body.length, 8 + 20 * i + 12);
+    offset += body.length;
+    return body;
+  });
+  return Buffer.concat([header, ...bodies]);
+}
+
+test("a universal2 dylib is refused when only one architecture has FTS5", () => {
+  const r = embed(
+    fat([
+      ["arm64", "MACHO ENABLE_FTS5 THREADSAFE=1"],
+      ["x86_64", "MACHO ENABLE_FTS4 THREADSAFE=1"],
+    ]),
+  );
+  assert.equal(r.code, 1, r.stderr);
+  assert.match(r.stderr, /x86_64 slice of --dylib .* was built without FTS5/);
+  assert.equal(r.written, null);
+});
+
+test("a universal2 dylib with FTS5 in both architectures is embedded", () => {
+  const r = embed(
+    fat([
+      ["arm64", "MACHO ENABLE_FTS5 THREADSAFE=1"],
+      ["x86_64", "MACHO ENABLE_FTS5 THREADSAFE=1"],
+    ]),
+  );
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.written?.includes("EMBEDDED_SQLITE_BASE64"));
+});
+
 test("the release smoke step fails a binary whose startup output reports notes_fts failed", () => {
   const publish = read("../.github/workflows/publish.yml");
   const start = publish.indexOf("- name: smoke-test the compiled binary");

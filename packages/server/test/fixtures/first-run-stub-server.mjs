@@ -5,6 +5,8 @@
 //   no-embedder  the local embedder is unreachable: vec=off, reconcile degraded, search_semantic errors
 //   lexical      a lexical retriever answers search_semantic: hits carry no embedding_model
 //   no-fts       everything works except full-text: server_health reports notes_fts unavailable
+//   fts-recovers notes_fts is `recovering` (a startup lock) for two reads, then available
+//   fts-stuck    notes_fts stays `recovering`
 //   crash        dies at module load, as a bundle missing a dependency does
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -23,7 +25,22 @@ if (mode === "crash") {
   process.exit(1);
 }
 
-const dense = mode === "good" || mode === "no-fts";
+const dense = ["good", "no-fts", "fts-recovers", "fts-stuck"].includes(mode);
+const recovering = {
+  state: "recovering",
+  reason: "lock_contention",
+  attempts: 1,
+  max_attempts: 10,
+  last_error: "database is locked",
+};
+let healthReads = 0;
+function ftsState() {
+  healthReads += 1;
+  if (mode === "no-fts")
+    return { state: "unavailable", reason: "provision_failed", last_error: "no such module: fts5" };
+  if (mode === "fts-stuck" || (mode === "fts-recovers" && healthReads <= 2)) return recovering;
+  return { state: "available" };
+}
 process.stderr.write(
   `reliquary-tc 9.9.9 ready on stdio (vault main; native=${dense ? "on" : "js-fallback"} vec=${dense ? "on" : "off"})\n`,
 );
@@ -39,10 +56,7 @@ const handlers = {
     }),
   server_health: () =>
     text({
-      fts:
-        mode === "no-fts"
-          ? { state: "unavailable", reason: "provision_failed", last_error: "no such module: fts5" }
-          : { state: "available" },
+      fts: ftsState(),
       index: {
         detail: {
           reconcile_errors: [
