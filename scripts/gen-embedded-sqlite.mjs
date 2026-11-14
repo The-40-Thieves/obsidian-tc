@@ -105,10 +105,41 @@ const OUT = flag("--out") ?? DEFAULT_OUT;
 // options as strings for sqlite3_compileoption_get(), and strip leaves string literals alone, so
 // the option is checked in the bytes that get embedded, for a --dylib as well.
 const FTS5_MARKER = "ENABLE_FTS5";
+const CPU_NAMES = new Map([
+  [0x01000007, "x86_64"],
+  [0x0100000c, "arm64"],
+]);
+
+// The architecture slices of a universal2 (fat) Mach-O, or the whole file when it is thin. Each is
+// checked on its own: one slice with FTS5 must not vouch for the other, which is the one that
+// ships in the binary CI never runs. The fat header is big-endian; 0xcafebabf is the 64-bit form.
+function machoSlices(bytes) {
+  const magic = bytes.length >= 8 ? bytes.readUInt32BE(0) : 0;
+  if (magic !== 0xcafebabe && magic !== 0xcafebabf) return [{ name: "", bytes }];
+  const wide = magic === 0xcafebabf;
+  const entry = wide ? 32 : 20;
+  const slices = [];
+  for (let i = 0; i < bytes.readUInt32BE(4); i++) {
+    const at = 8 + entry * i;
+    if (at + entry > bytes.length) break;
+    const cpu = bytes.readUInt32BE(at);
+    const offset = wide ? Number(bytes.readBigUInt64BE(at + 8)) : bytes.readUInt32BE(at + 8);
+    const size = wide ? Number(bytes.readBigUInt64BE(at + 16)) : bytes.readUInt32BE(at + 12);
+    slices.push({
+      name: `${CPU_NAMES.get(cpu) ?? `cputype 0x${cpu.toString(16)}`} slice of `,
+      bytes: bytes.subarray(offset, offset + size),
+    });
+  }
+  return slices;
+}
+
 function requireFts5(bytes, what) {
-  if (bytes.includes(FTS5_MARKER)) return;
+  const slices = machoSlices(bytes);
+  const missing = slices.filter((s) => !s.bytes.includes(FTS5_MARKER));
+  if (slices.length > 0 && missing.length === 0) return;
+  const which = missing.map((s) => `${s.name}${what}`).join(", ") || what;
   console.error(
-    `gen-embedded-sqlite: ${what} was built without FTS5 (no ${FTS5_MARKER} compile option in it); ` +
+    `gen-embedded-sqlite: ${which} was built without FTS5 (no ${FTS5_MARKER} compile option in it); ` +
       "full-text search cannot work on it",
   );
   process.exit(1);

@@ -6,7 +6,7 @@
 //   bun scripts/first-run-smoke.ts --path binary --artifact dist/reliquary-tc-bun-linux-x64
 //   bun scripts/first-run-smoke.ts --path cli    --artifact packages/server/dist/cli.js  (dev / tests)
 //     [--report <file.json>] [--report-path <label>] [--reconcile-timeout-ms <ms>]
-//     [--model-cache <dir>]
+//     [--model-cache <dir>] [--fts-timeout-ms <ms>]
 //
 // What it does, per path: install/unpack the artifact the way a user gets it, start it against a
 // five-note fixture vault with NO config file (the vault directory is the only argument, as `npx
@@ -90,6 +90,9 @@ const reportPath = arg("--report-path") ?? pathKind;
 const modelCache = arg("--model-cache");
 const reconcileTimeoutMs = Number(arg("--reconcile-timeout-ms") ?? "300000");
 const bootTimeoutMs = Number(arg("--boot-timeout-ms") ?? "120000");
+// How long the fts stage waits out a `recovering` notes_fts (the server's own retry of a startup
+// lock) before calling it a failure.
+const ftsTimeoutMs = Number(arg("--fts-timeout-ms") ?? "60000");
 // `--env KEY=VALUE` (repeatable): extra environment for the child. A test hook for the stub server.
 const extraEnv = Object.fromEntries(
   process.argv.flatMap((a, i) =>
@@ -489,12 +492,20 @@ async function exercise(launch: Launch): Promise<void> {
     );
   }
 
-  // fts: read after the reconcile, which is what first writes to notes_fts.
+  // fts: read after the reconcile, which is what first writes to notes_fts. `recovering` is the
+  // server retrying a startup lock, so it is polled until it settles or the wait is spent.
   try {
-    const health = toolPayload(await call("server_health", {})) as
-      | { fts?: { state?: string; reason?: string; last_error?: string } }
-      | undefined;
-    const c = classifyFts(health?.fts);
+    const ftsDeadline = Date.now() + ftsTimeoutMs;
+    let fts: { state?: string; reason?: string; last_error?: string } | undefined;
+    for (;;) {
+      const health = toolPayload(await call("server_health", {})) as
+        | { fts?: typeof fts }
+        | undefined;
+      fts = health?.fts;
+      if (fts?.state !== "recovering" || Date.now() >= ftsDeadline) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const c = classifyFts(fts);
     rec("fts", c.ok ? "pass" : "fail", c.detail);
   } catch (e) {
     rec("fts", "fail", `error: ${errText(e)}`);
