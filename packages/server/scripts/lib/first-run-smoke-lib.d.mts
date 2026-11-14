@@ -40,6 +40,9 @@ export function classifySemantic(
   result: ToolResultLike | undefined,
   expectedTopPath: string,
 ): SemanticClass;
+export function classifyFts(
+  fts: { state?: string; reason?: string; last_error?: string } | undefined,
+): { ok: boolean; detail: string };
 export function buildReport(input: {
   path: string;
   platform: string;

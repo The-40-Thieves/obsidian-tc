@@ -116,6 +116,16 @@ export function classifySemantic(result, expectedTopPath) {
   return { kind: "semantic", detail: `top hit ${top} (model ${models[0]})`, model: models[0] };
 }
 
+/** The `fts` block of server_health as a stage verdict. Only `available` passes: a SQLite built
+ *  without FTS5 still boots and still answers searches from disk scans, so nothing else shows it. */
+export function classifyFts(fts) {
+  if (!fts?.state) return { ok: false, detail: "server_health reports no notes_fts state" };
+  if (fts.state === "available") return { ok: true, detail: "notes_fts available" };
+  const reason = fts.reason ? ` (${fts.reason})` : "";
+  const error = fts.last_error ? `: ${failureLine(fts.last_error)}` : "";
+  return { ok: false, detail: `notes_fts ${fts.state}${reason}${error}` };
+}
+
 /** @typedef {{stage: string, status: "pass" | "fail" | "skip" | "info", detail: string}} StageResult */
 
 /** Fold stage results into the report the workflow summarises. `firstFailure` is the exact

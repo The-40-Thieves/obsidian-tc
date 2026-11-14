@@ -53,10 +53,13 @@ test("a dylib that carries the FTS5 compile option is embedded", () => {
   assert.ok(r.written?.includes(`EMBEDDED_SQLITE_BASE64 = "${bytes.toString("base64")}"`));
 });
 
-test("the release smoke step fails a binary whose startup output reports notes_fts down", () => {
+test("the release smoke step fails a binary whose startup output reports notes_fts failed", () => {
   const publish = read("../.github/workflows/publish.yml");
   const start = publish.indexOf("- name: smoke-test the compiled binary");
   const step = publish.slice(start, publish.indexOf("- uses: actions/upload-artifact", start));
   assert.ok(start !== -1 && step.length > 0, "smoke step not found in publish.yml");
-  assert.match(step, /grep -Eq "notes_fts \(failed\|unavailable\)"/);
+  assert.match(
+    step,
+    /if echo "\$out" \| grep -q "notes_fts failed"; then\n\s+echo "::error::[^\n]+\n\s+exit 1\n/,
+  );
 });
