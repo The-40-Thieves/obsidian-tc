@@ -4,6 +4,7 @@
 //   good         dense retrieval works: vec=on, reconcile ok, search_semantic ranks sourdough.md first
 //   no-embedder  the local embedder is unreachable: vec=off, reconcile degraded, search_semantic errors
 //   lexical      a lexical retriever answers search_semantic: hits carry no embedding_model
+//   no-fts       everything works except full-text: server_health reports notes_fts unavailable
 //   crash        dies at module load, as a bundle missing a dependency does
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -22,7 +23,7 @@ if (mode === "crash") {
   process.exit(1);
 }
 
-const dense = mode === "good";
+const dense = mode === "good" || mode === "no-fts";
 process.stderr.write(
   `reliquary-tc 9.9.9 ready on stdio (vault main; native=${dense ? "on" : "js-fallback"} vec=${dense ? "on" : "off"})\n`,
 );
@@ -38,6 +39,10 @@ const handlers = {
     }),
   server_health: () =>
     text({
+      fts:
+        mode === "no-fts"
+          ? { state: "unavailable", reason: "provision_failed", last_error: "no such module: fts5" }
+          : { state: "available" },
       index: {
         detail: {
           reconcile_errors: [
